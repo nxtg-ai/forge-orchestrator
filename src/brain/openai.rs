@@ -102,7 +102,11 @@ impl OpenAIBrain {
                     content: user.into(),
                 },
             ],
-            temperature: if is_reasoning { None } else { Some(temperature) },
+            temperature: if is_reasoning {
+                None
+            } else {
+                Some(temperature)
+            },
             // For reasoning models, minimize reasoning to get fast structured output.
             // Plan decomposition needs JSON generation, not deep thinking.
             // gpt-5 supports "minimal" as lowest; gpt-5.1+ supports "none".
