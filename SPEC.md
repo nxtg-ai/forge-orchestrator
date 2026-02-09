@@ -173,13 +173,13 @@ Executing T-001 via claude -p...
 **Goal:** Prove the orchestration loop works end-to-end.
 
 Deliverables:
-- [ ] `forge init` — scaffold .forge/, detect installed AI tools
-- [ ] `forge plan` — read SPEC.md, create plan.md + tasks/*.md
-- [ ] `forge run --task T-001 --agent claude` — headless execution via `claude -p`
-- [ ] `forge status` — ASCII dashboard showing task state
-- [ ] State management (state.json read/write)
-- [ ] Claude adapter (write CLAUDE.md from .forge/ state)
-- [ ] Event logging (events.jsonl)
+- [x] `forge init` — scaffold .forge/, detect installed AI tools
+- [x] `forge plan` — read SPEC.md, create plan.md + tasks/*.md
+- [x] `forge run --task T-001 --agent claude` — headless execution via `claude -p`
+- [x] `forge status` — ASCII dashboard showing task state
+- [x] State management (state.json read/write)
+- [x] Claude adapter (write CLAUDE.md from .forge/ state)
+- [x] Event logging (events.jsonl)
 
 Success criteria: A developer can plan work, assign it to Claude, see the result, and verify state updates.
 
@@ -187,12 +187,12 @@ Success criteria: A developer can plan work, assign it to Claude, see the result
 **Goal:** AI tools query live state via MCP.
 
 Deliverables:
-- [ ] Unified forge-mcp server (stdio transport)
-- [ ] forge_get_tasks, forge_claim_task, forge_complete_task
-- [ ] forge_get_state, forge_get_plan
+- [x] Unified forge-mcp server (stdio transport)
+- [x] forge_get_tasks, forge_claim_task, forge_complete_task
+- [x] forge_get_state, forge_get_plan
 - [ ] Claude Code connects as MCP client
-- [ ] Codex adapter + AGENTS.md generation
-- [ ] Gemini adapter + GEMINI.md generation
+- [x] Codex adapter + AGENTS.md generation
+- [x] Gemini adapter + GEMINI.md generation
 
 ### Phase 3: Knowledge Flywheel (Weeks 7-8)
 **Goal:** Automatic knowledge capture and routing.

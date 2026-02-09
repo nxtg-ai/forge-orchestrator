@@ -1,4 +1,6 @@
 pub mod claude;
+pub mod codex;
+pub mod gemini;
 
 use crate::core::state::ForgeState;
 use crate::core::task::Task;

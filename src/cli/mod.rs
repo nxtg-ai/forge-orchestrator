@@ -1,4 +1,5 @@
 pub mod init;
+pub mod mcp;
 pub mod plan;
 pub mod run;
 pub mod status;
@@ -63,4 +64,7 @@ pub enum Commands {
 
     /// Reconcile state — update summaries, render adapter configs, check governance
     Sync,
+
+    /// Start the MCP server (stdio transport) — AI tools connect to query/update state
+    Mcp,
 }

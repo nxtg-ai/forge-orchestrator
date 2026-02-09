@@ -34,13 +34,14 @@ Forge is the **tech lead that never sleeps**. It coordinates multiple AI coding 
 3. **`forge run`** — Executes a task headlessly via the assigned AI tool's CLI
 4. **`forge status`** — ASCII dashboard showing task board, progress, file locks, recent events
 5. **`forge sync`** — Reconciles state and renders tool-specific config files (CLAUDE.md, AGENTS.md, GEMINI.md)
+6. **`forge mcp`** — Starts the MCP server (stdio transport) so AI tools can query and update state in real-time
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  CLI (clap)                                             │
-│  forge init | plan | run | status | sync                │
+│  forge init | plan | run | status | sync | mcp          │
 ├─────────────────────────────────────────────────────────┤
 │  Brain (pluggable)                                      │
 │  RuleBasedBrain | OpenAIBrain | ClaudeBrain (future)    │
@@ -87,6 +88,43 @@ Forge is the **tech lead that never sleeps**. It coordinates multiple AI coding 
     ├── research/
     └── patterns/
 ```
+
+## MCP Server
+
+Forge includes a built-in MCP (Model Context Protocol) server that lets AI tools interact with orchestration state in real-time.
+
+```bash
+# Start the MCP server (stdio transport)
+forge mcp --project /path/to/project
+```
+
+### Available MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `forge_get_tasks` | List all tasks with status, assignments, dependencies |
+| `forge_claim_task` | Claim a task for an agent — locks files, sets status |
+| `forge_complete_task` | Mark task done — unlocks files, shows newly available tasks |
+| `forge_get_state` | Full orchestration state (tools, summary, locks) |
+| `forge_get_plan` | Read the master plan |
+
+### Connecting Claude Code
+
+Add to your project's `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "forge": {
+      "command": "forge",
+      "args": ["mcp", "--project", "."],
+      "type": "stdio"
+    }
+  }
+}
+```
+
+Then Claude Code can call `forge_get_tasks()`, `forge_claim_task()`, etc. directly.
 
 ## File Locking
 

@@ -5,6 +5,7 @@ mod brain;
 mod cli;
 mod core;
 mod detect;
+mod mcp;
 
 use clap::Parser;
 use cli::{Cli, Commands};
@@ -31,6 +32,9 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Sync => {
             cli::sync::execute(&project_root)?;
+        }
+        Commands::Mcp => {
+            cli::mcp::execute(&project_root)?;
         }
     }
 
