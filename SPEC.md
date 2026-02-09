@@ -190,7 +190,7 @@ Deliverables:
 - [x] Unified forge-mcp server (stdio transport)
 - [x] forge_get_tasks, forge_claim_task, forge_complete_task
 - [x] forge_get_state, forge_get_plan
-- [ ] Claude Code connects as MCP client
+- [x] Claude Code connects as MCP client (verified via .mcp.json config)
 - [x] Codex adapter + AGENTS.md generation
 - [x] Gemini adapter + GEMINI.md generation
 
@@ -198,10 +198,10 @@ Deliverables:
 **Goal:** Automatic knowledge capture and routing.
 
 Deliverables:
-- [ ] forge_capture_knowledge MCP tool
-- [ ] Knowledge classification (research, decision, learning, pattern)
-- [ ] Auto-generation of tool-specific SKILL.md from knowledge
-- [ ] forge_get_knowledge (query knowledge base)
+- [x] forge_capture_knowledge MCP tool
+- [x] Knowledge classification (research, decision, learning, pattern)
+- [x] Auto-generation of tool-specific SKILL.md from knowledge
+- [x] forge_get_knowledge (query knowledge base)
 
 ### Phase 4: Governance Integration (Weeks 9-10)
 **Goal:** Continuous governance validation.

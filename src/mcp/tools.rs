@@ -1,4 +1,7 @@
+use crate::brain::rule_based::RuleBasedBrain;
+use crate::brain::ForgeBrain;
 use crate::core::event::{EventLogger, EventType, ForgeEvent};
+use crate::core::knowledge::{KnowledgeEntry, KnowledgeManager};
 use crate::core::plan::PlanManager;
 use crate::core::state::StateManager;
 use crate::core::task::{AgentType, TaskManager, TaskStatus};
@@ -81,6 +84,64 @@ pub fn list_tools() -> Vec<ToolDefinition> {
                 "properties": {}
             }),
         },
+        ToolDefinition {
+            name: "forge_capture_knowledge".into(),
+            description: "Capture a piece of knowledge — auto-classifies into research, decision, learning, or pattern".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Short title for this knowledge entry"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The knowledge content to capture"
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "Optional category override (auto-classified if omitted)",
+                        "enum": ["research", "decisions", "learnings", "patterns"]
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": "Where this knowledge came from (e.g., 'code review', 'debugging session')"
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "description": "Related task ID (e.g., T-001)"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Tags for easier search"
+                    }
+                },
+                "required": ["title", "content"]
+            }),
+        },
+        ToolDefinition {
+            name: "forge_get_knowledge".into(),
+            description: "Query the knowledge base — list by category or search by keyword".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "Filter by category",
+                        "enum": ["research", "decisions", "learnings", "patterns"]
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Search keyword (searches titles, content, and tags)"
+                    },
+                    "generate_skills": {
+                        "type": "boolean",
+                        "description": "If true, also generate SKILL.md files from knowledge"
+                    }
+                }
+            }),
+        },
     ]
 }
 
@@ -104,6 +165,8 @@ pub fn call_tool(
         "forge_complete_task" => handle_complete_task(args, &forge_dir),
         "forge_get_state" => handle_get_state(&forge_dir),
         "forge_get_plan" => handle_get_plan(&forge_dir),
+        "forge_capture_knowledge" => handle_capture_knowledge(args, &forge_dir),
+        "forge_get_knowledge" => handle_get_knowledge(args, &forge_dir),
         _ => CallToolResult::error(format!("Unknown tool: {name}")),
     }
 }
@@ -343,19 +406,156 @@ fn handle_get_plan(forge_dir: &Path) -> CallToolResult {
     }
 }
 
+fn handle_capture_knowledge(args: &Value, forge_dir: &Path) -> CallToolResult {
+    let title = match args.get("title").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => return CallToolResult::error("Missing required parameter: title"),
+    };
+
+    let content = match args.get("content").and_then(|v| v.as_str()) {
+        Some(c) => c,
+        None => return CallToolResult::error("Missing required parameter: content"),
+    };
+
+    // Classify: use explicit category if provided, otherwise auto-classify
+    let category = if let Some(cat_str) = args.get("category").and_then(|v| v.as_str()) {
+        match cat_str {
+            "research" => crate::brain::KnowledgeCategory::Research,
+            "decisions" => crate::brain::KnowledgeCategory::Decision,
+            "learnings" => crate::brain::KnowledgeCategory::Learning,
+            "patterns" => crate::brain::KnowledgeCategory::Pattern,
+            _ => crate::brain::KnowledgeCategory::Unknown,
+        }
+    } else {
+        // Auto-classify using the brain
+        let brain = RuleBasedBrain;
+        brain
+            .route_knowledge(content)
+            .unwrap_or(crate::brain::KnowledgeCategory::Unknown)
+    };
+
+    let knowledge_mgr = KnowledgeManager::new(forge_dir);
+    let event_logger = EventLogger::new(forge_dir);
+
+    let mut entry = KnowledgeEntry::new(title, content, &category);
+
+    if let Some(source) = args.get("source").and_then(|v| v.as_str()) {
+        entry = entry.with_source(source);
+    }
+    if let Some(task_id) = args.get("task_id").and_then(|v| v.as_str()) {
+        entry = entry.with_task(task_id);
+    }
+    if let Some(tags) = args.get("tags").and_then(|v| v.as_array()) {
+        let tag_strings: Vec<String> = tags
+            .iter()
+            .filter_map(|t| t.as_str().map(String::from))
+            .collect();
+        entry = entry.with_tags(tag_strings);
+    }
+
+    let entry_id = entry.id.clone();
+    let cat_name = entry.category.clone();
+
+    if let Err(e) = knowledge_mgr.capture(&entry) {
+        return CallToolResult::error(format!("Failed to capture knowledge: {e}"));
+    }
+
+    // Log event
+    let _ = event_logger.log(&ForgeEvent::new(
+        EventType::KnowledgeCaptured,
+        format!("Knowledge captured: {title} (category: {cat_name})"),
+    ));
+
+    CallToolResult::text(format!(
+        "Knowledge captured:\n  ID: {entry_id}\n  Category: {cat_name}\n  Title: {title}"
+    ))
+}
+
+fn handle_get_knowledge(args: &Value, forge_dir: &Path) -> CallToolResult {
+    let knowledge_mgr = KnowledgeManager::new(forge_dir);
+
+    // Search mode
+    if let Some(query) = args.get("query").and_then(|v| v.as_str()) {
+        let results = match knowledge_mgr.search(query) {
+            Ok(r) => r,
+            Err(e) => return CallToolResult::error(format!("Search failed: {e}")),
+        };
+
+        let output = json!({
+            "query": query,
+            "count": results.len(),
+            "entries": results.iter().map(|e| json!({
+                "id": e.id,
+                "category": e.category,
+                "title": e.title,
+                "content": e.content,
+                "tags": e.tags,
+                "created_at": e.created_at.to_rfc3339(),
+            })).collect::<Vec<_>>()
+        });
+
+        return CallToolResult::text(serde_json::to_string_pretty(&output).unwrap_or_default());
+    }
+
+    // Category filter mode
+    let category = args.get("category").and_then(|v| v.as_str());
+    let entries = match knowledge_mgr.list(category) {
+        Ok(e) => e,
+        Err(e) => return CallToolResult::error(format!("Failed to list knowledge: {e}")),
+    };
+
+    // Optionally generate SKILL.md files
+    if args
+        .get("generate_skills")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        match knowledge_mgr.generate_all_skills() {
+            Ok(generated) => {
+                if !generated.is_empty() {
+                    eprintln!(
+                        "[forge-mcp] Generated SKILL.md files: {}",
+                        generated.join(", ")
+                    );
+                }
+            }
+            Err(e) => eprintln!("[forge-mcp] Failed to generate skills: {e}"),
+        }
+    }
+
+    let output = json!({
+        "category": category.unwrap_or("all"),
+        "count": entries.len(),
+        "entries": entries.iter().map(|e| json!({
+            "id": e.id,
+            "category": e.category,
+            "title": e.title,
+            "content": e.content,
+            "tags": e.tags,
+            "source": e.source,
+            "task_id": e.task_id,
+            "created_at": e.created_at.to_rfc3339(),
+        })).collect::<Vec<_>>()
+    });
+
+    CallToolResult::text(serde_json::to_string_pretty(&output).unwrap_or_default())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_list_tools_returns_five() {
+    fn test_list_tools_returns_seven() {
         let tools = list_tools();
-        assert_eq!(tools.len(), 5);
+        assert_eq!(tools.len(), 7);
         assert_eq!(tools[0].name, "forge_get_tasks");
         assert_eq!(tools[1].name, "forge_claim_task");
         assert_eq!(tools[2].name, "forge_complete_task");
         assert_eq!(tools[3].name, "forge_get_state");
         assert_eq!(tools[4].name, "forge_get_plan");
+        assert_eq!(tools[5].name, "forge_capture_knowledge");
+        assert_eq!(tools[6].name, "forge_get_knowledge");
     }
 
     #[test]

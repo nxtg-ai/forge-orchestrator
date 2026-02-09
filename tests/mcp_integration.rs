@@ -79,6 +79,8 @@ fn test_mcp_tools_list() {
     assert!(resp.contains("forge_complete_task"));
     assert!(resp.contains("forge_get_state"));
     assert!(resp.contains("forge_get_plan"));
+    assert!(resp.contains("forge_capture_knowledge"));
+    assert!(resp.contains("forge_get_knowledge"));
 }
 
 #[test]
@@ -194,4 +196,53 @@ fn test_mcp_ping() {
     let output = mcp_call(&dir, input);
     let resp = last_response(&output);
     assert!(resp.contains("\"result\":{}") || resp.contains("\"result\": {}"));
+}
+
+#[test]
+fn test_mcp_capture_and_query_knowledge() {
+    let dir = TempDir::new().unwrap();
+    setup_project_with_tasks(&dir);
+
+    // Capture a knowledge entry
+    let capture_input = concat!(
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_capture_knowledge","arguments":{"title":"JWT tokens expire","content":"Research finding: JWT tokens should have 15-minute expiry with refresh tokens for security.","tags":["auth","jwt","security"]}}}"#, "\n",
+    );
+    let capture_output = mcp_call(&dir, capture_input);
+    let capture_resp = last_response(&capture_output);
+    assert!(capture_resp.contains("Knowledge captured"));
+    assert!(capture_resp.contains("research")); // auto-classified as research
+
+    // Query knowledge
+    let query_input = concat!(
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_get_knowledge","arguments":{"query":"jwt"}}}"#, "\n",
+    );
+    let query_output = mcp_call(&dir, query_input);
+    let query_resp = last_response(&query_output);
+    assert!(query_resp.contains("JWT tokens expire"));
+    assert!(query_resp.contains("count"));
+}
+
+#[test]
+fn test_mcp_capture_with_explicit_category() {
+    let dir = TempDir::new().unwrap();
+    setup_project_with_tasks(&dir);
+
+    let input = concat!(
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_capture_knowledge","arguments":{"title":"Use Rust for orchestrator","content":"We decided to use Rust for the orchestrator binary.","category":"decisions","source":"team discussion","task_id":"T-001"}}}"#, "\n",
+    );
+    let output = mcp_call(&dir, input);
+    let resp = last_response(&output);
+    assert!(resp.contains("decisions"));
+
+    // List by category
+    let list_input = concat!(
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_get_knowledge","arguments":{"category":"decisions"}}}"#, "\n",
+    );
+    let list_output = mcp_call(&dir, list_input);
+    let list_resp = last_response(&list_output);
+    assert!(list_resp.contains("Use Rust for orchestrator"));
 }

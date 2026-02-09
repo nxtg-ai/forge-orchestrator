@@ -175,7 +175,7 @@ mod tests {
         let response = handle_request(&request, Path::new("/tmp")).unwrap();
         let result = response.result.unwrap();
         let tools = result["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 5);
+        assert_eq!(tools.len(), 7);
     }
 
     #[test]
