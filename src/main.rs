@@ -1,3 +1,5 @@
+#![allow(dead_code)] // Phase 1: many trait methods designed for future phases
+
 mod adapters;
 mod brain;
 mod cli;
@@ -18,14 +20,17 @@ fn main() -> anyhow::Result<()> {
         Commands::Init { name } => {
             cli::init::execute(&project_root, name)?;
         }
-        Commands::Plan => {
-            cli::plan::execute(&project_root)?;
+        Commands::Plan { generate, spec } => {
+            cli::plan::execute(&project_root, generate, spec)?;
         }
         Commands::Status { events } => {
             cli::status::execute(&project_root, events)?;
         }
         Commands::Run { task, agent } => {
             cli::run::execute(&project_root, &task, &agent)?;
+        }
+        Commands::Sync => {
+            cli::sync::execute(&project_root)?;
         }
     }
 

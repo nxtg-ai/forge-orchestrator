@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Read and parse the master plan from .forge/plan.md
 pub struct PlanManager {

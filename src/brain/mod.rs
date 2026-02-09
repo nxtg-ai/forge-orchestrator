@@ -1,3 +1,4 @@
+pub mod openai;
 pub mod rule_based;
 
 use crate::core::task::{AgentType, Task};
@@ -12,6 +13,7 @@ use crate::core::task::{AgentType, Task};
 ///
 /// Implementations:
 /// - RuleBasedBrain: heuristics only, no LLM (free tier)
+/// - OpenAIBrain: OpenAI API — GPT-4o, o3, o4-mini (available now)
 /// - ClaudeOpusBrain: Claude API (future)
 /// - GeminiBrain: Gemini API (future)
 /// - LocalBrain: fine-tuned local model (future)

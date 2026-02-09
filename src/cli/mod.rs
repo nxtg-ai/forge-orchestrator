@@ -2,6 +2,7 @@ pub mod init;
 pub mod plan;
 pub mod run;
 pub mod status;
+pub mod sync;
 
 use clap::{Parser, Subcommand};
 
@@ -31,12 +32,20 @@ pub enum Commands {
         name: Option<String>,
     },
 
-    /// Show the master plan
-    Plan,
+    /// Show or generate the master plan
+    Plan {
+        /// Generate plan from SPEC.md (CEO Mode)
+        #[arg(short, long)]
+        generate: bool,
+
+        /// Path to spec file (defaults to SPEC.md in project root)
+        #[arg(short, long)]
+        spec: Option<String>,
+    },
 
     /// Show orchestration status — task board, agent activity, governance
     Status {
-        /// Show recent events
+        /// Number of recent events to show
         #[arg(short, long, default_value = "5")]
         events: usize,
     },
@@ -51,4 +60,7 @@ pub enum Commands {
         #[arg(short, long)]
         agent: String,
     },
+
+    /// Reconcile state — update summaries, render adapter configs, check governance
+    Sync,
 }
