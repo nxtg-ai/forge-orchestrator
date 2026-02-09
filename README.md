@@ -43,12 +43,29 @@ You have Claude Code, Codex CLI, and Gemini CLI installed. They're powerful alon
 | No idea if work matches the spec | Drift detection catches misalignment early |
 | Each AI tool is an island | Unified state via MCP — all tools see the same board |
 
+## Install
+
+**One-liner (Linux/macOS):**
+
+```bash
+curl -sSL https://raw.githubusercontent.com/nxtg-ai/forge-orchestrator/main/install.sh | sh
+```
+
+**Windows (PowerShell):**
+
+Download from [latest release](https://github.com/nxtg-ai/forge-orchestrator/releases/latest), extract `forge.exe`, and add to PATH.
+
+**From source (any platform with Rust):**
+
+```bash
+git clone https://github.com/nxtg-ai/forge-orchestrator.git
+cd forge-orchestrator
+cargo install --path .
+```
+
 ## Quick Start
 
 ```bash
-# Build from source
-cargo install --path .
-
 # Initialize in any project
 cd your-project
 forge init

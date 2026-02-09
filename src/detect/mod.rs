@@ -25,14 +25,18 @@ pub fn detect_tools() -> Vec<DetectedTool> {
 }
 
 fn detect_command(command: &str, args: &[&str], agent_type: AgentType) -> Option<DetectedTool> {
-    // First check if the command exists via `which`
-    let which_result = Command::new("which").arg(command).output().ok()?;
+    // Check if the command exists: `which` on Unix, `where` on Windows
+    let which_cmd = if cfg!(windows) { "where" } else { "which" };
+    let which_result = Command::new(which_cmd).arg(command).output().ok()?;
 
     if !which_result.status.success() {
         return None;
     }
 
     let path = String::from_utf8_lossy(&which_result.stdout)
+        .lines()
+        .next()
+        .unwrap_or("")
         .trim()
         .to_string();
 
