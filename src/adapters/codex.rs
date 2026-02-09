@@ -98,7 +98,7 @@ impl ToolAdapter for CodexAdapter {
         );
 
         let output = Command::new("codex")
-            .args(["exec", &prompt])
+            .args(["exec", "--full-auto", &prompt])
             .current_dir(project_root)
             .output()?;
 

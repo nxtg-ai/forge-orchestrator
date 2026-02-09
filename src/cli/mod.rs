@@ -3,6 +3,7 @@ pub mod init;
 pub mod mcp;
 pub mod plan;
 pub mod run;
+pub mod start;
 pub mod status;
 pub mod sync;
 
@@ -61,6 +62,13 @@ pub enum Commands {
         /// Agent to execute the task (claude, codex, gemini)
         #[arg(short, long)]
         agent: String,
+    },
+
+    /// Start autonomous orchestration — run all tasks with auto-claim/complete
+    Start {
+        /// Only run tasks for a specific agent (claude, codex, gemini)
+        #[arg(short, long)]
+        agent: Option<String>,
     },
 
     /// Reconcile state — update summaries, render adapter configs, check governance
