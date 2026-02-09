@@ -1,0 +1,55 @@
+[package]
+name = "forge-orchestrator"
+version = "0.1.0"
+edition = "2024"
+description = "Universal coordination engine for AI-powered development"
+license = "MIT"
+repository = "https://github.com/nxtg-ai/forge-orchestrator"
+keywords = ["ai", "orchestration", "claude", "codex", "gemini"]
+categories = ["command-line-utilities", "development-tools"]
+
+[[bin]]
+name = "forge"
+path = "src/main.rs"
+
+[dependencies]
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Terminal UI
+colored = "3"
+
+# UUID for task IDs
+uuid = { version = "1", features = ["v4"] }
+
+# File watching (future: detect completions)
+# notify = "7"
+
+# Git operations
+# git2 = "0.19"
+
+[dev-dependencies]
+tempfile = "3"
+assert_cmd = "2"
+predicates = "3"
+
+[profile.release]
+opt-level = "z"     # Optimize for size
+lto = true          # Link-time optimization
+codegen-units = 1   # Better optimization
+strip = true        # Strip debug symbols
