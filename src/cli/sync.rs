@@ -29,7 +29,6 @@ pub fn execute(project_root: &Path) -> anyhow::Result<()> {
     let event_logger = EventLogger::new(&forge_dir);
 
     let tasks = task_mgr.list_tasks()?;
-    let state = state_mgr.load()?;
 
     // Step 1: Reconcile task summary
     println!("  {} Reconciling task summary...", "→".cyan());
@@ -71,11 +70,15 @@ pub fn execute(project_root: &Path) -> anyhow::Result<()> {
         summary.blocked
     );
 
-    // Step 2: Render adapter configs for each detected tool
+    // Step 2: Re-detect tools (picks up newly installed CLIs)
+    let fresh_tools = crate::detect::detect_tools();
+    state_mgr.update_tools(&fresh_tools)?;
+
+    // Step 3: Render adapter configs for each detected tool
     println!("  {} Rendering adapter configs...", "→".cyan());
     let updated_state = state_mgr.load()?;
 
-    for tool in &state.tools {
+    for tool in &fresh_tools {
         if !tool.available {
             continue;
         }
@@ -99,7 +102,7 @@ pub fn execute(project_root: &Path) -> anyhow::Result<()> {
         }
     }
 
-    // Step 3: Log reconciliation event
+    // Step 4: Log reconciliation event
     event_logger.log(&ForgeEvent::new(
         EventType::StateReconciled,
         format!(

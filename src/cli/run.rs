@@ -90,12 +90,18 @@ pub fn execute(project_root: &Path, task_id: &str, agent_name: &str) -> anyhow::
             let adapter = ClaudeAdapter;
             adapter.execute_headless(&task, project_root)?
         }
-        _ => {
-            println!(
-                "{} Only Claude adapter is implemented in v0.1. Codex and Gemini coming soon.",
-                "!".yellow()
-            );
-            return Ok(());
+        AgentType::Codex => {
+            let adapter = crate::adapters::codex::CodexAdapter;
+            adapter.execute_headless(&task, project_root)?
+        }
+        AgentType::Gemini => {
+            let adapter = crate::adapters::gemini::GeminiAdapter;
+            adapter.execute_headless(&task, project_root)?
+        }
+        AgentType::Any => {
+            // Default to Claude for unspecified agent
+            let adapter = ClaudeAdapter;
+            adapter.execute_headless(&task, project_root)?
         }
     };
 

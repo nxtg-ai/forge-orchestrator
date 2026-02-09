@@ -30,7 +30,14 @@ struct ChatMessage {
 struct ChatRequest {
     model: String,
     messages: Vec<ChatMessage>,
-    temperature: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    /// For reasoning models (gpt-5, o3, o4): controls reasoning token budget.
+    /// Chat Completions API uses top-level string, NOT nested object.
+    /// gpt-5: "minimal", "low", "medium" (default), "high"
+    /// gpt-5.1+: "none", "low", "medium", "high"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -72,8 +79,16 @@ impl OpenAIBrain {
             })
     }
 
+    /// Reasoning models (gpt-5*, o3*, o4*) don't support custom temperature.
+    fn is_reasoning_model(&self) -> bool {
+        self.model.starts_with("gpt-5")
+            || self.model.starts_with("o3")
+            || self.model.starts_with("o4")
+    }
+
     fn chat(&self, system: &str, user: &str, temperature: f32) -> anyhow::Result<String> {
         let api_key = self.get_api_key()?;
+        let is_reasoning = self.is_reasoning_model();
 
         let request = ChatRequest {
             model: self.model.clone(),
@@ -87,10 +102,20 @@ impl OpenAIBrain {
                     content: user.into(),
                 },
             ],
-            temperature,
+            temperature: if is_reasoning { None } else { Some(temperature) },
+            // For reasoning models, minimize reasoning to get fast structured output.
+            // Plan decomposition needs JSON generation, not deep thinking.
+            // gpt-5 supports "minimal" as lowest; gpt-5.1+ supports "none".
+            reasoning_effort: if is_reasoning {
+                Some("minimal".into())
+            } else {
+                None
+            },
         };
 
-        let client = reqwest::blocking::Client::new();
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()?;
         let response = client
             .post("https://api.openai.com/v1/chat/completions")
             .header("Authorization", format!("Bearer {api_key}"))

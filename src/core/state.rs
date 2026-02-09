@@ -108,6 +108,14 @@ impl StateManager {
         self.save(&state)
     }
 
+    /// Refresh detected tools in state (picks up newly installed CLIs)
+    pub fn update_tools(&self, tools: &[DetectedTool]) -> anyhow::Result<()> {
+        let mut state = self.load()?;
+        state.tools = tools.to_vec();
+        state.updated_at = Utc::now();
+        self.save(&state)
+    }
+
     /// Check if any locked files conflict with a set of files
     pub fn check_file_conflicts(&self, files: &[String]) -> anyhow::Result<Vec<FileLock>> {
         let state = self.load()?;

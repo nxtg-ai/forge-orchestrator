@@ -12,13 +12,20 @@ use cli::{Cli, Commands};
 use std::path::PathBuf;
 
 fn main() -> anyhow::Result<()> {
-    // Load .env file if present (for OPENAI_API_KEY etc.)
+    // Load .env from CWD first (default dotenvy behavior)
     dotenvy::dotenv().ok();
 
     let cli = Cli::parse();
     let project_root = PathBuf::from(&cli.project)
         .canonicalize()
         .unwrap_or_else(|_| PathBuf::from(&cli.project));
+
+    // Also try loading .env from the project root (for --project /other/dir usage)
+    dotenvy::from_path(project_root.join(".env")).ok();
+    // And from forge's own config dir (~/.forge/.env)
+    if let Ok(home) = std::env::var("HOME") {
+        dotenvy::from_path(PathBuf::from(&home).join(".forge").join(".env")).ok();
+    }
 
     match cli.command {
         Commands::Init { name } => {

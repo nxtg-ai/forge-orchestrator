@@ -98,7 +98,7 @@ impl ToolAdapter for GeminiAdapter {
         );
 
         let output = Command::new("gemini")
-            .args(["-p", &prompt])
+            .arg(&prompt)
             .current_dir(project_root)
             .output()?;
 
