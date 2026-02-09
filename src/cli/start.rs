@@ -8,11 +8,44 @@ use crate::core::task::{AgentType, Task, TaskManager, TaskStatus};
 use crate::detect;
 use colored::Colorize;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+/// Max retries for transient failures (rate limits, timeouts).
+const MAX_RETRIES: usize = 3;
+
+/// Known transient error strings that should trigger a retry.
+const TRANSIENT_ERRORS: &[&str] = &[
+    "credit balance is too low",
+    "rate limit",
+    "rate_limit",
+    "too many requests",
+    "429",
+    "timeout",
+    "timed out",
+    "connection reset",
+    "connection refused",
+    "ECONNRESET",
+    "ECONNREFUSED",
+    "ETIMEDOUT",
+    "server error",
+    "internal server error",
+    "502",
+    "503",
+    "overloaded",
+];
+
+/// Shared orchestration stats.
+struct OrcStats {
+    completed: AtomicUsize,
+    failed: AtomicUsize,
+    retried: AtomicUsize,
+    total: usize,
+}
+
 /// Autonomous orchestration — runs all tasks respecting dependencies,
-/// one thread per agent type, auto-claim/complete/retry.
+/// one thread per agent type, with retry, progress tracking, and auto-sync.
 pub fn execute(project_root: &Path, agent_filter: Option<&str>) -> anyhow::Result<()> {
     let forge_dir = project_root.join(".forge");
 
@@ -25,11 +58,29 @@ pub fn execute(project_root: &Path, agent_filter: Option<&str>) -> anyhow::Resul
         return Ok(());
     }
 
-    println!("{}", "FORGE — Autonomous Orchestration".bold());
-    println!("{}", "=".repeat(40));
+    let start_time = Instant::now();
+
+    // ── Header ──────────────────────────────────────────────────
+    println!();
+    println!(
+        "  {}",
+        "╔══════════════════════════════════════════════╗"
+            .bright_cyan()
+    );
+    println!(
+        "  {}  {}  {}",
+        "║".bright_cyan(),
+        "FORGE — Autonomous Orchestration".bold().white(),
+        "       ║".bright_cyan()
+    );
+    println!(
+        "  {}",
+        "╚══════════════════════════════════════════════╝"
+            .bright_cyan()
+    );
     println!();
 
-    // Detect available tools
+    // ── Detect agents ───────────────────────────────────────────
     let detected = detect::detect_tools();
     let available_agents: Vec<AgentType> = detected
         .iter()
@@ -39,18 +90,17 @@ pub fn execute(project_root: &Path, agent_filter: Option<&str>) -> anyhow::Resul
 
     if available_agents.is_empty() {
         println!(
-            "{} No AI tools detected. Install claude, codex, or gemini.",
+            "  {} No AI tools detected. Install claude, codex, or gemini.",
             "✗".red()
         );
         return Ok(());
     }
 
-    // Filter agents if requested
     let target_agents: Vec<AgentType> = if let Some(filter) = agent_filter {
         let agent: AgentType = filter.parse()?;
         if !available_agents.contains(&agent) {
             println!(
-                "{} Agent '{}' is not installed on this machine.",
+                "  {} Agent '{}' is not installed on this machine.",
                 "✗".red(),
                 filter
             );
@@ -61,81 +111,254 @@ pub fn execute(project_root: &Path, agent_filter: Option<&str>) -> anyhow::Resul
         available_agents.clone()
     };
 
-    // Show what we're working with
+    // ── Task inventory ──────────────────────────────────────────
     let task_mgr = TaskManager::new(&forge_dir);
     let tasks = task_mgr.list_tasks()?;
     let total = tasks.len();
-    let done = tasks
+    let already_done = tasks
         .iter()
         .filter(|t| t.status == TaskStatus::Completed)
         .count();
 
-    println!(
-        "  {} agents: {}",
-        "→".cyan(),
-        target_agents
+    // Count tasks per agent
+    for agent in &target_agents {
+        let count = tasks
             .iter()
-            .map(|a| a.to_string().green().to_string())
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
-    println!(
-        "  {} tasks:  {} total, {} done, {} remaining",
-        "→".cyan(),
-        total,
-        done,
-        total - done
-    );
+            .filter(|t| t.assigned_to.as_ref() == Some(agent))
+            .count();
+        let done = tasks
+            .iter()
+            .filter(|t| {
+                t.assigned_to.as_ref() == Some(agent) && t.status == TaskStatus::Completed
+            })
+            .count();
+        println!(
+            "  {} {:<8} {} tasks ({} done)",
+            "●".green(),
+            agent.to_string(),
+            count,
+            done
+        );
+    }
     println!();
 
-    if total == done {
-        println!("{} All tasks already complete!", "✓".green().bold());
+    print_progress(already_done, total);
+
+    if total == already_done {
+        println!(
+            "\n  {} All tasks already complete!",
+            "✓".green().bold()
+        );
         return Ok(());
     }
 
-    // Run orchestration
+    // ── Shared stats ────────────────────────────────────────────
+    let stats = Arc::new(OrcStats {
+        completed: AtomicUsize::new(already_done),
+        failed: AtomicUsize::new(0),
+        retried: AtomicUsize::new(0),
+        total,
+    });
+
+    // ── Run orchestration ───────────────────────────────────────
+    let lock = Arc::new(Mutex::new(()));
+
     if target_agents.len() == 1 {
-        // Single agent — run sequentially
-        run_agent_loop(project_root, &forge_dir, &target_agents[0])?;
+        run_agent_loop(
+            project_root,
+            &forge_dir,
+            &target_agents[0],
+            &lock,
+            &stats,
+        )?;
     } else {
-        // Multiple agents — run in parallel (one thread per agent)
-        run_parallel(project_root, &forge_dir, &target_agents)?;
+        run_parallel(project_root, &forge_dir, &target_agents, &stats)?;
     }
 
-    // Final status
+    // ── Final report ────────────────────────────────────────────
+    let elapsed = start_time.elapsed();
     let tasks = task_mgr.list_tasks()?;
-    let completed = tasks
+    let final_completed = tasks
         .iter()
         .filter(|t| t.status == TaskStatus::Completed)
         .count();
-    let failed = tasks
+    let final_failed = tasks
         .iter()
         .filter(|t| t.status == TaskStatus::Failed)
         .count();
+    let retries = stats.retried.load(Ordering::Relaxed);
 
     println!();
-    println!("{}", "=".repeat(40));
     println!(
-        "  {} Done. {}/{} completed, {} failed.",
-        if failed == 0 {
+        "  {}",
+        "╔══════════════════════════════════════════════╗"
+            .bright_cyan()
+    );
+    println!(
+        "  {}  {}  {}",
+        "║".bright_cyan(),
+        "Orchestration Complete".bold().white(),
+        "                ║".bright_cyan()
+    );
+    println!(
+        "  {}",
+        "╚══════════════════════════════════════════════╝"
+            .bright_cyan()
+    );
+    println!();
+
+    println!(
+        "  {} {}/{} tasks completed",
+        if final_failed == 0 {
             "✓".green()
         } else {
             "!".yellow()
         },
-        completed,
-        total,
-        failed
+        final_completed,
+        total
     );
+    if final_failed > 0 {
+        println!("  {} {} tasks failed", "✗".red(), final_failed);
+    }
+    if retries > 0 {
+        println!(
+            "  {} {} transient retries (recovered)",
+            "↻".yellow(),
+            retries
+        );
+    }
+    println!(
+        "  {} Total time: {}",
+        "⏱".dimmed(),
+        format_duration(elapsed)
+    );
+
+    // Per-agent summary
+    println!();
+    for agent in &target_agents {
+        let agent_completed = tasks
+            .iter()
+            .filter(|t| {
+                t.assigned_to.as_ref() == Some(agent) && t.status == TaskStatus::Completed
+            })
+            .count();
+        let agent_failed = tasks
+            .iter()
+            .filter(|t| t.assigned_to.as_ref() == Some(agent) && t.status == TaskStatus::Failed)
+            .count();
+        let agent_total = tasks
+            .iter()
+            .filter(|t| t.assigned_to.as_ref() == Some(agent))
+            .count();
+
+        let bar = if agent_total > 0 {
+            let pct = (agent_completed as f64 / agent_total as f64 * 100.0) as usize;
+            format!("{}%", pct)
+        } else {
+            "—".into()
+        };
+
+        println!(
+            "  {:<8} {} done, {} failed  [{}]",
+            format!("[{}]", agent).cyan(),
+            agent_completed.to_string().green(),
+            if agent_failed > 0 {
+                agent_failed.to_string().red().to_string()
+            } else {
+                "0".dimmed().to_string()
+            },
+            bar
+        );
+    }
+
+    // List failed tasks
+    let failed_tasks: Vec<_> = tasks
+        .iter()
+        .filter(|t| t.status == TaskStatus::Failed)
+        .collect();
+    if !failed_tasks.is_empty() {
+        println!();
+        println!("  {} Failed tasks:", "✗".red());
+        for t in &failed_tasks {
+            println!("    {} {}: {}", "·".dimmed(), t.id, t.title.dimmed());
+            let result_path = forge_dir.join("results").join(format!("{}.txt", t.id));
+            if result_path.exists() {
+                println!(
+                    "      {} {}",
+                    "→".dimmed(),
+                    result_path.display().to_string().dimmed()
+                );
+            }
+        }
+    }
+
+    // ── Auto-sync ───────────────────────────────────────────────
+    println!();
+    print!("  {} Syncing state...", "↻".cyan());
+    if let Err(e) = crate::cli::sync::execute(project_root) {
+        println!(" {}", format!("failed: {e}").red());
+    } else {
+        println!(" {}", "done".green());
+    }
+
+    println!();
 
     Ok(())
 }
 
+/// Print a progress bar.
+fn print_progress(done: usize, total: usize) {
+    let width = 30;
+    let pct = if total > 0 {
+        done as f64 / total as f64
+    } else {
+        0.0
+    };
+    let filled = (pct * width as f64) as usize;
+    let empty = width - filled;
+
+    let bar = format!(
+        "{}{}",
+        "█".repeat(filled).green(),
+        "░".repeat(empty).dimmed()
+    );
+    println!(
+        "  [{}] {}/{} ({:.0}%)",
+        bar,
+        done,
+        total,
+        pct * 100.0
+    );
+    println!();
+}
+
+/// Format a Duration as human-readable.
+fn format_duration(d: std::time::Duration) -> String {
+    let secs = d.as_secs();
+    if secs < 60 {
+        format!("{}s", secs)
+    } else if secs < 3600 {
+        format!("{}m {}s", secs / 60, secs % 60)
+    } else {
+        format!("{}h {}m", secs / 3600, (secs % 3600) / 60)
+    }
+}
+
+/// Check if an error output looks transient (retryable).
+fn is_transient_error(output: &str) -> bool {
+    let lower = output.to_lowercase();
+    TRANSIENT_ERRORS.iter().any(|e| lower.contains(e))
+}
+
 /// Run multiple agents in parallel, each managing its own task queue.
-fn run_parallel(project_root: &Path, forge_dir: &Path, agents: &[AgentType]) -> anyhow::Result<()> {
+fn run_parallel(
+    project_root: &Path,
+    forge_dir: &Path,
+    agents: &[AgentType],
+    stats: &Arc<OrcStats>,
+) -> anyhow::Result<()> {
     let project_root = project_root.to_path_buf();
     let forge_dir = forge_dir.to_path_buf();
-
-    // Shared lock for coordinating task state access between threads
     let lock = Arc::new(Mutex::new(()));
 
     let handles: Vec<_> = agents
@@ -145,9 +368,10 @@ fn run_parallel(project_root: &Path, forge_dir: &Path, agents: &[AgentType]) -> 
             let fd = forge_dir.clone();
             let agent = agent.clone();
             let lock = Arc::clone(&lock);
+            let stats = Arc::clone(stats);
 
             std::thread::spawn(move || -> anyhow::Result<()> {
-                run_agent_loop_with_lock(&pr, &fd, &agent, &lock)
+                run_agent_loop(&pr, &fd, &agent, &lock, &stats)
             })
         })
         .collect();
@@ -171,20 +395,16 @@ fn run_parallel(project_root: &Path, forge_dir: &Path, agents: &[AgentType]) -> 
     Ok(())
 }
 
-/// Single-agent loop — find next task, claim, execute, complete, repeat.
-fn run_agent_loop(project_root: &Path, forge_dir: &Path, agent: &AgentType) -> anyhow::Result<()> {
-    let lock = Arc::new(Mutex::new(()));
-    run_agent_loop_with_lock(project_root, forge_dir, agent, &lock)
-}
-
-/// Agent loop with shared coordination lock.
-fn run_agent_loop_with_lock(
+/// Agent loop with retry, progress tracking, and shared coordination.
+fn run_agent_loop(
     project_root: &Path,
     forge_dir: &Path,
     agent: &AgentType,
     lock: &Arc<Mutex<()>>,
+    stats: &Arc<OrcStats>,
 ) -> anyhow::Result<()> {
     let tag = format!("[{}]", agent).cyan();
+    let mut consecutive_waits = 0u32;
 
     loop {
         // Under lock: find next available task for this agent
@@ -194,29 +414,47 @@ fn run_agent_loop_with_lock(
         };
 
         let task = match next_task {
-            Some(t) => t,
+            Some(t) => {
+                consecutive_waits = 0;
+                t
+            }
             None => {
-                // Check if there are pending tasks (could unblock later from another agent)
                 let task_mgr = TaskManager::new(forge_dir);
                 let tasks = task_mgr.list_tasks()?;
-                let my_pending: Vec<_> = tasks
+                let my_remaining: Vec<_> = tasks
                     .iter()
                     .filter(|t| {
                         t.assigned_to.as_ref() == Some(agent)
-                            && (t.status == TaskStatus::Pending || t.status == TaskStatus::Blocked)
+                            && (t.status == TaskStatus::Pending
+                                || t.status == TaskStatus::Blocked)
                     })
                     .collect();
 
-                if my_pending.is_empty() {
-                    println!("  {tag} All my tasks are done.");
+                if my_remaining.is_empty() {
+                    println!("  {tag} {} All tasks complete.", "✓".green());
                     break;
                 }
 
-                // Wait for other agents to unblock our tasks
-                println!(
-                    "  {tag} {} tasks blocked, waiting for dependencies...",
-                    my_pending.len()
-                );
+                consecutive_waits += 1;
+
+                // Only print every 3rd wait to reduce noise
+                if consecutive_waits % 3 == 1 {
+                    println!(
+                        "  {tag} {} {} tasks waiting on dependencies...",
+                        "⏳".dimmed(),
+                        my_remaining.len()
+                    );
+                }
+
+                // Give up after 5 minutes of waiting (30 * 10s)
+                if consecutive_waits > 30 {
+                    println!(
+                        "  {tag} {} Timed out waiting for dependencies after 5 minutes.",
+                        "!".yellow()
+                    );
+                    break;
+                }
+
                 std::thread::sleep(std::time::Duration::from_secs(10));
                 continue;
             }
@@ -229,53 +467,137 @@ fn run_agent_loop_with_lock(
         }
 
         println!(
-            "  {tag} {} Executing {}: {}",
+            "  {tag} {} {} {}",
             "→".cyan(),
             task.id.bold(),
             task.title
         );
 
+        // ── Execute with retry ──────────────────────────────────
         let started = Instant::now();
+        let mut attempt = 0;
+        let mut last_output;
+        let mut success = false;
 
-        // Execute (NOT under lock — this takes minutes)
-        let result = execute_task(&task, agent, project_root);
-        let elapsed = started.elapsed();
+        loop {
+            attempt += 1;
+            let result = execute_task(&task, agent, project_root);
+            let elapsed = started.elapsed();
 
-        // Complete or fail (under lock)
-        {
-            let _guard = lock.lock().unwrap();
             match result {
                 Ok(output) if output.success => {
+                    let _guard = lock.lock().unwrap();
                     complete_task(forge_dir, &task, agent)?;
+                    let done = stats.completed.fetch_add(1, Ordering::Relaxed) + 1;
                     println!(
-                        "  {tag} {} {} completed ({:.0}s)",
+                        "  {tag} {} {} ({}) [{}/{}]",
                         "✓".green(),
                         task.id.bold(),
-                        elapsed.as_secs_f64()
+                        format_duration(elapsed).dimmed(),
+                        done,
+                        stats.total
                     );
+                    success = true;
+                    break;
                 }
                 Ok(output) => {
+                    last_output = output.output.clone();
+                    save_result(forge_dir, &task.id, &last_output).ok();
+
+                    // Check if retryable
+                    if attempt < MAX_RETRIES && is_transient_error(&last_output) {
+                        let backoff = std::time::Duration::from_secs(10 * attempt as u64);
+                        stats.retried.fetch_add(1, Ordering::Relaxed);
+                        println!(
+                            "  {tag} {} {} transient error, retry {}/{} in {}s...",
+                            "↻".yellow(),
+                            task.id,
+                            attempt,
+                            MAX_RETRIES,
+                            backoff.as_secs()
+                        );
+
+                        // Reset task to in_progress for retry
+                        {
+                            let _guard = lock.lock().unwrap();
+                            let task_mgr = TaskManager::new(forge_dir);
+                            let mut updated = task.clone();
+                            updated.status = TaskStatus::InProgress;
+                            updated.updated_at = chrono::Utc::now();
+                            task_mgr.update_task(&updated)?;
+                        }
+
+                        std::thread::sleep(backoff);
+                        continue;
+                    }
+
+                    // Permanent failure
+                    let _guard = lock.lock().unwrap();
                     fail_task(forge_dir, &task)?;
-                    save_result(forge_dir, &task.id, &output.output)?;
+                    stats.failed.fetch_add(1, Ordering::Relaxed);
+                    let snippet = last_output.lines().next().unwrap_or("unknown error");
+                    let snippet = if snippet.len() > 60 {
+                        &snippet[..60]
+                    } else {
+                        snippet
+                    };
                     println!(
-                        "  {tag} {} {} failed (exit code: {}, {:.0}s)",
+                        "  {tag} {} {} failed: {} ({})",
                         "✗".red(),
                         task.id,
-                        output.exit_code,
-                        elapsed.as_secs_f64()
+                        snippet.dimmed(),
+                        format_duration(elapsed).dimmed()
                     );
+                    break;
                 }
                 Err(e) => {
+                    let err_str = e.to_string();
+                    if attempt < MAX_RETRIES && is_transient_error(&err_str) {
+                        let backoff = std::time::Duration::from_secs(10 * attempt as u64);
+                        stats.retried.fetch_add(1, Ordering::Relaxed);
+                        println!(
+                            "  {tag} {} {} error, retry {}/{} in {}s...",
+                            "↻".yellow(),
+                            task.id,
+                            attempt,
+                            MAX_RETRIES,
+                            backoff.as_secs()
+                        );
+                        std::thread::sleep(backoff);
+                        continue;
+                    }
+
+                    let _guard = lock.lock().unwrap();
                     fail_task(forge_dir, &task)?;
+                    stats.failed.fetch_add(1, Ordering::Relaxed);
                     println!(
-                        "  {tag} {} {} error: {} ({:.0}s)",
+                        "  {tag} {} {} error: {} ({})",
                         "✗".red(),
                         task.id,
                         e,
-                        elapsed.as_secs_f64()
+                        format_duration(elapsed).dimmed()
                     );
+                    break;
                 }
             }
+        }
+
+        if !success {
+            // Log the failure event
+            let event_logger = EventLogger::new(forge_dir);
+            event_logger
+                .log(
+                    &ForgeEvent::new(
+                        EventType::TaskCompleted, // reuse event type for now
+                        format!(
+                            "Task {} failed after {} attempts by {agent}",
+                            task.id, attempt
+                        ),
+                    )
+                    .with_task(&task.id)
+                    .with_agent(agent.clone()),
+                )
+                .ok();
         }
     }
 
@@ -307,7 +629,6 @@ fn claim_task(forge_dir: &Path, task: &Task, agent: &AgentType) -> anyhow::Resul
     updated.updated_at = chrono::Utc::now();
     task_mgr.update_task(&updated)?;
 
-    // Lock files
     if !task.locked_files.is_empty() {
         state_mgr.lock_files(&task.id, agent.clone(), task.locked_files.clone())?;
     }
