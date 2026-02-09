@@ -66,21 +66,23 @@ cargo install --path .
 ## Quick Start
 
 ```bash
-# Initialize in any project
+# 1. Initialize in any project (must be a git repo)
 cd your-project
 forge init
 
-# Generate a plan from your spec (uses AI if configured)
-forge plan --generate
+# 2. Write a SPEC.md describing what you want to build
 
-# See the task board
-forge status
+# 3. Generate a plan from your spec
+forge plan --generate        # AI decomposes spec into tasks with dependencies
 
-# Run a task headlessly via the assigned AI tool
-forge run --task T-001 --agent claude
+# 4. See the task board
+forge status                 # ASCII dashboard showing all tasks and progress
 
-# Check project health
-forge mcp  # then call forge_get_health via MCP
+# 5. Run ALL tasks autonomously
+forge start                  # Launches all agents in parallel, auto-claims, auto-completes
+
+# Or run a single task manually
+forge run --task T-001 --agent codex
 ```
 
 ### 30-Second Setup with Claude Code
@@ -132,7 +134,9 @@ You write SPEC.md
 | `forge init` | Scan project, detect AI tools, scaffold `.forge/` |
 | `forge plan --generate` | Decompose SPEC.md into tasks using ForgeBrain |
 | `forge status` | ASCII dashboard with task board and progress |
-| `forge run --task T-001 --agent claude` | Execute a task headlessly |
+| `forge start` | **Autonomous orchestration** — runs all agents in parallel |
+| `forge start --agent codex` | Run only one agent type |
+| `forge run --task T-001 --agent claude` | Execute a single task headlessly |
 | `forge sync` | Reconcile state, render CLAUDE.md/AGENTS.md/GEMINI.md |
 | `forge config brain openai` | Switch to OpenAI-powered brain |
 | `forge mcp` | Start MCP server (stdio) for AI tool integration |
@@ -204,7 +208,7 @@ gemini --context GEMINI.md
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  CLI (clap)                                                 │
-│  forge init | plan | run | status | sync | config | mcp     │
+│  forge init | plan | start | run | status | sync | mcp      │
 ├─────────────────────────────────────────────────────────────┤
 │  ForgeBrain (pluggable)                                     │
 │  RuleBasedBrain (free) | OpenAIBrain (gpt-4.1) | ...        │
@@ -347,7 +351,8 @@ src/
 ├── cli/                 # Command implementations
 │   ├── init.rs          # Project initialization
 │   ├── plan.rs          # Plan generation (uses ForgeBrain)
-│   ├── run.rs           # Headless task execution
+│   ├── start.rs         # Autonomous orchestration (parallel agents)
+│   ├── run.rs           # Headless single-task execution
 │   ├── status.rs        # ASCII dashboard
 │   ├── sync.rs          # State reconciliation
 │   └── config.rs        # Brain configuration
@@ -381,7 +386,7 @@ Forge is MIT-licensed and contributions are welcome.
 - Add a `ClaudeBrain` implementation (Claude API for plan decomposition)
 - Add `forge worktree` command (git worktree per task for parallel agent work)
 - Add progress bars to `forge status` dashboard
-- Improve `forge sync` templates for Codex/Gemini configs
+- Add retry logic to `forge start` (currently marks failed tasks and moves on)
 - Add `forge report` command (session summary from events.jsonl)
 
 **Before submitting a PR:**
