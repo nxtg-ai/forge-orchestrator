@@ -33,8 +33,10 @@ pub fn execute(project_root: &Path) -> anyhow::Result<()> {
 
     // Step 1: Reconcile task summary
     println!("  {} Reconciling task summary...", "→".cyan());
-    let mut summary = TaskSummary::default();
-    summary.total = tasks.len();
+    let mut summary = TaskSummary {
+        total: tasks.len(),
+        ..Default::default()
+    };
 
     let completed_ids: Vec<String> = tasks
         .iter()

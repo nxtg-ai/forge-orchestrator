@@ -307,11 +307,10 @@ fn handle_claim_task(args: &Value, forge_dir: &Path) -> CallToolResult {
     }
 
     // Lock files
-    if !task.locked_files.is_empty() {
-        if let Err(e) = state_mgr.lock_files(task_id, agent.clone(), task.locked_files.clone()) {
+    if !task.locked_files.is_empty()
+        && let Err(e) = state_mgr.lock_files(task_id, agent.clone(), task.locked_files.clone()) {
             return CallToolResult::error(format!("Failed to lock files: {e}"));
         }
-    }
 
     // Log event
     let _ = event_logger.log(

@@ -53,14 +53,14 @@ impl ToolAdapter for ClaudeAdapter {
                     for criterion in &task.acceptance_criteria {
                         content.push_str(&format!("- [ ] {criterion}\n"));
                     }
-                    content.push_str("\n");
+                    content.push('\n');
                 }
                 if !task.locked_files.is_empty() {
                     content.push_str("**Files you may modify:**\n");
                     for file in &task.locked_files {
                         content.push_str(&format!("- `{file}`\n"));
                     }
-                    content.push_str("\n");
+                    content.push('\n');
                 }
             }
         }

@@ -122,13 +122,11 @@ impl KnowledgeManager {
             for file in std::fs::read_dir(&dir)? {
                 let file = file?;
                 let path = file.path();
-                if path.extension().is_some_and(|ext| ext == "json") {
-                    if let Ok(content) = std::fs::read_to_string(&path) {
-                        if let Ok(entry) = serde_json::from_str::<KnowledgeEntry>(&content) {
+                if path.extension().is_some_and(|ext| ext == "json")
+                    && let Ok(content) = std::fs::read_to_string(&path)
+                        && let Ok(entry) = serde_json::from_str::<KnowledgeEntry>(&content) {
                             entries.push(entry);
                         }
-                    }
-                }
             }
         }
 

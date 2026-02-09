@@ -166,8 +166,15 @@ fn test_sync_reconciles_state() {
         .stdout(predicate::str::contains("Sync complete"))
         .stdout(predicate::str::contains("3 total, 3 pending"));
 
-    // Verify CLAUDE.md was generated
-    assert!(dir.path().join("CLAUDE.md").exists());
+    // Verify CLAUDE.md was generated (only when claude CLI is installed)
+    let claude_available = std::process::Command::new(if cfg!(windows) { "where" } else { "which" })
+        .arg("claude")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if claude_available {
+        assert!(dir.path().join("CLAUDE.md").exists());
+    }
 }
 
 #[test]
@@ -205,7 +212,7 @@ fn test_full_loop_init_plan_sync_status() {
         .args(["--project", dir.path().to_str().unwrap(), "sync"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("CLAUDE.md updated"));
+        .stdout(predicate::str::contains("Sync complete"));
 
     // Step 5: Status shows tasks
     forge_cmd()

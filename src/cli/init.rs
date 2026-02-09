@@ -73,9 +73,11 @@ pub fn execute(project_root: &Path, name: Option<String>) -> anyhow::Result<()> 
 
     // Step 3: Create initial state
     let state_mgr = StateManager::new(&forge_dir);
-    let mut state = ForgeState::default();
-    state.project_name = project_name.clone();
-    state.tools = tools;
+    let state = ForgeState {
+        project_name: project_name.clone(),
+        tools,
+        ..Default::default()
+    };
     state_mgr.save(&state)?;
     println!("  {} state.json", "✓".green());
 

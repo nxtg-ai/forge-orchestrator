@@ -214,13 +214,13 @@ impl GovernanceChecker {
 
         // Check for orphaned lock files
         let state_mgr = crate::core::state::StateManager::new(&self.forge_dir);
-        if let Ok(state) = state_mgr.load() {
-            if !state.active_locks.is_empty() {
+        if let Ok(state) = state_mgr.load()
+            && !state.active_locks.is_empty() {
                 let task_mgr = crate::core::task::TaskManager::new(&self.forge_dir);
-                for (task_id, _lock) in &state.active_locks {
-                    if let Ok(task) = task_mgr.get_task(task_id) {
-                        if task.status == crate::core::task::TaskStatus::Completed
-                            || task.status == crate::core::task::TaskStatus::Failed
+                for task_id in state.active_locks.keys() {
+                    if let Ok(task) = task_mgr.get_task(task_id)
+                        && (task.status == crate::core::task::TaskStatus::Completed
+                            || task.status == crate::core::task::TaskStatus::Failed)
                         {
                             findings.push(Finding {
                                 category: "architecture".into(),
@@ -232,10 +232,8 @@ impl GovernanceChecker {
                                 suggestion: Some("Run `forge sync` to clean up stale locks".into()),
                             });
                         }
-                    }
                 }
             }
-        }
 
         findings
     }
@@ -427,10 +425,7 @@ impl GovernanceChecker {
             }
         };
 
-        let vision = match vision {
-            Some(v) => v,
-            None => return None, // Can't check drift without a vision document
-        };
+        let vision = vision?;
 
         // Build work summary from completed tasks + events
         let task_mgr = crate::core::task::TaskManager::new(&self.forge_dir);
