@@ -207,11 +207,12 @@ Deliverables:
 **Goal:** Continuous governance validation.
 
 Deliverables:
-- [ ] Vision alignment checks on task completion
-- [ ] Documentation sync detection
-- [ ] Architecture compliance rules
-- [ ] Drift detection (periodic)
-- [ ] forge_check_drift MCP tool
+- [x] Vision alignment checks on task completion
+- [x] Documentation sync detection
+- [x] Architecture compliance rules
+- [x] Drift detection (periodic)
+- [x] forge_check_drift MCP tool
+- [x] forge_get_health MCP tool (bonus — comprehensive governance report)
 
 ### Phase 5: ForgeBrain Abstraction (Weeks 11-12)
 **Goal:** Pluggable LLM brain.

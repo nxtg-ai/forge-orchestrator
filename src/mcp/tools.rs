@@ -1,6 +1,7 @@
 use crate::brain::rule_based::RuleBasedBrain;
 use crate::brain::ForgeBrain;
 use crate::core::event::{EventLogger, EventType, ForgeEvent};
+use crate::core::governance::GovernanceChecker;
 use crate::core::knowledge::{KnowledgeEntry, KnowledgeManager};
 use crate::core::plan::PlanManager;
 use crate::core::state::StateManager;
@@ -142,6 +143,22 @@ pub fn list_tools() -> Vec<ToolDefinition> {
                 }
             }),
         },
+        ToolDefinition {
+            name: "forge_check_drift".into(),
+            description: "Check if work is drifting from the project vision — compares completed tasks against SPEC.md".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {}
+            }),
+        },
+        ToolDefinition {
+            name: "forge_get_health".into(),
+            description: "Run a comprehensive governance health check — documentation, architecture, task health, knowledge coverage, and drift detection".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {}
+            }),
+        },
     ]
 }
 
@@ -167,6 +184,8 @@ pub fn call_tool(
         "forge_get_plan" => handle_get_plan(&forge_dir),
         "forge_capture_knowledge" => handle_capture_knowledge(args, &forge_dir),
         "forge_get_knowledge" => handle_get_knowledge(args, &forge_dir),
+        "forge_check_drift" => handle_check_drift(project_root),
+        "forge_get_health" => handle_get_health(project_root),
         _ => CallToolResult::error(format!("Unknown tool: {name}")),
     }
 }
@@ -541,14 +560,83 @@ fn handle_get_knowledge(args: &Value, forge_dir: &Path) -> CallToolResult {
     CallToolResult::text(serde_json::to_string_pretty(&output).unwrap_or_default())
 }
 
+fn handle_check_drift(project_root: &Path) -> CallToolResult {
+    let checker = GovernanceChecker::new(project_root);
+    let brain = RuleBasedBrain;
+
+    let report = checker.full_check(&brain);
+
+    let drift_json = match &report.drift {
+        Some(drift) => json!({
+            "vision_alignment": drift.vision_alignment,
+            "explanation": drift.explanation,
+            "completed_tasks": drift.completed_tasks,
+            "total_tasks": drift.total_tasks,
+        }),
+        None => json!({
+            "vision_alignment": null,
+            "explanation": "No vision document (SPEC.md or plan.md) found — cannot evaluate drift",
+        }),
+    };
+
+    // Log governance event
+    let forge_dir = project_root.join(".forge");
+    let event_logger = EventLogger::new(&forge_dir);
+    let _ = event_logger.log(&ForgeEvent::new(
+        EventType::GovernanceCheck,
+        format!("Drift check: {}", report.summary),
+    ));
+
+    let output = json!({
+        "drift": drift_json,
+        "summary": report.summary,
+    });
+
+    CallToolResult::text(serde_json::to_string_pretty(&output).unwrap_or_default())
+}
+
+fn handle_get_health(project_root: &Path) -> CallToolResult {
+    let checker = GovernanceChecker::new(project_root);
+    let brain = RuleBasedBrain;
+
+    let report = checker.full_check(&brain);
+
+    // Log governance event
+    let forge_dir = project_root.join(".forge");
+    let event_logger = EventLogger::new(&forge_dir);
+    let _ = event_logger.log(&ForgeEvent::new(
+        EventType::GovernanceCheck,
+        format!("Health check: {}", report.summary),
+    ));
+
+    let output = json!({
+        "health_score": report.health_score,
+        "summary": report.summary,
+        "findings": report.findings.iter().map(|f| json!({
+            "category": f.category,
+            "severity": f.severity,
+            "message": f.message,
+            "suggestion": f.suggestion,
+        })).collect::<Vec<_>>(),
+        "drift": report.drift.map(|d| json!({
+            "vision_alignment": d.vision_alignment,
+            "explanation": d.explanation,
+            "completed_tasks": d.completed_tasks,
+            "total_tasks": d.total_tasks,
+        })),
+    });
+
+    CallToolResult::text(serde_json::to_string_pretty(&output).unwrap_or_default())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_list_tools_returns_seven() {
+    fn test_list_tools_returns_nine() {
         let tools = list_tools();
-        assert_eq!(tools.len(), 7);
+        assert_eq!(tools.len(), 9);
         assert_eq!(tools[0].name, "forge_get_tasks");
         assert_eq!(tools[1].name, "forge_claim_task");
         assert_eq!(tools[2].name, "forge_complete_task");
@@ -556,6 +644,8 @@ mod tests {
         assert_eq!(tools[4].name, "forge_get_plan");
         assert_eq!(tools[5].name, "forge_capture_knowledge");
         assert_eq!(tools[6].name, "forge_get_knowledge");
+        assert_eq!(tools[7].name, "forge_check_drift");
+        assert_eq!(tools[8].name, "forge_get_health");
     }
 
     #[test]

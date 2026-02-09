@@ -81,6 +81,8 @@ fn test_mcp_tools_list() {
     assert!(resp.contains("forge_get_plan"));
     assert!(resp.contains("forge_capture_knowledge"));
     assert!(resp.contains("forge_get_knowledge"));
+    assert!(resp.contains("forge_check_drift"));
+    assert!(resp.contains("forge_get_health"));
 }
 
 #[test]
@@ -245,4 +247,39 @@ fn test_mcp_capture_with_explicit_category() {
     let list_output = mcp_call(&dir, list_input);
     let list_resp = last_response(&list_output);
     assert!(list_resp.contains("Use Rust for orchestrator"));
+}
+
+#[test]
+fn test_mcp_get_health() {
+    let dir = TempDir::new().unwrap();
+    setup_project_with_tasks(&dir);
+
+    let input = concat!(
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_get_health","arguments":{}}}"#, "\n",
+    );
+    let output = mcp_call(&dir, input);
+    let resp = last_response(&output);
+
+    assert!(resp.contains("health_score"));
+    assert!(resp.contains("findings"));
+    assert!(resp.contains("summary"));
+}
+
+#[test]
+fn test_mcp_check_drift() {
+    let dir = TempDir::new().unwrap();
+    setup_project_with_tasks(&dir);
+
+    let input = concat!(
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_check_drift","arguments":{}}}"#, "\n",
+    );
+    let output = mcp_call(&dir, input);
+    let resp = last_response(&output);
+
+    assert!(resp.contains("drift"));
+    assert!(resp.contains("summary"));
+    // SPEC.md exists in test project, so drift should have vision_alignment
+    assert!(resp.contains("vision_alignment"));
 }
