@@ -1,0 +1,367 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 300" width="900" height="300">
+  <defs>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+    <filter id="iconGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+    <linearGradient id="sweepGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#f97316" stop-opacity="0"/>
+      <stop offset="40%" stop-color="#f97316" stop-opacity="0.06"/>
+      <stop offset="50%" stop-color="#f97316" stop-opacity="0.2"/>
+      <stop offset="60%" stop-color="#f97316" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#f97316" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="bgGlow" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#161210"/>
+      <stop offset="100%" stop-color="#0d0a08"/>
+    </radialGradient>
+    <linearGradient id="forgeGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f97316"/>
+      <stop offset="100%" stop-color="#ea580c"/>
+    </linearGradient>
+    <linearGradient id="rustGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f97316"/>
+      <stop offset="50%" stop-color="#fb923c"/>
+      <stop offset="100%" stop-color="#f97316"/>
+    </linearGradient>
+    <filter id="particleGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+    <clipPath id="bannerClip">
+      <rect x="0" y="0" width="900" height="300"/>
+    </clipPath>
+  </defs>
+
+  <style>
+    @keyframes titlePulse {
+      0%, 100% { opacity: 0.85; }
+      50% { opacity: 1; }
+    }
+    @keyframes titleGlowPulse {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 0.6; }
+    }
+    @keyframes sweep {
+      0% { transform: translateX(-300px); }
+      100% { transform: translateX(1200px); }
+    }
+    @keyframes float1 {
+      0%, 100% { transform: translate(0, 0); opacity: 0; }
+      10% { opacity: 0.8; }
+      90% { opacity: 0.8; }
+      50% { transform: translate(15px, -25px); }
+    }
+    @keyframes float2 {
+      0%, 100% { transform: translate(0, 0); opacity: 0; }
+      15% { opacity: 0.6; }
+      85% { opacity: 0.6; }
+      50% { transform: translate(-20px, -30px); }
+    }
+    @keyframes float3 {
+      0%, 100% { transform: translate(0, 0); opacity: 0; }
+      10% { opacity: 0.7; }
+      90% { opacity: 0.7; }
+      50% { transform: translate(10px, -20px); }
+    }
+    @keyframes float4 {
+      0%, 100% { transform: translate(0, 0); opacity: 0; }
+      20% { opacity: 0.5; }
+      80% { opacity: 0.5; }
+      50% { transform: translate(-15px, -35px); }
+    }
+    @keyframes float5 {
+      0%, 100% { transform: translate(0, 0); opacity: 0; }
+      10% { opacity: 0.9; }
+      90% { opacity: 0.6; }
+      50% { transform: translate(25px, -15px); }
+    }
+    @keyframes hammerStrike {
+      0%, 70%, 100% { transform: rotate(0deg); }
+      80% { transform: rotate(-25deg); }
+      90% { transform: rotate(5deg); }
+    }
+    @keyframes spark1 {
+      0%, 75%, 100% { opacity: 0; transform: translate(0,0); }
+      82% { opacity: 1; }
+      95% { opacity: 0; transform: translate(-10px, -16px); }
+    }
+    @keyframes spark2 {
+      0%, 75%, 100% { opacity: 0; transform: translate(0,0); }
+      84% { opacity: 1; }
+      96% { opacity: 0; transform: translate(8px, -20px); }
+    }
+    @keyframes spark3 {
+      0%, 75%, 100% { opacity: 0; transform: translate(0,0); }
+      83% { opacity: 0.8; }
+      94% { opacity: 0; transform: translate(4px, -14px); }
+    }
+    @keyframes gridFade {
+      0%, 100% { opacity: 0.03; }
+      50% { opacity: 0.06; }
+    }
+    @keyframes drawLine {
+      0% { stroke-dashoffset: 300; }
+      50% { stroke-dashoffset: 0; }
+      100% { stroke-dashoffset: -300; }
+    }
+    @keyframes orbit {
+      0% { transform: rotate(0deg) translateX(30px) rotate(0deg); }
+      100% { transform: rotate(360deg) translateX(30px) rotate(-360deg); }
+    }
+    @keyframes nodePulse {
+      0%, 100% { r: 2; opacity: 0.3; }
+      50% { r: 3.5; opacity: 0.7; }
+    }
+    @keyframes flowDash {
+      0% { stroke-dashoffset: 16; }
+      100% { stroke-dashoffset: 0; }
+    }
+    @keyframes lockPulse {
+      0%, 100% { opacity: 0.5; }
+      50% { opacity: 0.9; }
+    }
+    .title-main { animation: titlePulse 4s ease-in-out infinite; }
+    .title-glow { animation: titleGlowPulse 4s ease-in-out infinite; }
+    .sweep-line { animation: sweep 7s ease-in-out infinite; }
+    .particle-1 { animation: float1 3.5s ease-in-out infinite; }
+    .particle-2 { animation: float2 4.2s ease-in-out infinite 0.5s; }
+    .particle-3 { animation: float3 3.8s ease-in-out infinite 1s; }
+    .particle-4 { animation: float4 4.5s ease-in-out infinite 1.5s; }
+    .particle-5 { animation: float5 3.2s ease-in-out infinite 2s; }
+    .particle-6 { animation: float1 4s ease-in-out infinite 0.8s; }
+    .particle-7 { animation: float3 3.6s ease-in-out infinite 2.3s; }
+    .particle-8 { animation: float2 4.8s ease-in-out infinite 1.2s; }
+    .grid-lines { animation: gridFade 8s ease-in-out infinite; }
+    .hammer { animation: hammerStrike 3s ease-in-out infinite; transform-origin: -4px -20px; }
+    .spark-1 { animation: spark1 3s ease-out infinite; }
+    .spark-2 { animation: spark2 3s ease-out infinite; }
+    .spark-3 { animation: spark3 3s ease-out infinite; }
+    .accent-line { stroke-dasharray: 300; animation: drawLine 5s linear infinite; }
+    .orbit-dot { animation: orbit 10s linear infinite; transform-origin: center; }
+    .node-dot { animation: nodePulse 3s ease-in-out infinite; }
+    .flow-line { stroke-dasharray: 4 4; animation: flowDash 1s linear infinite; }
+    .lock-pulse { animation: lockPulse 2s ease-in-out infinite; }
+  </style>
+
+  <!-- Background -->
+  <rect width="900" height="300" fill="url(#bgGlow)"/>
+
+  <!-- Grid pattern -->
+  <g class="grid-lines" clip-path="url(#bannerClip)">
+    <line x1="60" y1="0" x2="60" y2="300" stroke="#f97316" stroke-width="0.5" opacity="0.05"/>
+    <line x1="120" y1="0" x2="120" y2="300" stroke="#f97316" stroke-width="0.5" opacity="0.05"/>
+    <line x1="180" y1="0" x2="180" y2="300" stroke="#f97316" stroke-width="0.5" opacity="0.05"/>
+    <line x1="240" y1="0" x2="240" y2="300" stroke="#f97316" stroke-width="0.5" opacity="0.05"/>
+    <line x1="300" y1="0" x2="300" y2="300" stroke="#f97316" stroke-width="0.5" opacity="0.05"/>
+    <line x1="360" y1="0" x2="360" y2="300" stroke="#f97316" stroke-width="0.5" opacity="0.05"/>
+    <line x1="420" y1="0" x2="420" y2="300" stroke="#f97316" stroke-width="0.5" opacity="0.05"/>
+    <line x1="480" y1="0" x2="480" y2="300" stroke="#f97316" stroke-width="0.5" opacity="0.05"/>
+    <line x1="540" y1="0" x2="540" y2="300" stroke="#f97316" stroke-width="0.5" opacity="0.05"/>
+    <line x1="600" y1="0" x2="600" y2="300" stroke="#f97316" stroke-width="0.5" opacity="0.05"/>
+    <line x1="660" y1="0" x2="660" y2="300" stroke="#f97316" stroke-width="0.5" opacity="0.05"/>
+    <line x1="720" y1="0" x2="720" y2="300" stroke="#f97316" stroke-width="0.5" opacity="0.05"/>
+    <line x1="780" y1="0" x2="780" y2="300" stroke="#f97316" stroke-width="0.5" opacity="0.05"/>
+    <line x1="840" y1="0" x2="840" y2="300" stroke="#f97316" stroke-width="0.5" opacity="0.05"/>
+    <line x1="0" y1="60" x2="900" y2="60" stroke="#f97316" stroke-width="0.5" opacity="0.05"/>
+    <line x1="0" y1="120" x2="900" y2="120" stroke="#f97316" stroke-width="0.5" opacity="0.05"/>
+    <line x1="0" y1="180" x2="900" y2="180" stroke="#f97316" stroke-width="0.5" opacity="0.05"/>
+    <line x1="0" y1="240" x2="900" y2="240" stroke="#f97316" stroke-width="0.5" opacity="0.05"/>
+  </g>
+
+  <!-- Orchestration network — agents connected by flow lines -->
+  <g opacity="0.3">
+    <!-- Claude node cluster (left) -->
+    <circle cx="70" cy="80" class="node-dot" fill="#8b5cf6" r="2" opacity="0.5"/>
+    <circle cx="130" cy="50" class="node-dot" fill="#8b5cf6" r="2" opacity="0.4" style="animation-delay:0.5s"/>
+    <circle cx="100" cy="130" class="node-dot" fill="#8b5cf6" r="2" opacity="0.4" style="animation-delay:1s"/>
+    <line x1="70" y1="80" x2="130" y2="50" stroke="#8b5cf6" stroke-width="0.6" class="flow-line" opacity="0.3"/>
+    <line x1="70" y1="80" x2="100" y2="130" stroke="#8b5cf6" stroke-width="0.6" class="flow-line" opacity="0.25"/>
+    <text x="70" y="100" font-family="'SF Mono', monospace" font-size="7" fill="#8b5cf6" opacity="0.4">claude</text>
+
+    <!-- Codex node cluster (bottom-left) -->
+    <circle cx="90" cy="240" class="node-dot" fill="#22c55e" r="2" opacity="0.4" style="animation-delay:0.3s"/>
+    <circle cx="140" cy="260" class="node-dot" fill="#22c55e" r="2" opacity="0.3" style="animation-delay:0.8s"/>
+    <line x1="90" y1="240" x2="140" y2="260" stroke="#22c55e" stroke-width="0.6" class="flow-line" opacity="0.25" style="animation-delay:0.4s"/>
+    <text x="82" y="230" font-family="'SF Mono', monospace" font-size="7" fill="#22c55e" opacity="0.35">codex</text>
+
+    <!-- Gemini node cluster (right) -->
+    <circle cx="790" cy="70" class="node-dot" fill="#3b82f6" r="2" opacity="0.5" style="animation-delay:0.2s"/>
+    <circle cx="840" cy="100" class="node-dot" fill="#3b82f6" r="2" opacity="0.4" style="animation-delay:0.7s"/>
+    <circle cx="810" cy="140" class="node-dot" fill="#3b82f6" r="2" opacity="0.3" style="animation-delay:1.2s"/>
+    <line x1="790" y1="70" x2="840" y2="100" stroke="#3b82f6" stroke-width="0.6" class="flow-line" opacity="0.3" style="animation-delay:0.2s"/>
+    <line x1="840" y1="100" x2="810" y2="140" stroke="#3b82f6" stroke-width="0.6" class="flow-line" opacity="0.25" style="animation-delay:0.6s"/>
+    <text x="785" y="60" font-family="'SF Mono', monospace" font-size="7" fill="#3b82f6" opacity="0.35">gemini</text>
+
+    <!-- Lock icons (file locking visualization) -->
+    <g transform="translate(825, 230)" class="lock-pulse">
+      <rect x="-5" y="-3" width="10" height="8" rx="1.5" fill="none" stroke="#f97316" stroke-width="0.8" opacity="0.4"/>
+      <path d="M-3,-3 L-3,-6 C-3,-9 3,-9 3,-6 L3,-3" fill="none" stroke="#f97316" stroke-width="0.8" opacity="0.4"/>
+      <circle cx="0" cy="1" r="1" fill="#f97316" opacity="0.5"/>
+    </g>
+    <text x="818" y="250" font-family="'SF Mono', monospace" font-size="7" fill="#f97316" opacity="0.3">locked</text>
+
+    <!-- Flow lines from agents to center (forge) -->
+    <line x1="130" y1="130" x2="220" y2="140" stroke="#8b5cf6" stroke-width="0.4" class="flow-line" opacity="0.15"/>
+    <line x1="140" y1="240" x2="220" y2="170" stroke="#22c55e" stroke-width="0.4" class="flow-line" opacity="0.15"/>
+    <line x1="790" y1="140" x2="680" y2="140" stroke="#3b82f6" stroke-width="0.4" class="flow-line" opacity="0.15"/>
+  </g>
+
+  <!-- Sweep line -->
+  <g class="sweep-line" clip-path="url(#bannerClip)">
+    <rect x="0" y="0" width="300" height="300" fill="url(#sweepGrad)"/>
+  </g>
+
+  <!-- Anvil + Hammer icon (center-left) -->
+  <g transform="translate(255, 110)">
+    <!-- Outer glow ring -->
+    <circle cx="0" cy="0" r="36" fill="none" stroke="#f97316" stroke-width="1" opacity="0.08" filter="url(#iconGlow)"/>
+    <circle cx="0" cy="0" r="28" fill="none" stroke="#f97316" stroke-width="0.6" opacity="0.12"/>
+
+    <!-- Anvil body -->
+    <g transform="translate(0, 4)">
+      <!-- Horn (left) -->
+      <path d="M-18,-4 L-10,-7 L-10,-2 L-18,0 Z" fill="#f97316" opacity="0.5"/>
+      <!-- Top face -->
+      <path d="M-10,-7 L14,-7 L16,-2 L-10,-2 Z" fill="#f97316" opacity="0.65"/>
+      <!-- Body -->
+      <path d="M-7,-2 L12,-2 L10,8 L-5,8 Z" fill="#f97316" opacity="0.45"/>
+      <!-- Base -->
+      <path d="M-10,8 L14,8 L16,13 L-12,13 Z" fill="#f97316" opacity="0.55"/>
+    </g>
+
+    <!-- Hammer (animated strike) -->
+    <g class="hammer">
+      <line x1="-4" y1="-20" x2="8" y2="-8" stroke="#fb923c" stroke-width="2.5" stroke-linecap="round" opacity="0.7"/>
+      <rect x="5" y="-15" width="10" height="6" rx="1.5" transform="rotate(-45, 10, -12)" fill="#fb923c" opacity="0.85"/>
+    </g>
+
+    <!-- Sparks -->
+    <circle cx="2" cy="-6" r="1.5" fill="#fbbf24" class="spark-1"/>
+    <circle cx="8" cy="-10" r="1.2" fill="#f97316" class="spark-2"/>
+    <circle cx="-4" cy="-9" r="1" fill="#fb923c" class="spark-3"/>
+  </g>
+
+  <!-- Orbiting dot (task cycling) -->
+  <g transform="translate(255, 110)">
+    <g class="orbit-dot" style="transform-origin: 0px 0px;">
+      <circle cx="30" cy="0" r="2" fill="#22c55e" opacity="0.6" filter="url(#particleGlow)"/>
+    </g>
+  </g>
+
+  <!-- FORGE title -->
+  <g transform="translate(510, 100)">
+    <!-- Glow layer -->
+    <text class="title-glow" x="40" y="0" text-anchor="middle"
+          font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-weight="800"
+          font-size="60" fill="#f97316" opacity="0.3" filter="url(#glow)"
+          letter-spacing="8">FORGE</text>
+    <!-- Main title -->
+    <text class="title-main" x="40" y="0" text-anchor="middle"
+          font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-weight="800"
+          font-size="60" letter-spacing="8">
+      <tspan fill="#f97316">FOR</tspan><tspan fill="#e2e8f0">GE</tspan>
+    </text>
+  </g>
+
+  <!-- Animated accent underline -->
+  <g transform="translate(340, 116)">
+    <line x1="0" y1="0" x2="320" y2="0" stroke="#292524" stroke-width="1" opacity="0.6"/>
+    <line class="accent-line" x1="0" y1="0" x2="320" y2="0" stroke="#f97316" stroke-width="1.5" opacity="0.5"/>
+    <circle cx="0" cy="0" r="2" fill="#f97316" opacity="0.4"/>
+    <circle cx="320" cy="0" r="2" fill="#f97316" opacity="0.4"/>
+  </g>
+
+  <!-- Subtitle -->
+  <text x="510" y="148" text-anchor="middle"
+        font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-weight="400"
+        font-size="15" fill="#a8a29e" letter-spacing="6"
+        opacity="0.9">UNIVERSAL AI ORCHESTRATOR</text>
+
+  <!-- One-liner -->
+  <text x="510" y="174" text-anchor="middle"
+        font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-weight="300"
+        font-size="12" fill="#78716c" letter-spacing="1.5"
+        opacity="0.8">Plan work. Assign it to the right AI. Track progress. Prevent conflicts.</text>
+
+  <!-- Feature pills -->
+  <g transform="translate(450, 210)">
+    <!-- Pill: 9 MCP Tools -->
+    <g transform="translate(-195, 0)">
+      <rect x="-48" y="-12" width="96" height="24" rx="12" fill="#f97316" opacity="0.06" stroke="#f97316" stroke-width="0.6" stroke-opacity="0.25"/>
+      <text x="0" y="4" text-anchor="middle" font-family="'Segoe UI', system-ui, sans-serif" font-weight="600" font-size="11" fill="#f97316" opacity="0.85">9 MCP Tools</text>
+    </g>
+    <!-- Pill: 51 Tests -->
+    <g transform="translate(-75, 0)">
+      <rect x="-40" y="-12" width="80" height="24" rx="12" fill="#22c55e" opacity="0.06" stroke="#22c55e" stroke-width="0.6" stroke-opacity="0.25"/>
+      <text x="0" y="4" text-anchor="middle" font-family="'Segoe UI', system-ui, sans-serif" font-weight="600" font-size="11" fill="#22c55e" opacity="0.85">51 Tests</text>
+    </g>
+    <!-- Pill: 3 MB Binary -->
+    <g transform="translate(35, 0)">
+      <rect x="-44" y="-12" width="88" height="24" rx="12" fill="#fb923c" opacity="0.06" stroke="#fb923c" stroke-width="0.6" stroke-opacity="0.25"/>
+      <text x="0" y="4" text-anchor="middle" font-family="'Segoe UI', system-ui, sans-serif" font-weight="600" font-size="11" fill="#fb923c" opacity="0.85">3 MB Binary</text>
+    </g>
+    <!-- Pill: Zero Deps -->
+    <g transform="translate(140, 0)">
+      <rect x="-42" y="-12" width="84" height="24" rx="12" fill="#e2e8f0" opacity="0.04" stroke="#57534e" stroke-width="0.6" stroke-opacity="0.25"/>
+      <text x="0" y="4" text-anchor="middle" font-family="'Segoe UI', system-ui, sans-serif" font-weight="600" font-size="11" fill="#a8a29e" opacity="0.85">Zero Deps</text>
+    </g>
+    <!-- Pill: MIT -->
+    <g transform="translate(225, 0)">
+      <rect x="-26" y="-12" width="52" height="24" rx="12" fill="#e2e8f0" opacity="0.04" stroke="#57534e" stroke-width="0.6" stroke-opacity="0.25"/>
+      <text x="0" y="4" text-anchor="middle" font-family="'Segoe UI', system-ui, sans-serif" font-weight="600" font-size="11" fill="#a8a29e" opacity="0.85">MIT</text>
+    </g>
+  </g>
+
+  <!-- Floating particles -->
+  <g filter="url(#particleGlow)">
+    <circle class="particle-1" cx="160" cy="190" r="1.5" fill="#f97316" opacity="0"/>
+    <circle class="particle-2" cx="340" cy="250" r="1.2" fill="#22c55e" opacity="0"/>
+    <circle class="particle-3" cx="600" cy="255" r="1.8" fill="#8b5cf6" opacity="0"/>
+    <circle class="particle-4" cx="720" cy="200" r="1.3" fill="#f97316" opacity="0"/>
+    <circle class="particle-5" cx="830" cy="175" r="1.6" fill="#22c55e" opacity="0"/>
+    <circle class="particle-6" cx="100" cy="170" r="1.4" fill="#3b82f6" opacity="0"/>
+    <circle class="particle-7" cx="770" cy="55" r="1.1" fill="#f97316" opacity="0"/>
+    <circle class="particle-8" cx="420" cy="65" r="1.5" fill="#fb923c" opacity="0"/>
+    <circle class="particle-3" cx="210" cy="40" r="1" fill="#f97316" opacity="0" style="animation-delay:1.7s"/>
+    <circle class="particle-5" cx="660" cy="275" r="1.3" fill="#8b5cf6" opacity="0" style="animation-delay:0.3s"/>
+    <circle class="particle-1" cx="500" cy="28" r="1.1" fill="#22c55e" opacity="0" style="animation-delay:2.5s"/>
+    <circle class="particle-4" cx="380" cy="282" r="1.4" fill="#f97316" opacity="0" style="animation-delay:3s"/>
+  </g>
+
+  <!-- "Rust" badge bottom-right -->
+  <g transform="translate(810, 262)">
+    <rect x="-56" y="-12" width="112" height="24" rx="12" fill="#0d0a08" stroke="#44403c" stroke-width="1"/>
+    <text x="0" y="4" text-anchor="middle"
+          font-family="'Segoe UI', system-ui, sans-serif" font-weight="500" font-size="11">
+      <tspan fill="#78716c">built with </tspan><tspan fill="#f97316" font-weight="700">Rust</tspan>
+    </text>
+  </g>
+
+  <!-- "nxtg-ai" badge bottom-left -->
+  <g transform="translate(80, 262)">
+    <rect x="-52" y="-12" width="104" height="24" rx="12" fill="#0d0a08" stroke="#44403c" stroke-width="1"/>
+    <text x="0" y="4" text-anchor="middle"
+          font-family="'Segoe UI', system-ui, sans-serif" font-weight="500" font-size="11">
+      <tspan fill="#78716c">by </tspan><tspan fill="#fb923c" font-weight="600">nxtg-ai</tspan>
+    </text>
+  </g>
+
+  <!-- Version badge top-left -->
+  <g transform="translate(38, 26)">
+    <rect x="-20" y="-10" width="40" height="20" rx="4" fill="#f97316" opacity="0.1" stroke="#f97316" stroke-width="0.6" stroke-opacity="0.3"/>
+    <text x="0" y="4" text-anchor="middle" font-family="'SF Mono', 'Fira Code', monospace" font-weight="700" font-size="11" fill="#f97316" opacity="0.85">v0.1</text>
+  </g>
+
+  <!-- Edge accents -->
+  <rect x="0" y="0" width="900" height="1" fill="#f97316" opacity="0.1"/>
+  <rect x="0" y="299" width="900" height="1" fill="#f97316" opacity="0.1"/>
+  <path d="M0,0 L40,0 L0,0 L0,30" fill="none" stroke="#f97316" stroke-width="1" opacity="0.12"/>
+  <path d="M900,0 L860,0 M900,0 L900,30" fill="none" stroke="#f97316" stroke-width="1" opacity="0.12"/>
+  <path d="M0,300 L40,300 M0,300 L0,270" fill="none" stroke="#f97316" stroke-width="1" opacity="0.12"/>
+  <path d="M900,300 L860,300 M900,300 L900,270" fill="none" stroke="#f97316" stroke-width="1" opacity="0.12"/>
+</svg>

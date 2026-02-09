@@ -1,10 +1,18 @@
 <div align="center">
 
-# forge
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/banner.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/banner.svg">
+  <img alt="Forge — Universal AI Orchestrator" src="assets/banner.svg" width="100%">
+</picture>
+
+<br/>
 
 **The tech lead that never sleeps.**
 
 Plan work. Assign it to the right AI. Track progress. Prevent conflicts. Capture knowledge. Ship faster.
+
+<br/>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.93+-orange.svg)](https://www.rust-lang.org/)
