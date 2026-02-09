@@ -19,7 +19,11 @@ impl ToolAdapter for GeminiAdapter {
     ) -> anyhow::Result<()> {
         let assigned: Vec<_> = tasks
             .iter()
-            .filter(|t| t.assigned_to.as_ref().is_some_and(|a| *a == AgentType::Gemini))
+            .filter(|t| {
+                t.assigned_to
+                    .as_ref()
+                    .is_some_and(|a| *a == AgentType::Gemini)
+            })
             .collect();
 
         let mut content = String::new();

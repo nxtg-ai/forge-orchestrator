@@ -1,12 +1,12 @@
-use crate::brain::rule_based::RuleBasedBrain;
 use crate::brain::ForgeBrain;
+use crate::brain::rule_based::RuleBasedBrain;
 use crate::core::event::{EventLogger, EventType, ForgeEvent};
 use crate::core::governance::GovernanceChecker;
 use crate::core::knowledge::{KnowledgeEntry, KnowledgeManager};
 use crate::core::plan::PlanManager;
 use crate::core::state::StateManager;
 use crate::core::task::{AgentType, TaskManager, TaskStatus};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::Path;
 
 use super::protocol::{CallToolResult, ToolDefinition};
@@ -163,11 +163,7 @@ pub fn list_tools() -> Vec<ToolDefinition> {
 }
 
 /// Dispatch a tool call to the appropriate handler
-pub fn call_tool(
-    name: &str,
-    args: &Value,
-    project_root: &Path,
-) -> CallToolResult {
+pub fn call_tool(name: &str, args: &Value, project_root: &Path) -> CallToolResult {
     let forge_dir = project_root.join(".forge");
 
     if !forge_dir.exists() {
@@ -308,9 +304,10 @@ fn handle_claim_task(args: &Value, forge_dir: &Path) -> CallToolResult {
 
     // Lock files
     if !task.locked_files.is_empty()
-        && let Err(e) = state_mgr.lock_files(task_id, agent.clone(), task.locked_files.clone()) {
-            return CallToolResult::error(format!("Failed to lock files: {e}"));
-        }
+        && let Err(e) = state_mgr.lock_files(task_id, agent.clone(), task.locked_files.clone())
+    {
+        return CallToolResult::error(format!("Failed to lock files: {e}"));
+    }
 
     // Log event
     let _ = event_logger.log(
@@ -420,7 +417,9 @@ fn handle_get_plan(forge_dir: &Path) -> CallToolResult {
             Err(e) => CallToolResult::error(format!("Failed to read plan: {e}")),
         }
     } else {
-        CallToolResult::text("No plan exists yet. Use `forge plan --generate` to create one from SPEC.md.")
+        CallToolResult::text(
+            "No plan exists yet. Use `forge plan --generate` to create one from SPEC.md.",
+        )
     }
 }
 
@@ -673,7 +672,11 @@ mod tests {
 
     #[test]
     fn test_call_tool_without_forge_init() {
-        let result = call_tool("forge_get_tasks", &json!({}), Path::new("/tmp/no-forge-here"));
+        let result = call_tool(
+            "forge_get_tasks",
+            &json!({}),
+            Path::new("/tmp/no-forge-here"),
+        );
         assert!(result.is_error.unwrap_or(false));
         assert!(result.content[0].text.contains("not initialized"));
     }

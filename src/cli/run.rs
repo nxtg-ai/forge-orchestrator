@@ -1,5 +1,5 @@
-use crate::adapters::claude::ClaudeAdapter;
 use crate::adapters::ToolAdapter;
+use crate::adapters::claude::ClaudeAdapter;
 use crate::core::event::{EventLogger, EventType, ForgeEvent};
 use crate::core::state::StateManager;
 use crate::core::task::{AgentType, TaskManager, TaskStatus};
@@ -102,10 +102,7 @@ pub fn execute(project_root: &Path, task_id: &str, agent_name: &str) -> anyhow::
     // Save result
     let results_dir = forge_dir.join("results");
     std::fs::create_dir_all(&results_dir)?;
-    std::fs::write(
-        results_dir.join(format!("{task_id}.txt")),
-        &result.output,
-    )?;
+    std::fs::write(results_dir.join(format!("{task_id}.txt")), &result.output)?;
 
     // Update task status based on result
     if result.success {

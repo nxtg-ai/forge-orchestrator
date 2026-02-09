@@ -1,6 +1,6 @@
+use crate::brain::ForgeBrain;
 use crate::brain::openai::OpenAIBrain;
 use crate::brain::rule_based::RuleBasedBrain;
-use crate::brain::ForgeBrain;
 use crate::core::event::{EventLogger, EventType, ForgeEvent};
 use crate::core::plan::PlanManager;
 use crate::core::state::StateManager;
@@ -87,11 +87,7 @@ fn generate_plan(
     };
 
     if !spec_file.exists() {
-        println!(
-            "{} Spec file not found: {}",
-            "✗".red(),
-            spec_file.display()
-        );
+        println!("{} Spec file not found: {}", "✗".red(), spec_file.display());
         return Ok(());
     }
 
@@ -279,7 +275,10 @@ fn generate_plan_markdown(project_name: &str, tasks: &[crate::core::task::Task])
 
     content.push_str("\n---\n\n## Task Details\n\n");
     for task in tasks {
-        content.push_str(&format!("### {}: {}\n\n{}\n\n", task.id, task.title, task.description));
+        content.push_str(&format!(
+            "### {}: {}\n\n{}\n\n",
+            task.id, task.title, task.description
+        ));
     }
 
     content

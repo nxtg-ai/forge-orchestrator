@@ -19,7 +19,11 @@ use crate::core::task::{AgentType, Task};
 /// - LocalBrain: fine-tuned local model (future)
 pub trait ForgeBrain {
     /// Decompose a specification into tasks
-    fn decompose_plan(&self, spec: &str, available_tools: &[AgentType]) -> anyhow::Result<Vec<Task>>;
+    fn decompose_plan(
+        &self,
+        spec: &str,
+        available_tools: &[AgentType],
+    ) -> anyhow::Result<Vec<Task>>;
 
     /// Decide which agent should handle a task
     fn assign_task(&self, task: &Task, available_tools: &[AgentType]) -> anyhow::Result<AgentType>;

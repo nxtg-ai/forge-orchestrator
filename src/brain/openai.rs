@@ -100,11 +100,7 @@ impl OpenAIBrain {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().unwrap_or_default();
-            return Err(anyhow::anyhow!(
-                "OpenAI API error ({}): {}",
-                status,
-                body
-            ));
+            return Err(anyhow::anyhow!("OpenAI API error ({}): {}", status, body));
         }
 
         let chat_response: ChatResponse = response.json()?;
@@ -158,11 +154,12 @@ impl ForgeBrain for OpenAIBrain {
             - Use dependencies to enforce ordering where needed\n\
             - Output raw JSON only, no markdown fences";
 
-        let user = format!(
-            "Available AI tools: {tools_str}\n\nProject specification:\n\n{spec}"
-        );
+        let user = format!("Available AI tools: {tools_str}\n\nProject specification:\n\n{spec}");
 
-        eprintln!("[forge-brain] Calling OpenAI ({}) for plan decomposition...", self.model);
+        eprintln!(
+            "[forge-brain] Calling OpenAI ({}) for plan decomposition...",
+            self.model
+        );
         let response = self.chat(system, &user, 0.3)?;
 
         // Parse the JSON response
@@ -189,10 +186,7 @@ impl ForgeBrain for OpenAIBrain {
         for (i, item) in parsed.iter().enumerate() {
             let id = format!("T-{:03}", i + 1);
             let title = item["title"].as_str().unwrap_or("Untitled").to_string();
-            let description = item["description"]
-                .as_str()
-                .unwrap_or(&title)
-                .to_string();
+            let description = item["description"].as_str().unwrap_or(&title).to_string();
 
             let agent_str = item["agent"].as_str().unwrap_or("claude");
             let agent: AgentType = agent_str.parse().unwrap_or(AgentType::Claude);
@@ -244,11 +238,7 @@ impl ForgeBrain for OpenAIBrain {
         Ok(tasks)
     }
 
-    fn assign_task(
-        &self,
-        task: &Task,
-        available_tools: &[AgentType],
-    ) -> anyhow::Result<AgentType> {
+    fn assign_task(&self, task: &Task, available_tools: &[AgentType]) -> anyhow::Result<AgentType> {
         if !self.has_api_key() {
             let fallback = super::rule_based::RuleBasedBrain;
             return fallback.assign_task(task, available_tools);
@@ -282,11 +272,7 @@ impl ForgeBrain for OpenAIBrain {
         })
     }
 
-    fn evaluate_drift(
-        &self,
-        work_summary: &str,
-        vision: &str,
-    ) -> anyhow::Result<DriftScore> {
+    fn evaluate_drift(&self, work_summary: &str, vision: &str) -> anyhow::Result<DriftScore> {
         if !self.has_api_key() {
             return Ok(DriftScore {
                 score: 0.0,
@@ -300,11 +286,12 @@ impl ForgeBrain for OpenAIBrain {
             - \"explanation\": brief explanation of the alignment status\n\n\
             Output raw JSON only, no markdown fences.";
 
-        let user = format!(
-            "PROJECT VISION:\n{vision}\n\nCOMPLETED WORK:\n{work_summary}"
-        );
+        let user = format!("PROJECT VISION:\n{vision}\n\nCOMPLETED WORK:\n{work_summary}");
 
-        eprintln!("[forge-brain] Calling OpenAI ({}) for drift evaluation...", self.model);
+        eprintln!(
+            "[forge-brain] Calling OpenAI ({}) for drift evaluation...",
+            self.model
+        );
         let response = self.chat(system, &user, 0.2)?;
 
         // Parse response
@@ -376,9 +363,7 @@ mod tests {
             api_key: None,
         };
         let spec = "## Auth\n## Database\n";
-        let tasks = brain
-            .decompose_plan(spec, &[AgentType::Claude])
-            .unwrap();
+        let tasks = brain.decompose_plan(spec, &[AgentType::Claude]).unwrap();
         assert_eq!(tasks.len(), 2);
     }
 

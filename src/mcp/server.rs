@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::io::{self, BufRead, Write};
 use std::path::Path;
 
@@ -20,7 +20,10 @@ pub fn run_stdio(project_root: &Path) -> anyhow::Result<()> {
     let mut line = String::new();
 
     // Log to stderr so it doesn't interfere with the JSON-RPC protocol on stdout
-    eprintln!("[forge-mcp] Server starting for project: {}", project_root.display());
+    eprintln!(
+        "[forge-mcp] Server starting for project: {}",
+        project_root.display()
+    );
 
     loop {
         line.clear();

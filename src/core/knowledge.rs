@@ -124,9 +124,10 @@ impl KnowledgeManager {
                 let path = file.path();
                 if path.extension().is_some_and(|ext| ext == "json")
                     && let Ok(content) = std::fs::read_to_string(&path)
-                        && let Ok(entry) = serde_json::from_str::<KnowledgeEntry>(&content) {
-                            entries.push(entry);
-                        }
+                    && let Ok(entry) = serde_json::from_str::<KnowledgeEntry>(&content)
+                {
+                    entries.push(entry);
+                }
             }
         }
 
@@ -210,9 +211,7 @@ impl KnowledgeManager {
             }
 
             let skill_content = self.generate_skill_md(cat)?;
-            let skill_path = self
-                .knowledge_dir()
-                .join(format!("{cat}-SKILL.md"));
+            let skill_path = self.knowledge_dir().join(format!("{cat}-SKILL.md"));
             std::fs::write(&skill_path, skill_content)?;
             generated.push(format!("{cat}-SKILL.md"));
         }

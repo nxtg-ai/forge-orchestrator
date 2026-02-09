@@ -20,7 +20,13 @@ fn test_init_creates_forge_directory() {
         .unwrap();
 
     forge_cmd()
-        .args(["--project", dir.path().to_str().unwrap(), "init", "--name", "Test"])
+        .args([
+            "--project",
+            dir.path().to_str().unwrap(),
+            "init",
+            "--name",
+            "Test",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("Forge initialized for Test"));
@@ -55,7 +61,13 @@ fn test_status_after_init_shows_dashboard() {
 
     // Init first
     forge_cmd()
-        .args(["--project", dir.path().to_str().unwrap(), "init", "--name", "StatusTest"])
+        .args([
+            "--project",
+            dir.path().to_str().unwrap(),
+            "init",
+            "--name",
+            "StatusTest",
+        ])
         .assert()
         .success();
 
@@ -81,7 +93,13 @@ fn test_plan_generate_creates_tasks() {
 
     // Init
     forge_cmd()
-        .args(["--project", dir.path().to_str().unwrap(), "init", "--name", "PlanTest"])
+        .args([
+            "--project",
+            dir.path().to_str().unwrap(),
+            "init",
+            "--name",
+            "PlanTest",
+        ])
         .assert()
         .success();
 
@@ -94,7 +112,12 @@ fn test_plan_generate_creates_tasks() {
 
     // Generate plan
     forge_cmd()
-        .args(["--project", dir.path().to_str().unwrap(), "plan", "--generate"])
+        .args([
+            "--project",
+            dir.path().to_str().unwrap(),
+            "plan",
+            "--generate",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("CEO Mode"))
@@ -119,7 +142,13 @@ fn test_plan_show_template_after_init() {
         .unwrap();
 
     forge_cmd()
-        .args(["--project", dir.path().to_str().unwrap(), "init", "--name", "PlanShow"])
+        .args([
+            "--project",
+            dir.path().to_str().unwrap(),
+            "init",
+            "--name",
+            "PlanShow",
+        ])
         .assert()
         .success();
 
@@ -143,7 +172,13 @@ fn test_sync_reconciles_state() {
 
     // Init + generate plan
     forge_cmd()
-        .args(["--project", dir.path().to_str().unwrap(), "init", "--name", "SyncTest"])
+        .args([
+            "--project",
+            dir.path().to_str().unwrap(),
+            "init",
+            "--name",
+            "SyncTest",
+        ])
         .assert()
         .success();
 
@@ -154,7 +189,12 @@ fn test_sync_reconciles_state() {
     .unwrap();
 
     forge_cmd()
-        .args(["--project", dir.path().to_str().unwrap(), "plan", "--generate"])
+        .args([
+            "--project",
+            dir.path().to_str().unwrap(),
+            "plan",
+            "--generate",
+        ])
         .assert()
         .success();
 
@@ -167,11 +207,12 @@ fn test_sync_reconciles_state() {
         .stdout(predicate::str::contains("3 total, 3 pending"));
 
     // Verify CLAUDE.md was generated (only when claude CLI is installed)
-    let claude_available = std::process::Command::new(if cfg!(windows) { "where" } else { "which" })
-        .arg("claude")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+    let claude_available =
+        std::process::Command::new(if cfg!(windows) { "where" } else { "which" })
+            .arg("claude")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
     if claude_available {
         assert!(dir.path().join("CLAUDE.md").exists());
     }
@@ -189,7 +230,13 @@ fn test_full_loop_init_plan_sync_status() {
 
     // Step 1: Init
     forge_cmd()
-        .args(["--project", dir.path().to_str().unwrap(), "init", "--name", "LoopTest"])
+        .args([
+            "--project",
+            dir.path().to_str().unwrap(),
+            "init",
+            "--name",
+            "LoopTest",
+        ])
         .assert()
         .success();
 
@@ -202,7 +249,12 @@ fn test_full_loop_init_plan_sync_status() {
 
     // Step 3: Generate plan
     forge_cmd()
-        .args(["--project", dir.path().to_str().unwrap(), "plan", "--generate"])
+        .args([
+            "--project",
+            dir.path().to_str().unwrap(),
+            "plan",
+            "--generate",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("Generated 2 tasks"));
@@ -234,7 +286,10 @@ fn test_full_loop_init_plan_sync_status() {
     // Step 7: Verify events were logged
     let events = std::fs::read_to_string(dir.path().join(".forge/events.jsonl")).unwrap();
     let event_count = events.lines().count();
-    assert!(event_count >= 3, "Expected at least 3 events (init + plan + sync), got {event_count}");
+    assert!(
+        event_count >= 3,
+        "Expected at least 3 events (init + plan + sync), got {event_count}"
+    );
 }
 
 #[test]
@@ -248,12 +303,23 @@ fn test_plan_generate_without_spec_shows_help() {
         .unwrap();
 
     forge_cmd()
-        .args(["--project", dir.path().to_str().unwrap(), "init", "--name", "NoSpec"])
+        .args([
+            "--project",
+            dir.path().to_str().unwrap(),
+            "init",
+            "--name",
+            "NoSpec",
+        ])
         .assert()
         .success();
 
     forge_cmd()
-        .args(["--project", dir.path().to_str().unwrap(), "plan", "--generate"])
+        .args([
+            "--project",
+            dir.path().to_str().unwrap(),
+            "plan",
+            "--generate",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("No specification file found"));
@@ -274,7 +340,13 @@ fn test_init_detects_context_files() {
     std::fs::write(dir.path().join("package.json"), "{}").unwrap();
 
     forge_cmd()
-        .args(["--project", dir.path().to_str().unwrap(), "init", "--name", "ContextTest"])
+        .args([
+            "--project",
+            dir.path().to_str().unwrap(),
+            "init",
+            "--name",
+            "ContextTest",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("SPEC.md").and(predicate::str::contains("package.json")));

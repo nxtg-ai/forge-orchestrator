@@ -28,8 +28,7 @@ pub fn execute(project_root: &Path, event_count: usize) -> anyhow::Result<()> {
     println!();
     println!(
         "{}",
-        "┌──────────────────────────────────────────────┐"
-            .cyan()
+        "┌──────────────────────────────────────────────┐".cyan()
     );
     println!(
         "{}",
@@ -39,17 +38,12 @@ pub fn execute(project_root: &Path, event_count: usize) -> anyhow::Result<()> {
     );
     println!(
         "{}",
-        "└──────────────────────────────────────────────┘"
-            .cyan()
+        "└──────────────────────────────────────────────┘".cyan()
     );
     println!();
 
     // Project info
-    println!(
-        "  {} {}",
-        "Project:".dimmed(),
-        state.project_name.bold()
-    );
+    println!("  {} {}", "Project:".dimmed(), state.project_name.bold());
     println!(
         "  {} {}",
         "Updated:".dimmed(),
@@ -126,12 +120,7 @@ pub fn execute(project_root: &Path, event_count: usize) -> anyhow::Result<()> {
     // Active tasks
     let active_tasks: Vec<_> = tasks
         .iter()
-        .filter(|t| {
-            matches!(
-                t.status,
-                TaskStatus::Assigned | TaskStatus::InProgress
-            )
-        })
+        .filter(|t| matches!(t.status, TaskStatus::Assigned | TaskStatus::InProgress))
         .collect();
 
     if !active_tasks.is_empty() {
@@ -142,12 +131,7 @@ pub fn execute(project_root: &Path, event_count: usize) -> anyhow::Result<()> {
                 .as_ref()
                 .map(|a| format!("[{a}]"))
                 .unwrap_or_else(|| "[?]".into());
-            println!(
-                "    {} {} {}",
-                agent.cyan(),
-                task.id.dimmed(),
-                task.title
-            );
+            println!("    {} {} {}", agent.cyan(), task.id.dimmed(), task.title);
         }
         println!();
     }
@@ -171,10 +155,7 @@ pub fn execute(project_root: &Path, event_count: usize) -> anyhow::Result<()> {
         println!("  {}", "Recent Events:".bold());
         for event in &recent_events {
             let time = event.timestamp.format("%H:%M");
-            let task_str = event
-                .task_id
-                .as_deref()
-                .unwrap_or("");
+            let task_str = event.task_id.as_deref().unwrap_or("");
             println!(
                 "    {} {} {}",
                 time.to_string().dimmed(),

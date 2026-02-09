@@ -113,10 +113,7 @@ pub fn execute(project_root: &Path, name: Option<String>) -> anyhow::Result<()> 
     println!();
     println!("Next steps:");
     println!("  {} — see the task board", "forge status".cyan());
-    println!(
-        "  {} — create/view the master plan",
-        "forge plan".cyan()
-    );
+    println!("  {} — create/view the master plan", "forge plan".cyan());
     println!(
         "  {} — run a task headlessly",
         "forge run --task T-001 --agent claude".cyan()

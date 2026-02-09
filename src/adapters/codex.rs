@@ -19,7 +19,11 @@ impl ToolAdapter for CodexAdapter {
     ) -> anyhow::Result<()> {
         let assigned: Vec<_> = tasks
             .iter()
-            .filter(|t| t.assigned_to.as_ref().is_some_and(|a| *a == AgentType::Codex))
+            .filter(|t| {
+                t.assigned_to
+                    .as_ref()
+                    .is_some_and(|a| *a == AgentType::Codex)
+            })
             .collect();
 
         let mut content = String::new();

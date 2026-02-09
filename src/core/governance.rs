@@ -126,7 +126,9 @@ impl GovernanceChecker {
                 category: "documentation".into(),
                 severity: Severity::Warning,
                 message: "No README found".into(),
-                suggestion: Some("Create README.md with project description and setup instructions".into()),
+                suggestion: Some(
+                    "Create README.md with project description and setup instructions".into(),
+                ),
             });
         }
 
@@ -155,7 +157,10 @@ impl GovernanceChecker {
                         severity: Severity::Info,
                         message: "All tasks completed — plan may need updating for next phase"
                             .into(),
-                        suggestion: Some("Update SPEC.md and run `forge plan --generate` for the next phase".into()),
+                        suggestion: Some(
+                            "Update SPEC.md and run `forge plan --generate` for the next phase"
+                                .into(),
+                        ),
                     });
                 }
             }
@@ -203,7 +208,12 @@ impl GovernanceChecker {
 
         // Check tasks directory
         let tasks_dir = self.forge_dir.join("tasks");
-        if !tasks_dir.exists() || tasks_dir.read_dir().map(|mut d| d.next().is_none()).unwrap_or(true) {
+        if !tasks_dir.exists()
+            || tasks_dir
+                .read_dir()
+                .map(|mut d| d.next().is_none())
+                .unwrap_or(true)
+        {
             findings.push(Finding {
                 category: "architecture".into(),
                 severity: Severity::Info,
@@ -215,25 +225,26 @@ impl GovernanceChecker {
         // Check for orphaned lock files
         let state_mgr = crate::core::state::StateManager::new(&self.forge_dir);
         if let Ok(state) = state_mgr.load()
-            && !state.active_locks.is_empty() {
-                let task_mgr = crate::core::task::TaskManager::new(&self.forge_dir);
-                for task_id in state.active_locks.keys() {
-                    if let Ok(task) = task_mgr.get_task(task_id)
-                        && (task.status == crate::core::task::TaskStatus::Completed
-                            || task.status == crate::core::task::TaskStatus::Failed)
-                        {
-                            findings.push(Finding {
-                                category: "architecture".into(),
-                                severity: Severity::Warning,
-                                message: format!(
-                                    "Orphaned file lock for {task_id} (task is {:?})",
-                                    task.status
-                                ),
-                                suggestion: Some("Run `forge sync` to clean up stale locks".into()),
-                            });
-                        }
+            && !state.active_locks.is_empty()
+        {
+            let task_mgr = crate::core::task::TaskManager::new(&self.forge_dir);
+            for task_id in state.active_locks.keys() {
+                if let Ok(task) = task_mgr.get_task(task_id)
+                    && (task.status == crate::core::task::TaskStatus::Completed
+                        || task.status == crate::core::task::TaskStatus::Failed)
+                {
+                    findings.push(Finding {
+                        category: "architecture".into(),
+                        severity: Severity::Warning,
+                        message: format!(
+                            "Orphaned file lock for {task_id} (task is {:?})",
+                            task.status
+                        ),
+                        suggestion: Some("Run `forge sync` to clean up stale locks".into()),
+                    });
                 }
             }
+        }
 
         findings
     }
@@ -399,9 +410,14 @@ impl GovernanceChecker {
         findings.push(Finding {
             category: "knowledge".into(),
             severity: Severity::Info,
-            message: format!("Knowledge base: {} entries across {} categories",
+            message: format!(
+                "Knowledge base: {} entries across {} categories",
                 entries.len(),
-                entries.iter().map(|e| e.category.as_str()).collect::<std::collections::HashSet<_>>().len()
+                entries
+                    .iter()
+                    .map(|e| e.category.as_str())
+                    .collect::<std::collections::HashSet<_>>()
+                    .len()
             ),
             suggestion: None,
         });
@@ -468,11 +484,7 @@ impl GovernanceChecker {
     }
 
     /// Calculate an overall health score from findings and drift
-    fn calculate_health_score(
-        &self,
-        findings: &[Finding],
-        drift: &Option<DriftReport>,
-    ) -> f32 {
+    fn calculate_health_score(&self, findings: &[Finding], drift: &Option<DriftReport>) -> f32 {
         let mut score: f32 = 100.0;
 
         // Deduct for findings
@@ -529,7 +541,12 @@ mod tests {
         let report = checker.full_check(&brain);
 
         // Should have warning about missing SPEC.md
-        assert!(report.findings.iter().any(|f| f.message.contains("SPEC.md")));
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|f| f.message.contains("SPEC.md"))
+        );
     }
 
     #[test]
@@ -547,10 +564,12 @@ mod tests {
         let report = checker.full_check(&brain);
 
         // Should NOT have documentation warnings about SPEC or README
-        assert!(!report
-            .findings
-            .iter()
-            .any(|f| f.category == "documentation" && f.severity == Severity::Warning));
+        assert!(
+            !report
+                .findings
+                .iter()
+                .any(|f| f.category == "documentation" && f.severity == Severity::Warning)
+        );
 
         // Should have drift report since SPEC.md exists
         assert!(report.drift.is_some());
@@ -566,10 +585,12 @@ mod tests {
 
         // Score should be reduced for critical issues
         assert!(report.health_score < 100.0);
-        assert!(report
-            .findings
-            .iter()
-            .any(|f| f.severity == Severity::Critical));
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|f| f.severity == Severity::Critical)
+        );
     }
 
     #[test]
@@ -604,9 +625,11 @@ mod tests {
         let findings = checker.check_architecture();
 
         // Should have critical: no .forge/
-        assert!(findings
-            .iter()
-            .any(|f| f.severity == Severity::Critical && f.message.contains(".forge/")));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.severity == Severity::Critical && f.message.contains(".forge/"))
+        );
     }
 
     #[test]
@@ -630,6 +653,10 @@ mod tests {
         let checker = GovernanceChecker::new(dir.path());
         let findings = checker.check_knowledge_coverage();
 
-        assert!(findings.iter().any(|f| f.message.contains("No knowledge captured")));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.message.contains("No knowledge captured"))
+        );
     }
 }

@@ -12,15 +12,16 @@ pub trait ToolAdapter {
     fn name(&self) -> &str;
 
     /// Render the current state into the tool's native config file(s)
-    fn render_config(&self, state: &ForgeState, tasks: &[Task], project_root: &Path)
-        -> anyhow::Result<()>;
+    fn render_config(
+        &self,
+        state: &ForgeState,
+        tasks: &[Task],
+        project_root: &Path,
+    ) -> anyhow::Result<()>;
 
     /// Execute a task headlessly using this tool
-    fn execute_headless(
-        &self,
-        task: &Task,
-        project_root: &Path,
-    ) -> anyhow::Result<ExecutionResult>;
+    fn execute_headless(&self, task: &Task, project_root: &Path)
+    -> anyhow::Result<ExecutionResult>;
 }
 
 #[derive(Debug)]

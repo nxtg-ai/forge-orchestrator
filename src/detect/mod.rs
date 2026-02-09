@@ -47,11 +47,7 @@ fn detect_command(command: &str, args: &[&str], agent_type: AgentType) -> Option
         .ok()
         .and_then(|output| {
             if output.status.success() {
-                Some(
-                    String::from_utf8_lossy(&output.stdout)
-                        .trim()
-                        .to_string(),
-                )
+                Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
             } else {
                 None
             }
@@ -83,10 +79,7 @@ pub fn display_detected_tools(tools: &[DetectedTool]) {
         } else {
             "✗".red().to_string()
         };
-        let version_str = tool
-            .version
-            .as_deref()
-            .unwrap_or("unknown version");
+        let version_str = tool.version.as_deref().unwrap_or("unknown version");
         println!("  {status} {} ({version_str})", tool.name.cyan());
     }
 }

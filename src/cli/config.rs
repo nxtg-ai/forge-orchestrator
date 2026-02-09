@@ -32,9 +32,7 @@ pub fn execute(project_root: &Path, key: &str, value: &str) -> anyhow::Result<()
                     }
                 }
                 _ => {
-                    anyhow::bail!(
-                        "Unknown brain provider: {value}. Choose: rule-based, openai"
-                    );
+                    anyhow::bail!("Unknown brain provider: {value}. Choose: rule-based, openai");
                 }
             }
         }
@@ -72,10 +70,7 @@ pub fn show(project_root: &Path) -> anyhow::Result<()> {
         "  brain.model    = {}",
         state.brain.model.as_deref().unwrap_or("(default)")
     );
-    println!(
-        "  project        = {}",
-        state.project_name
-    );
+    println!("  project        = {}", state.project_name);
     println!(
         "  tools          = {}",
         state

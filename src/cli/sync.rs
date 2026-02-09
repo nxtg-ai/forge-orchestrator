@@ -1,7 +1,7 @@
+use crate::adapters::ToolAdapter;
 use crate::adapters::claude::ClaudeAdapter;
 use crate::adapters::codex::CodexAdapter;
 use crate::adapters::gemini::GeminiAdapter;
-use crate::adapters::ToolAdapter;
 use crate::core::event::{EventLogger, EventType, ForgeEvent};
 use crate::core::state::{StateManager, TaskSummary};
 use crate::core::task::{AgentType, TaskManager, TaskStatus};

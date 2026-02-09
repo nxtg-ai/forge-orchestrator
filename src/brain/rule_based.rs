@@ -36,11 +36,7 @@ impl ForgeBrain for RuleBasedBrain {
         Ok(tasks)
     }
 
-    fn assign_task(
-        &self,
-        task: &Task,
-        available_tools: &[AgentType],
-    ) -> anyhow::Result<AgentType> {
+    fn assign_task(&self, task: &Task, available_tools: &[AgentType]) -> anyhow::Result<AgentType> {
         if available_tools.is_empty() {
             return Ok(AgentType::Any);
         }
@@ -84,11 +80,7 @@ impl ForgeBrain for RuleBasedBrain {
         Ok(available_tools[0].clone())
     }
 
-    fn evaluate_drift(
-        &self,
-        _work_summary: &str,
-        _vision: &str,
-    ) -> anyhow::Result<DriftScore> {
+    fn evaluate_drift(&self, _work_summary: &str, _vision: &str) -> anyhow::Result<DriftScore> {
         // Rule-based brain can't evaluate drift without LLM
         // Return a neutral score
         Ok(DriftScore {

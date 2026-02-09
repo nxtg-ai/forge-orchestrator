@@ -18,7 +18,13 @@ fn setup_project_with_tasks(dir: &TempDir) {
 
     // Forge init
     forge_cmd()
-        .args(["--project", dir.path().to_str().unwrap(), "init", "--name", "MCPTest"])
+        .args([
+            "--project",
+            dir.path().to_str().unwrap(),
+            "init",
+            "--name",
+            "MCPTest",
+        ])
         .assert()
         .success();
 
@@ -30,7 +36,12 @@ fn setup_project_with_tasks(dir: &TempDir) {
     .unwrap();
 
     forge_cmd()
-        .args(["--project", dir.path().to_str().unwrap(), "plan", "--generate"])
+        .args([
+            "--project",
+            dir.path().to_str().unwrap(),
+            "plan",
+            "--generate",
+        ])
         .assert()
         .success();
 }
@@ -59,7 +70,10 @@ fn test_mcp_initialize() {
     let resp = last_response(&output);
 
     assert!(resp.contains("forge-mcp"), "Should contain server name");
-    assert!(resp.contains("2024-11-05"), "Should contain protocol version");
+    assert!(
+        resp.contains("2024-11-05"),
+        "Should contain protocol version"
+    );
 }
 
 #[test]
@@ -68,8 +82,10 @@ fn test_mcp_tools_list() {
     setup_project_with_tasks(&dir);
 
     let input = concat!(
-        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, "\n",
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#, "\n",
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+        "\n",
     );
     let output = mcp_call(&dir, input);
     let resp = last_response(&output);
@@ -91,8 +107,10 @@ fn test_mcp_get_tasks() {
     setup_project_with_tasks(&dir);
 
     let input = concat!(
-        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, "\n",
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_get_tasks","arguments":{}}}"#, "\n",
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_get_tasks","arguments":{}}}"#,
+        "\n",
     );
     let output = mcp_call(&dir, input);
     let resp = last_response(&output);
@@ -109,8 +127,10 @@ fn test_mcp_get_state() {
     setup_project_with_tasks(&dir);
 
     let input = concat!(
-        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, "\n",
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_get_state","arguments":{}}}"#, "\n",
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_get_state","arguments":{}}}"#,
+        "\n",
     );
     let output = mcp_call(&dir, input);
     let resp = last_response(&output);
@@ -125,8 +145,10 @@ fn test_mcp_get_plan() {
     setup_project_with_tasks(&dir);
 
     let input = concat!(
-        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, "\n",
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_get_plan","arguments":{}}}"#, "\n",
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_get_plan","arguments":{}}}"#,
+        "\n",
     );
     let output = mcp_call(&dir, input);
     let resp = last_response(&output);
@@ -142,8 +164,10 @@ fn test_mcp_claim_and_complete_flow() {
 
     // Claim T-001
     let claim_input = concat!(
-        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, "\n",
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_claim_task","arguments":{"task_id":"T-001","agent":"claude"}}}"#, "\n",
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_claim_task","arguments":{"task_id":"T-001","agent":"claude"}}}"#,
+        "\n",
     );
     let claim_output = mcp_call(&dir, claim_input);
     let claim_resp = last_response(&claim_output);
@@ -151,8 +175,10 @@ fn test_mcp_claim_and_complete_flow() {
 
     // Complete T-001
     let complete_input = concat!(
-        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, "\n",
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_complete_task","arguments":{"task_id":"T-001","result_summary":"Auth done"}}}"#, "\n",
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_complete_task","arguments":{"task_id":"T-001","result_summary":"Auth done"}}}"#,
+        "\n",
     );
     let complete_output = mcp_call(&dir, complete_input);
     let complete_resp = last_response(&complete_output);
@@ -174,15 +200,19 @@ fn test_mcp_claim_already_claimed_task() {
 
     // Claim T-001 first
     let input1 = concat!(
-        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, "\n",
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_claim_task","arguments":{"task_id":"T-001","agent":"claude"}}}"#, "\n",
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_claim_task","arguments":{"task_id":"T-001","agent":"claude"}}}"#,
+        "\n",
     );
     mcp_call(&dir, input1);
 
     // Try to claim again — should error
     let input2 = concat!(
-        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, "\n",
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_claim_task","arguments":{"task_id":"T-001","agent":"codex"}}}"#, "\n",
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_claim_task","arguments":{"task_id":"T-001","agent":"codex"}}}"#,
+        "\n",
     );
     let output = mcp_call(&dir, input2);
     let resp = last_response(&output);
@@ -207,8 +237,10 @@ fn test_mcp_capture_and_query_knowledge() {
 
     // Capture a knowledge entry
     let capture_input = concat!(
-        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, "\n",
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_capture_knowledge","arguments":{"title":"JWT tokens expire","content":"Research finding: JWT tokens should have 15-minute expiry with refresh tokens for security.","tags":["auth","jwt","security"]}}}"#, "\n",
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_capture_knowledge","arguments":{"title":"JWT tokens expire","content":"Research finding: JWT tokens should have 15-minute expiry with refresh tokens for security.","tags":["auth","jwt","security"]}}}"#,
+        "\n",
     );
     let capture_output = mcp_call(&dir, capture_input);
     let capture_resp = last_response(&capture_output);
@@ -217,8 +249,10 @@ fn test_mcp_capture_and_query_knowledge() {
 
     // Query knowledge
     let query_input = concat!(
-        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, "\n",
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_get_knowledge","arguments":{"query":"jwt"}}}"#, "\n",
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_get_knowledge","arguments":{"query":"jwt"}}}"#,
+        "\n",
     );
     let query_output = mcp_call(&dir, query_input);
     let query_resp = last_response(&query_output);
@@ -232,8 +266,10 @@ fn test_mcp_capture_with_explicit_category() {
     setup_project_with_tasks(&dir);
 
     let input = concat!(
-        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, "\n",
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_capture_knowledge","arguments":{"title":"Use Rust for orchestrator","content":"We decided to use Rust for the orchestrator binary.","category":"decisions","source":"team discussion","task_id":"T-001"}}}"#, "\n",
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_capture_knowledge","arguments":{"title":"Use Rust for orchestrator","content":"We decided to use Rust for the orchestrator binary.","category":"decisions","source":"team discussion","task_id":"T-001"}}}"#,
+        "\n",
     );
     let output = mcp_call(&dir, input);
     let resp = last_response(&output);
@@ -241,8 +277,10 @@ fn test_mcp_capture_with_explicit_category() {
 
     // List by category
     let list_input = concat!(
-        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, "\n",
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_get_knowledge","arguments":{"category":"decisions"}}}"#, "\n",
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_get_knowledge","arguments":{"category":"decisions"}}}"#,
+        "\n",
     );
     let list_output = mcp_call(&dir, list_input);
     let list_resp = last_response(&list_output);
@@ -255,8 +293,10 @@ fn test_mcp_get_health() {
     setup_project_with_tasks(&dir);
 
     let input = concat!(
-        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, "\n",
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_get_health","arguments":{}}}"#, "\n",
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_get_health","arguments":{}}}"#,
+        "\n",
     );
     let output = mcp_call(&dir, input);
     let resp = last_response(&output);
@@ -272,8 +312,10 @@ fn test_mcp_check_drift() {
     setup_project_with_tasks(&dir);
 
     let input = concat!(
-        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, "\n",
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_check_drift","arguments":{}}}"#, "\n",
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"forge_check_drift","arguments":{}}}"#,
+        "\n",
     );
     let output = mcp_call(&dir, input);
     let resp = last_response(&output);
