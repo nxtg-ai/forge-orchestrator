@@ -12,6 +12,9 @@ use cli::{Cli, Commands};
 use std::path::PathBuf;
 
 fn main() -> anyhow::Result<()> {
+    // Load .env file if present (for OPENAI_API_KEY etc.)
+    dotenvy::dotenv().ok();
+
     let cli = Cli::parse();
     let project_root = PathBuf::from(&cli.project)
         .canonicalize()
@@ -35,6 +38,17 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Mcp => {
             cli::mcp::execute(&project_root)?;
+        }
+        Commands::Config { key, value } => {
+            if let Some(key) = key {
+                if let Some(value) = value {
+                    cli::config::execute(&project_root, &key, &value)?;
+                } else {
+                    anyhow::bail!("Missing value. Usage: forge config <key> <value>");
+                }
+            } else {
+                cli::config::show(&project_root)?;
+            }
         }
     }
 

@@ -218,11 +218,14 @@ Deliverables:
 **Goal:** Pluggable LLM brain.
 
 Deliverables:
-- [ ] ForgeBrain trait definition
-- [ ] ClaudeOpusBrain implementation (Claude API)
-- [ ] RuleBasedBrain implementation (no LLM, free tier)
-- [ ] `forge config set brain <provider>` command
-- [ ] Brain-powered plan decomposition from SPEC.md
+- [x] ForgeBrain trait definition
+- [x] OpenAIBrain implementation (real API calls, gpt-4.1 default)
+- [x] RuleBasedBrain implementation (no LLM, free tier)
+- [x] `forge config set brain <provider>` command
+- [x] Brain-powered plan decomposition from SPEC.md
+- [x] Brain-powered drift detection via MCP
+- [x] Graceful fallback to rule-based when no API key
+- [x] .env support for API key loading (dotenvy)
 
 ## 7. Non-Goals (Not in v0.1)
 

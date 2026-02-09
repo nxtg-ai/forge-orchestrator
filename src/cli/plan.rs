@@ -1,3 +1,4 @@
+use crate::brain::openai::OpenAIBrain;
 use crate::brain::rule_based::RuleBasedBrain;
 use crate::brain::ForgeBrain;
 use crate::core::event::{EventLogger, EventType, ForgeEvent};
@@ -126,9 +127,21 @@ fn generate_plan(
         }
     );
 
+    // Select brain based on config
+    let brain: Box<dyn ForgeBrain> = match state.brain.provider.as_str() {
+        "openai" => {
+            let model = state.brain.model.as_deref().unwrap_or("gpt-4.1");
+            println!("  {} Using OpenAI brain (model: {model})", "→".cyan());
+            Box::new(OpenAIBrain::new(model))
+        }
+        _ => {
+            println!("  {} Using rule-based brain", "→".cyan());
+            Box::new(RuleBasedBrain)
+        }
+    };
+
     // Use brain to decompose spec into tasks
     println!("  {} Decomposing spec into tasks...", "→".cyan());
-    let brain = RuleBasedBrain;
     let tools_for_brain = if available_tools.is_empty() {
         vec![AgentType::Any]
     } else {

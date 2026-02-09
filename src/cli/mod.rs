@@ -1,3 +1,4 @@
+pub mod config;
 pub mod init;
 pub mod mcp;
 pub mod plan;
@@ -67,4 +68,15 @@ pub enum Commands {
 
     /// Start the MCP server (stdio transport) — AI tools connect to query/update state
     Mcp,
+
+    /// Get or set configuration values
+    Config {
+        /// Config key to set (e.g., "brain", "brain.model"). Omit to show current config.
+        #[arg()]
+        key: Option<String>,
+
+        /// Value to set
+        #[arg()]
+        value: Option<String>,
+    },
 }

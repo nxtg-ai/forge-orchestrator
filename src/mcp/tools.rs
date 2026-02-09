@@ -560,11 +560,28 @@ fn handle_get_knowledge(args: &Value, forge_dir: &Path) -> CallToolResult {
     CallToolResult::text(serde_json::to_string_pretty(&output).unwrap_or_default())
 }
 
+/// Create the configured brain from state.json
+fn get_configured_brain(forge_dir: &Path) -> Box<dyn crate::brain::ForgeBrain> {
+    let state_mgr = StateManager::new(forge_dir);
+    if let Ok(state) = state_mgr.load() {
+        match state.brain.provider.as_str() {
+            "openai" => {
+                let model = state.brain.model.as_deref().unwrap_or("gpt-4.1");
+                Box::new(crate::brain::openai::OpenAIBrain::new(model))
+            }
+            _ => Box::new(RuleBasedBrain),
+        }
+    } else {
+        Box::new(RuleBasedBrain)
+    }
+}
+
 fn handle_check_drift(project_root: &Path) -> CallToolResult {
     let checker = GovernanceChecker::new(project_root);
-    let brain = RuleBasedBrain;
+    let forge_dir = project_root.join(".forge");
+    let brain = get_configured_brain(&forge_dir);
 
-    let report = checker.full_check(&brain);
+    let report = checker.full_check(brain.as_ref());
 
     let drift_json = match &report.drift {
         Some(drift) => json!({
@@ -597,9 +614,10 @@ fn handle_check_drift(project_root: &Path) -> CallToolResult {
 
 fn handle_get_health(project_root: &Path) -> CallToolResult {
     let checker = GovernanceChecker::new(project_root);
-    let brain = RuleBasedBrain;
+    let forge_dir = project_root.join(".forge");
+    let brain = get_configured_brain(&forge_dir);
 
-    let report = checker.full_check(&brain);
+    let report = checker.full_check(brain.as_ref());
 
     // Log governance event
     let forge_dir = project_root.join(".forge");
