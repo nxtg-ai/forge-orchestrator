@@ -437,8 +437,8 @@ fn run_agent_loop(
 
                 consecutive_waits += 1;
 
-                // Only print every 3rd wait to reduce noise
-                if consecutive_waits % 3 == 1 {
+                // Only print every 6th wait (~60s) to reduce noise
+                if consecutive_waits % 6 == 1 {
                     println!(
                         "  {tag} {} {} tasks waiting on dependencies...",
                         "⏳".dimmed(),
@@ -446,10 +446,36 @@ fn run_agent_loop(
                     );
                 }
 
-                // Give up after 5 minutes of waiting (30 * 10s)
-                if consecutive_waits > 30 {
+                // Smart timeout: only give up if NO progress is being made globally.
+                // Check if any other agent has completed work recently by comparing
+                // our snapshot of completed tasks vs the current count.
+                let current_done = stats.completed.load(Ordering::Relaxed);
+                let current_failed = stats.failed.load(Ordering::Relaxed);
+                let total_finished = current_done + current_failed;
+
+                // If other agents are still working (tasks in_progress exist),
+                // or if progress was made recently, keep waiting indefinitely.
+                let any_in_progress = {
+                    let tasks = task_mgr.list_tasks()?;
+                    tasks.iter().any(|t| t.status == TaskStatus::InProgress)
+                };
+
+                if any_in_progress {
+                    // Reset wait counter — someone is actively working
+                    if consecutive_waits > 6 {
+                        consecutive_waits = 1;
+                    }
+                } else if total_finished >= stats.total {
+                    // Everything is either done or failed — nothing left to unblock us
                     println!(
-                        "  {tag} {} Timed out waiting for dependencies after 5 minutes.",
+                        "  {tag} {} All other tasks finished but dependencies not met.",
+                        "!".yellow()
+                    );
+                    break;
+                } else if consecutive_waits > 30 {
+                    // No progress for 5 minutes and nothing in_progress
+                    println!(
+                        "  {tag} {} No progress detected for 5 minutes. Stopping.",
                         "!".yellow()
                     );
                     break;
