@@ -44,6 +44,87 @@ struct OrcStats {
     total: usize,
 }
 
+/// CEO Mode: loop `execute()` until all tasks are done or permanently stuck.
+/// Resets failed tasks between passes (treats them as retryable).
+pub fn execute_loop(project_root: &Path, agent_filter: Option<&str>) -> anyhow::Result<()> {
+    let forge_dir = project_root.join(".forge");
+    let mut pass = 0u32;
+    const MAX_PASSES: u32 = 5;
+
+    loop {
+        pass += 1;
+        if pass > 1 {
+            println!();
+            println!(
+                "  {} CEO Mode — Pass {}/{}",
+                "♻".cyan().bold(),
+                pass,
+                MAX_PASSES
+            );
+            println!();
+        }
+
+        execute(project_root, agent_filter)?;
+
+        // Check remaining work
+        let task_mgr = TaskManager::new(&forge_dir);
+        let tasks = task_mgr.list_tasks()?;
+        let pending = tasks
+            .iter()
+            .filter(|t| t.status == TaskStatus::Pending || t.status == TaskStatus::Blocked)
+            .count();
+        let failed = tasks
+            .iter()
+            .filter(|t| t.status == TaskStatus::Failed)
+            .count();
+        let total_remaining = pending + failed;
+
+        if total_remaining == 0 {
+            println!(
+                "\n  {} CEO Mode: All tasks complete. Ship it.",
+                "✓".green().bold()
+            );
+            break;
+        }
+
+        if pass >= MAX_PASSES {
+            println!(
+                "\n  {} CEO Mode: {} tasks remain after {} passes. Manual review needed.",
+                "!".yellow(),
+                total_remaining,
+                MAX_PASSES
+            );
+            break;
+        }
+
+        // Reset failed tasks for retry in next pass
+        if failed > 0 {
+            println!(
+                "\n  {} Resetting {} failed tasks for retry...",
+                "↻".yellow(),
+                failed
+            );
+            for task in &tasks {
+                if task.status == TaskStatus::Failed {
+                    let mut updated = task.clone();
+                    updated.status = TaskStatus::Pending;
+                    updated.updated_at = chrono::Utc::now();
+                    task_mgr.update_task(&updated)?;
+                }
+            }
+        }
+
+        // Wait before next pass
+        println!(
+            "\n  {} Waiting 30s before next pass...\n",
+            "⏳".dimmed()
+        );
+        std::thread::sleep(std::time::Duration::from_secs(30));
+    }
+
+    Ok(())
+}
+
 /// Autonomous orchestration — runs all tasks respecting dependencies,
 /// one thread per agent type, with retry, progress tracking, and auto-sync.
 pub fn execute(project_root: &Path, agent_filter: Option<&str>) -> anyhow::Result<()> {

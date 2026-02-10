@@ -40,8 +40,12 @@ fn main() -> anyhow::Result<()> {
         Commands::Run { task, agent } => {
             cli::run::execute(&project_root, &task, &agent)?;
         }
-        Commands::Start { agent } => {
-            cli::start::execute(&project_root, agent.as_deref())?;
+        Commands::Start { agent, r#loop } => {
+            if r#loop {
+                cli::start::execute_loop(&project_root, agent.as_deref())?;
+            } else {
+                cli::start::execute(&project_root, agent.as_deref())?;
+            }
         }
         Commands::Sync => {
             cli::sync::execute(&project_root)?;

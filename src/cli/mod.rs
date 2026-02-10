@@ -69,6 +69,10 @@ pub enum Commands {
         /// Only run tasks for a specific agent (claude, codex, gemini)
         #[arg(short, long)]
         agent: Option<String>,
+
+        /// CEO Mode: loop until all tasks complete (re-runs after each pass)
+        #[arg(short, long, alias = "ceo")]
+        r#loop: bool,
     },
 
     /// Reconcile state — update summaries, render adapter configs, check governance
