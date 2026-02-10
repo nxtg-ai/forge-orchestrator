@@ -117,10 +117,7 @@ pub fn execute_loop(project_root: &Path, agent_filter: Option<&str>) -> anyhow::
         }
 
         // Wait before next pass
-        println!(
-            "\n  {} Waiting 30s before next pass...\n",
-            "⏳".dimmed()
-        );
+        println!("\n  {} Waiting 30s before next pass...\n", "⏳".dimmed());
         std::thread::sleep(std::time::Duration::from_secs(30));
     }
 
@@ -147,8 +144,7 @@ pub fn execute(project_root: &Path, agent_filter: Option<&str>) -> anyhow::Resul
     println!();
     println!(
         "  {}",
-        "╔══════════════════════════════════════════════╗"
-            .bright_cyan()
+        "╔══════════════════════════════════════════════╗".bright_cyan()
     );
     println!(
         "  {}  {}  {}",
@@ -158,8 +154,7 @@ pub fn execute(project_root: &Path, agent_filter: Option<&str>) -> anyhow::Resul
     );
     println!(
         "  {}",
-        "╚══════════════════════════════════════════════╝"
-            .bright_cyan()
+        "╚══════════════════════════════════════════════╝".bright_cyan()
     );
     println!();
 
@@ -211,9 +206,7 @@ pub fn execute(project_root: &Path, agent_filter: Option<&str>) -> anyhow::Resul
             .count();
         let done = tasks
             .iter()
-            .filter(|t| {
-                t.assigned_to.as_ref() == Some(agent) && t.status == TaskStatus::Completed
-            })
+            .filter(|t| t.assigned_to.as_ref() == Some(agent) && t.status == TaskStatus::Completed)
             .count();
         println!(
             "  {} {:<8} {} tasks ({} done)",
@@ -228,10 +221,7 @@ pub fn execute(project_root: &Path, agent_filter: Option<&str>) -> anyhow::Resul
     print_progress(already_done, total);
 
     if total == already_done {
-        println!(
-            "\n  {} All tasks already complete!",
-            "✓".green().bold()
-        );
+        println!("\n  {} All tasks already complete!", "✓".green().bold());
         return Ok(());
     }
 
@@ -247,13 +237,7 @@ pub fn execute(project_root: &Path, agent_filter: Option<&str>) -> anyhow::Resul
     let lock = Arc::new(Mutex::new(()));
 
     if target_agents.len() == 1 {
-        run_agent_loop(
-            project_root,
-            &forge_dir,
-            &target_agents[0],
-            &lock,
-            &stats,
-        )?;
+        run_agent_loop(project_root, &forge_dir, &target_agents[0], &lock, &stats)?;
     } else {
         run_parallel(project_root, &forge_dir, &target_agents, &stats)?;
     }
@@ -274,8 +258,7 @@ pub fn execute(project_root: &Path, agent_filter: Option<&str>) -> anyhow::Resul
     println!();
     println!(
         "  {}",
-        "╔══════════════════════════════════════════════╗"
-            .bright_cyan()
+        "╔══════════════════════════════════════════════╗".bright_cyan()
     );
     println!(
         "  {}  {}  {}",
@@ -285,8 +268,7 @@ pub fn execute(project_root: &Path, agent_filter: Option<&str>) -> anyhow::Resul
     );
     println!(
         "  {}",
-        "╚══════════════════════════════════════════════╝"
-            .bright_cyan()
+        "╚══════════════════════════════════════════════╝".bright_cyan()
     );
     println!();
 
@@ -321,9 +303,7 @@ pub fn execute(project_root: &Path, agent_filter: Option<&str>) -> anyhow::Resul
     for agent in &target_agents {
         let agent_completed = tasks
             .iter()
-            .filter(|t| {
-                t.assigned_to.as_ref() == Some(agent) && t.status == TaskStatus::Completed
-            })
+            .filter(|t| t.assigned_to.as_ref() == Some(agent) && t.status == TaskStatus::Completed)
             .count();
         let agent_failed = tasks
             .iter()
@@ -405,13 +385,7 @@ fn print_progress(done: usize, total: usize) {
         "█".repeat(filled).green(),
         "░".repeat(empty).dimmed()
     );
-    println!(
-        "  [{}] {}/{} ({:.0}%)",
-        bar,
-        done,
-        total,
-        pct * 100.0
-    );
+    println!("  [{}] {}/{} ({:.0}%)", bar, done, total, pct * 100.0);
     println!();
 }
 
@@ -508,8 +482,7 @@ fn run_agent_loop(
                     .iter()
                     .filter(|t| {
                         t.assigned_to.as_ref() == Some(agent)
-                            && (t.status == TaskStatus::Pending
-                                || t.status == TaskStatus::Blocked)
+                            && (t.status == TaskStatus::Pending || t.status == TaskStatus::Blocked)
                     })
                     .collect();
 
@@ -575,12 +548,7 @@ fn run_agent_loop(
             claim_task(forge_dir, &task, agent)?;
         }
 
-        println!(
-            "  {tag} {} {} {}",
-            "→".cyan(),
-            task.id.bold(),
-            task.title
-        );
+        println!("  {tag} {} {} {}", "→".cyan(), task.id.bold(), task.title);
 
         // ── Execute with retry ──────────────────────────────────
         let started = Instant::now();
