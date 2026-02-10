@@ -161,7 +161,20 @@ FORGE — Autonomous Orchestration
 forge start --agent codex    # Only run codex tasks
 ```
 
-### Option C: One Task at a Time
+### Option C: CEO Mode (Fully Autonomous)
+
+```bash
+forge start --ceo
+```
+
+CEO Mode loops `forge start` until every task is complete (up to 5 passes). Between passes it:
+- Resets failed tasks back to `pending` for automatic retry
+- Waits 30 seconds before the next pass
+- Stops when all tasks are `completed` or the pass limit is hit
+
+This is the "walk away and come back to a finished project" mode.
+
+### Option D: One Task at a Time
 
 ```bash
 forge run --task T-001 --agent codex
@@ -246,6 +259,8 @@ forge status                 # Review the plan
 forge start                  # Launch all agents (runs for minutes to hours)
 # ... go get coffee ...
 forge status                 # Check progress
+# Or for fully hands-off:
+forge start --ceo            # Loop until 100% complete, auto-retry failures
 ```
 
 ---
