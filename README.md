@@ -16,7 +16,7 @@ Plan work. Assign it to the right AI. Track progress. Prevent conflicts. Capture
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.93+-orange.svg)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/Tests-54%2F54_passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/Tests-58%2F58_passing-brightgreen.svg)](#)
 [![MCP](https://img.shields.io/badge/MCP-9_tools-purple.svg)](#mcp-server)
 [![Binary](https://img.shields.io/badge/Binary-3_MB-lightgrey.svg)](#)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/nxtg-ai/forge-orchestrator/pulls)
@@ -318,7 +318,7 @@ Returns a **health score out of 100** with actionable findings.
 | Language | Rust (2024 edition) |
 | Binary size | ~3 MB (includes TLS) |
 | Source lines | ~5,000 |
-| Tests | 54 (33 unit + 9 CLI + 12 MCP) |
+| Tests | 58 (37 unit + 9 CLI + 12 MCP) |
 | External runtime deps | Zero (single binary) |
 | MCP tools | 9 |
 | Supported AI tools | Claude Code, Codex CLI, Gemini CLI |
@@ -404,7 +404,7 @@ Forge is MIT-licensed and contributions are welcome.
 **Before submitting a PR:**
 
 ```bash
-cargo test          # All 54 tests must pass
+cargo test          # All 58 tests must pass
 cargo clippy        # No warnings
 cargo fmt --check   # Formatted
 ```

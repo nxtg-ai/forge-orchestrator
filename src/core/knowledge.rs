@@ -335,6 +335,87 @@ mod tests {
     }
 
     #[test]
+    fn test_search_case_insensitive() {
+        let dir = TempDir::new().unwrap();
+        let forge_dir = dir.path().join(".forge");
+        std::fs::create_dir_all(&forge_dir).unwrap();
+
+        let mgr = KnowledgeManager::new(&forge_dir);
+
+        mgr.capture(&KnowledgeEntry::new(
+            "UAT Friction Points",
+            "Found 10 friction points during user acceptance testing.",
+            &KnowledgeCategory::Learning,
+        ))
+        .unwrap();
+
+        // Search should be case-insensitive
+        assert_eq!(mgr.search("uat").unwrap().len(), 1);
+        assert_eq!(mgr.search("UAT").unwrap().len(), 1);
+        assert_eq!(mgr.search("Uat").unwrap().len(), 1);
+        assert_eq!(mgr.search("friction").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_search_by_tag() {
+        let dir = TempDir::new().unwrap();
+        let forge_dir = dir.path().join(".forge");
+        std::fs::create_dir_all(&forge_dir).unwrap();
+
+        let mgr = KnowledgeManager::new(&forge_dir);
+
+        mgr.capture(
+            &KnowledgeEntry::new(
+                "API rate limits",
+                "External APIs have rate limits we must respect.",
+                &KnowledgeCategory::Research,
+            )
+            .with_tags(vec!["api".into(), "rate-limit".into()]),
+        )
+        .unwrap();
+
+        // Should find by tag content
+        assert_eq!(mgr.search("rate-limit").unwrap().len(), 1);
+        assert_eq!(mgr.search("api").unwrap().len(), 1);
+        // Should not match unrelated queries
+        assert_eq!(mgr.search("database").unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_search_empty_knowledge_base() {
+        let dir = TempDir::new().unwrap();
+        let forge_dir = dir.path().join(".forge");
+        std::fs::create_dir_all(&forge_dir).unwrap();
+
+        let mgr = KnowledgeManager::new(&forge_dir);
+
+        // Empty knowledge base returns empty results, not an error
+        let results = mgr.search("anything").unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_search_content_only_match() {
+        let dir = TempDir::new().unwrap();
+        let forge_dir = dir.path().join(".forge");
+        std::fs::create_dir_all(&forge_dir).unwrap();
+
+        let mgr = KnowledgeManager::new(&forge_dir);
+
+        mgr.capture(&KnowledgeEntry::new(
+            "Database setup",
+            "We chose PostgreSQL because it handles concurrent writes well.",
+            &KnowledgeCategory::Decision,
+        ))
+        .unwrap();
+
+        // "concurrent" only appears in content, not title or tags
+        let results = mgr.search("concurrent").unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "Database setup");
+    }
+
+    #[test]
     fn test_generate_skill_md() {
         let dir = TempDir::new().unwrap();
         let forge_dir = dir.path().join(".forge");

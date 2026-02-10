@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Resolve all P1-P3 UAT friction points (5 fixes) — OpenAI timeout doubled (120s), MCP project switching via `forge_set_project`, knowledge search test coverage, plan template quality, codex adapter `--skip-git-repo-check`
 
 ### Added
+- 4 new knowledge search tests: case insensitivity, tag search, empty base, content-only match (54 → 58 tests)
 - Ecosystem cross-references in README linking to forge-plugin and forge dashboard repos
 
 ## [0.1.2] - 2026-02-09
