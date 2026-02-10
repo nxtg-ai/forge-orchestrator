@@ -378,6 +378,18 @@ src/
     └── mod.rs
 ```
 
+## Ecosystem
+
+Forge is three repos that work together:
+
+| Repo | What it is |
+|:-----|:-----------|
+| **[forge-orchestrator](https://github.com/nxtg-ai/forge-orchestrator)** (this repo) | Rust CLI &mdash; multi-agent task planning and coordination |
+| **[forge-plugin](https://github.com/nxtg-ai/forge-plugin)** | Claude Code plugin &mdash; 21 commands, 22 agents, 29 skills, 6 hooks |
+| **[forge](https://github.com/nxtg-ai/forge)** | Full platform &mdash; React dashboard, Infinity Terminal, API server |
+
+The **orchestrator** plans and coordinates. The **plugin** adds governance to Claude Code. The **dashboard** adds visual oversight for teams.
+
 ## Contributing
 
 Forge is MIT-licensed and contributions are welcome.
