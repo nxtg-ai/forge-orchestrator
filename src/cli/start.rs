@@ -31,9 +31,11 @@ const TRANSIENT_ERRORS: &[&str] = &[
     "ETIMEDOUT",
     "server error",
     "internal server error",
+    "500",
     "502",
     "503",
     "overloaded",
+    "api_error",
 ];
 
 /// Shared orchestration stats.
