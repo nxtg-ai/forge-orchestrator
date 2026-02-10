@@ -16,7 +16,7 @@ Plan work. Assign it to the right AI. Track progress. Prevent conflicts. Capture
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.93+-orange.svg)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/Tests-51%2F51_passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/Tests-54%2F54_passing-brightgreen.svg)](#)
 [![MCP](https://img.shields.io/badge/MCP-9_tools-purple.svg)](#mcp-server)
 [![Binary](https://img.shields.io/badge/Binary-3_MB-lightgrey.svg)](#)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/nxtg-ai/forge-orchestrator/pulls)
@@ -318,7 +318,7 @@ Returns a **health score out of 100** with actionable findings.
 | Language | Rust (2024 edition) |
 | Binary size | ~3 MB (includes TLS) |
 | Source lines | ~5,000 |
-| Tests | 51 (30 unit + 9 CLI + 12 MCP) |
+| Tests | 54 (33 unit + 9 CLI + 12 MCP) |
 | External runtime deps | Zero (single binary) |
 | MCP tools | 9 |
 | Supported AI tools | Claude Code, Codex CLI, Gemini CLI |
@@ -398,13 +398,13 @@ Forge is MIT-licensed and contributions are welcome.
 - Add a `ClaudeBrain` implementation (Claude API for plan decomposition)
 - Add `forge worktree` command (git worktree per task for parallel agent work)
 - Add progress bars to `forge status` dashboard
-- Add retry logic to `forge start` (currently marks failed tasks and moves on)
+- ~~Add retry logic to `forge start`~~ (done in v0.1.2)
 - Add `forge report` command (session summary from events.jsonl)
 
 **Before submitting a PR:**
 
 ```bash
-cargo test          # All 51 tests must pass
+cargo test          # All 54 tests must pass
 cargo clippy        # No warnings
 cargo fmt --check   # Formatted
 ```
