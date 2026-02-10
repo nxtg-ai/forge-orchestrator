@@ -159,7 +159,38 @@ pub fn list_tools() -> Vec<ToolDefinition> {
                 "properties": {}
             }),
         },
+        ToolDefinition {
+            name: "forge_set_project".into(),
+            description: "Switch the active project — changes which .forge/ directory is used for all subsequent tool calls".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute path to the project root (must contain a .forge/ directory)"
+                    }
+                },
+                "required": ["path"]
+            }),
+        },
     ]
+}
+
+/// Handle forge_set_project — returns Ok(new_path) or Err(error_result)
+pub fn handle_set_project(args: &Value) -> Result<std::path::PathBuf, CallToolResult> {
+    let path_str = match args.get("path").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => return Err(CallToolResult::error("Missing required parameter: path")),
+    };
+
+    let new_root = std::path::PathBuf::from(path_str);
+    if !new_root.join(".forge").exists() {
+        return Err(CallToolResult::error(format!(
+            "No .forge/ directory found at {path_str}. Run `forge init` in that project first."
+        )));
+    }
+
+    Ok(new_root)
 }
 
 /// Dispatch a tool call to the appropriate handler
@@ -319,6 +350,9 @@ fn handle_claim_task(args: &Value, forge_dir: &Path) -> CallToolResult {
         .with_agent(agent.clone()),
     );
 
+    // Refresh task summary so state.json stays current
+    let _ = state_mgr.refresh_task_summary();
+
     CallToolResult::text(format!(
         "Task {task_id} claimed by {agent}. Files locked: {}",
         if task.locked_files.is_empty() {
@@ -371,6 +405,9 @@ fn handle_complete_task(args: &Value, forge_dir: &Path) -> CallToolResult {
         )
         .with_task(task_id),
     );
+
+    // Refresh task summary so state.json stays current
+    let _ = state_mgr.refresh_task_summary();
 
     // Check for newly unblocked tasks
     let completed_ids = task_mgr.get_completed_task_ids().unwrap_or_default();
@@ -650,9 +687,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_list_tools_returns_nine() {
+    fn test_list_tools_returns_ten() {
         let tools = list_tools();
-        assert_eq!(tools.len(), 9);
+        assert_eq!(tools.len(), 10);
         assert_eq!(tools[0].name, "forge_get_tasks");
         assert_eq!(tools[1].name, "forge_claim_task");
         assert_eq!(tools[2].name, "forge_complete_task");
@@ -662,6 +699,7 @@ mod tests {
         assert_eq!(tools[6].name, "forge_get_knowledge");
         assert_eq!(tools[7].name, "forge_check_drift");
         assert_eq!(tools[8].name, "forge_get_health");
+        assert_eq!(tools[9].name, "forge_set_project");
     }
 
     #[test]

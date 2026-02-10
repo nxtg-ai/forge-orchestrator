@@ -18,6 +18,7 @@ pub fn run_stdio(project_root: &Path) -> anyhow::Result<()> {
     let mut reader = stdin.lock();
     let mut writer = stdout.lock();
     let mut line = String::new();
+    let mut current_project = project_root.to_path_buf();
 
     // Log to stderr so it doesn't interfere with the JSON-RPC protocol on stdout
     eprintln!(
@@ -49,8 +50,8 @@ pub fn run_stdio(project_root: &Path) -> anyhow::Result<()> {
             }
         };
 
-        // Handle the request
-        let response = handle_request(&request, project_root);
+        // Handle the request (may mutate current_project for set_project)
+        let response = handle_request(&request, &mut current_project);
 
         // Notifications (no id) don't get responses
         if request.id.is_none() {
@@ -66,7 +67,10 @@ pub fn run_stdio(project_root: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn handle_request(request: &JsonRpcRequest, project_root: &Path) -> Option<JsonRpcResponse> {
+fn handle_request(
+    request: &JsonRpcRequest,
+    project_root: &mut std::path::PathBuf,
+) -> Option<JsonRpcResponse> {
     let id = request.id.clone();
 
     match request.method.as_str() {
@@ -120,6 +124,25 @@ fn handle_request(request: &JsonRpcRequest, project_root: &Path) -> Option<JsonR
 
             eprintln!("[forge-mcp] Calling tool: {tool_name}");
 
+            // Special handling for forge_set_project — mutates server state
+            if tool_name == "forge_set_project" {
+                let result = match tools::handle_set_project(&arguments) {
+                    Ok(new_path) => {
+                        eprintln!("[forge-mcp] Project switched to: {}", new_path.display());
+                        *project_root = new_path.clone();
+                        super::protocol::CallToolResult::text(format!(
+                            "Project switched to: {}",
+                            new_path.display()
+                        ))
+                    }
+                    Err(err_result) => err_result,
+                };
+                return Some(JsonRpcResponse::success(
+                    id,
+                    serde_json::to_value(result).unwrap(),
+                ));
+            }
+
             let result = tools::call_tool(tool_name, &arguments, project_root);
             Some(JsonRpcResponse::success(
                 id,
@@ -160,7 +183,8 @@ mod tests {
             })),
         };
 
-        let response = handle_request(&request, Path::new("/tmp")).unwrap();
+        let mut root = std::path::PathBuf::from("/tmp");
+        let response = handle_request(&request, &mut root).unwrap();
         let result = response.result.unwrap();
         assert_eq!(result["protocolVersion"], "2024-11-05");
         assert_eq!(result["serverInfo"]["name"], "forge-mcp");
@@ -175,10 +199,11 @@ mod tests {
             params: None,
         };
 
-        let response = handle_request(&request, Path::new("/tmp")).unwrap();
+        let mut root = std::path::PathBuf::from("/tmp");
+        let response = handle_request(&request, &mut root).unwrap();
         let result = response.result.unwrap();
         let tools = result["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 9);
+        assert_eq!(tools.len(), 10);
     }
 
     #[test]
@@ -190,7 +215,8 @@ mod tests {
             params: None,
         };
 
-        let response = handle_request(&request, Path::new("/tmp")).unwrap();
+        let mut root = std::path::PathBuf::from("/tmp");
+        let response = handle_request(&request, &mut root).unwrap();
         assert!(response.result.is_some());
         assert!(response.error.is_none());
     }
@@ -204,7 +230,8 @@ mod tests {
             params: None,
         };
 
-        let response = handle_request(&request, Path::new("/tmp")).unwrap();
+        let mut root = std::path::PathBuf::from("/tmp");
+        let response = handle_request(&request, &mut root).unwrap();
         assert!(response.error.is_some());
         assert_eq!(response.error.unwrap().code, -32601);
     }
@@ -218,7 +245,8 @@ mod tests {
             params: None,
         };
 
-        let response = handle_request(&request, Path::new("/tmp"));
+        let mut root = std::path::PathBuf::from("/tmp");
+        let response = handle_request(&request, &mut root);
         assert!(response.is_none());
     }
 }

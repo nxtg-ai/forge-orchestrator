@@ -42,6 +42,14 @@ pub fn execute(project_root: &Path, name: Option<String>) -> anyhow::Result<()> 
     let package_json_exists = project_root.join("package.json").exists();
     let cargo_toml_exists = project_root.join("Cargo.toml").exists();
     let git_exists = project_root.join(".git").exists();
+    // Python project markers
+    let requirements_txt_exists = project_root.join("requirements.txt").exists();
+    let pyproject_toml_exists = project_root.join("pyproject.toml").exists();
+    let setup_py_exists = project_root.join("setup.py").exists();
+    let pipfile_exists = project_root.join("Pipfile").exists();
+    let makefile_exists = project_root.join("Makefile").exists();
+    // Go project markers
+    let go_mod_exists = project_root.join("go.mod").exists();
 
     let check = |exists: bool| {
         if exists {
@@ -58,7 +66,38 @@ pub fn execute(project_root: &Path, name: Option<String>) -> anyhow::Result<()> 
     println!("  {} README.md", check(readme_exists));
     println!("  {} package.json", check(package_json_exists));
     println!("  {} Cargo.toml", check(cargo_toml_exists));
+    if requirements_txt_exists || pyproject_toml_exists || setup_py_exists || pipfile_exists {
+        println!("  {} requirements.txt", check(requirements_txt_exists));
+        println!("  {} pyproject.toml", check(pyproject_toml_exists));
+        println!("  {} setup.py", check(setup_py_exists));
+        println!("  {} Pipfile", check(pipfile_exists));
+    }
+    if makefile_exists {
+        println!("  {} Makefile", check(makefile_exists));
+    }
+    if go_mod_exists {
+        println!("  {} go.mod", check(go_mod_exists));
+    }
     println!("  {} .git", check(git_exists));
+
+    // Detect project type
+    let project_type = if cargo_toml_exists {
+        "Rust"
+    } else if package_json_exists {
+        "JavaScript/TypeScript"
+    } else if pyproject_toml_exists || requirements_txt_exists || setup_py_exists || pipfile_exists
+    {
+        "Python"
+    } else if go_mod_exists {
+        "Go"
+    } else {
+        "Unknown"
+    };
+    println!(
+        "\n  {} Detected project type: {}",
+        "→".cyan(),
+        project_type.cyan()
+    );
     println!();
 
     // Step 1: Detect tools

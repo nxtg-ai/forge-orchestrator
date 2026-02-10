@@ -63,25 +63,33 @@ fn generate_plan(
     let spec_file = if let Some(path) = spec_path {
         project_root.join(path)
     } else {
-        let candidates = ["SPEC.md", "spec.md", "PRD.md", "REQUIREMENTS.md"];
-        let found = candidates
+        // Check exact filenames first, then glob patterns for variants
+        let exact_candidates = ["SPEC.md", "spec.md", "PRD.md", "REQUIREMENTS.md"];
+        let found = exact_candidates
             .iter()
             .map(|f| project_root.join(f))
             .find(|p| p.exists());
 
-        match found {
-            Some(path) => path,
-            None => {
-                println!("{} No specification file found. Looked for:", "!".yellow());
-                for c in &candidates {
-                    println!("    - {c}");
+        if let Some(path) = found {
+            path
+        } else {
+            // Try glob patterns for variants like SPEC-FINAL.md, spec-v2.md, etc.
+            let glob_found = find_spec_by_glob(project_root);
+            match glob_found {
+                Some(path) => path,
+                None => {
+                    println!("{} No specification file found. Looked for:", "!".yellow());
+                    for c in &exact_candidates {
+                        println!("    - {c}");
+                    }
+                    println!("    - SPEC-*.md, spec-*.md, PRD-*.md, REQUIREMENTS-*.md");
+                    println!();
+                    println!(
+                        "Create a SPEC.md or use {} to specify a path.",
+                        "--spec <path>".cyan()
+                    );
+                    return Ok(());
                 }
-                println!();
-                println!(
-                    "Create a SPEC.md or use {} to specify a path.",
-                    "--spec <path>".cyan()
-                );
-                return Ok(());
             }
         }
     };
@@ -282,6 +290,19 @@ fn generate_plan_markdown(project_name: &str, tasks: &[crate::core::task::Task])
     }
 
     content
+}
+
+fn find_spec_by_glob(project_root: &Path) -> Option<std::path::PathBuf> {
+    let prefixes = ["SPEC-", "spec-", "PRD-", "REQUIREMENTS-"];
+    if let Ok(entries) = std::fs::read_dir(project_root) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.ends_with(".md") && prefixes.iter().any(|p| name.starts_with(p)) {
+                return Some(entry.path());
+            }
+        }
+    }
+    None
 }
 
 fn truncate(s: &str, max: usize) -> String {

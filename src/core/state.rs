@@ -108,6 +108,39 @@ impl StateManager {
         self.save(&state)
     }
 
+    /// Recompute task_summary from actual task files on disk
+    pub fn refresh_task_summary(&self) -> anyhow::Result<()> {
+        let task_mgr = super::task::TaskManager::new(&self.forge_dir);
+        let tasks = task_mgr.list_tasks()?;
+        let summary = TaskSummary {
+            total: tasks.len(),
+            pending: tasks
+                .iter()
+                .filter(|t| t.status == super::task::TaskStatus::Pending)
+                .count(),
+            in_progress: tasks
+                .iter()
+                .filter(|t| {
+                    t.status == super::task::TaskStatus::Assigned
+                        || t.status == super::task::TaskStatus::InProgress
+                })
+                .count(),
+            completed: tasks
+                .iter()
+                .filter(|t| t.status == super::task::TaskStatus::Completed)
+                .count(),
+            failed: tasks
+                .iter()
+                .filter(|t| t.status == super::task::TaskStatus::Failed)
+                .count(),
+            blocked: tasks
+                .iter()
+                .filter(|t| t.status == super::task::TaskStatus::Blocked)
+                .count(),
+        };
+        self.update_task_summary(summary)
+    }
+
     /// Refresh detected tools in state (picks up newly installed CLIs)
     pub fn update_tools(&self, tools: &[DetectedTool]) -> anyhow::Result<()> {
         let mut state = self.load()?;
