@@ -120,13 +120,14 @@ fn generate_plan(
     // Display task table
     println!("{}", "Generated Plan:".bold());
     println!(
-        "  {:<8} {:<40} {:<10} {:<10}",
+        "  {:<8} {:<36} {:<10} {:<12} {:<10}",
         "ID".dimmed(),
         "Title".dimmed(),
         "Agent".dimmed(),
+        "Type".dimmed(),
         "Status".dimmed()
     );
-    println!("  {}", "-".repeat(68));
+    println!("  {}", "-".repeat(76));
 
     for task in &tasks {
         let agent_str = task
@@ -134,11 +135,13 @@ fn generate_plan(
             .as_ref()
             .map(|a| a.to_string())
             .unwrap_or_else(|| "any".into());
+        let type_str = task.task_type.as_deref().unwrap_or("—");
         println!(
-            "  {:<8} {:<40} {:<10} {:<10}",
+            "  {:<8} {:<36} {:<10} {:<12} {:<10}",
             task.id.cyan(),
-            truncate(&task.title, 38),
+            truncate(&task.title, 34),
             agent_str.yellow(),
+            type_str.dimmed(),
             "pending".dimmed()
         );
     }
@@ -209,8 +212,8 @@ fn generate_plan_markdown(project_name: &str, tasks: &[crate::core::task::Task])
     content.push_str(&format!("**Tasks:** {}\n\n", tasks.len()));
     content.push_str("---\n\n");
     content.push_str("## Task Board\n\n");
-    content.push_str("| ID | Title | Agent | Status | Dependencies |\n");
-    content.push_str("|----|-------|-------|--------|-------------|\n");
+    content.push_str("| ID | Title | Agent | Type | Status | Dependencies |\n");
+    content.push_str("|----|-------|-------|------|--------|-------------|\n");
 
     for task in tasks {
         let agent = task
@@ -218,14 +221,15 @@ fn generate_plan_markdown(project_name: &str, tasks: &[crate::core::task::Task])
             .as_ref()
             .map(|a| a.to_string())
             .unwrap_or_else(|| "-".into());
+        let task_type = task.task_type.as_deref().unwrap_or("-");
         let deps = if task.depends_on.is_empty() {
             "-".to_string()
         } else {
             task.depends_on.join(", ")
         };
         content.push_str(&format!(
-            "| {} | {} | {} | {:?} | {} |\n",
-            task.id, task.title, agent, task.status, deps
+            "| {} | {} | {} | {} | {:?} | {} |\n",
+            task.id, task.title, agent, task_type, task.status, deps
         ));
     }
 

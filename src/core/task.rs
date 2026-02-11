@@ -53,6 +53,9 @@ pub struct Task {
     pub description: String,
     pub status: TaskStatus,
     pub assigned_to: Option<AgentType>,
+    /// Task type hint for adapter strategy: design, implement, review, test, document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_type: Option<String>,
     pub depends_on: Vec<String>,
     pub locked_files: Vec<String>,
     pub acceptance_criteria: Vec<String>,
@@ -74,6 +77,7 @@ impl Task {
             description: description.into(),
             status: TaskStatus::Pending,
             assigned_to: None,
+            task_type: None,
             depends_on: Vec::new(),
             locked_files: Vec::new(),
             acceptance_criteria: Vec::new(),
@@ -98,6 +102,7 @@ impl Task {
             "# {id}: {title}\n\n\
              **Status:** {status:?}\n\
              **Assigned to:** {agent}\n\
+             **Type:** {task_type}\n\
              **Created:** {created}\n\
              **Updated:** {updated}\n\n\
              ## Description\n\n{description}\n\n\
@@ -112,6 +117,7 @@ impl Task {
                 .as_ref()
                 .map(|a| a.to_string())
                 .unwrap_or_else(|| "unassigned".into()),
+            task_type = self.task_type.as_deref().unwrap_or("—"),
             created = self.created_at.format("%Y-%m-%d %H:%M UTC"),
             updated = self.updated_at.format("%Y-%m-%d %H:%M UTC"),
             description = self.description,

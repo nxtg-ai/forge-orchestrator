@@ -60,7 +60,7 @@ impl Default for ForgeState {
     fn default() -> Self {
         let now = Utc::now();
         Self {
-            version: "0.2.0".into(),
+            version: "0.2.1".into(),
             project_name: String::new(),
             created_at: now,
             updated_at: now,

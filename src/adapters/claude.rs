@@ -81,35 +81,43 @@ impl ToolAdapter for ClaudeAdapter {
         auth_mode: &str,
         permissions: &str,
     ) -> Command {
-        let prompt = format!(
-            "You are working on task {id}: {title}\n\n\
-             Description: {desc}\n\n\
-             {criteria}\
-             \n\
-             Complete this task. When done, summarize what you did.",
-            id = task.id,
-            title = task.title,
-            desc = task.description,
-            criteria = if task.acceptance_criteria.is_empty() {
-                String::new()
-            } else {
-                format!(
-                    "Acceptance criteria:\n{}\n\n",
-                    task.acceptance_criteria
-                        .iter()
-                        .map(|c| format!("- {c}"))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                )
-            },
-        );
+        let task_type = task.task_type.as_deref().unwrap_or("");
+
+        // Build task-type-aware prompt
+        let prompt = build_prompt(task, task_type);
 
         let mut cmd = Command::new("claude");
         cmd.args(["-p", &prompt, "--output-format", "text"])
             .current_dir(project_root);
 
+        // Smart permissions: scoped --allowedTools instead of blunt --dangerously-skip-permissions
         if permissions == "yolo" {
-            cmd.args(["--dangerously-skip-permissions"]);
+            match task_type {
+                "implement" => {
+                    cmd.args(["--allowedTools", "Write,Edit,Read,Glob,Grep,Bash"]);
+                }
+                "review" | "test" => {
+                    cmd.args(["--allowedTools", "Read,Glob,Grep,Bash"]);
+                }
+                "document" => {
+                    cmd.args(["--allowedTools", "Write,Edit,Read,Glob,Grep"]);
+                }
+                // design + unknown: full autonomy (may need any tool)
+                _ => {
+                    cmd.args(["--dangerously-skip-permissions"]);
+                }
+            }
+        }
+
+        // Task-type-aware turn limits
+        match task_type {
+            "review" | "test" => {
+                cmd.args(["--max-turns", "20"]);
+            }
+            "design" => {
+                cmd.args(["--max-turns", "30"]);
+            }
+            _ => {}
         }
 
         if auth_mode == "subscription" {
@@ -117,5 +125,84 @@ impl ToolAdapter for ClaudeAdapter {
         }
 
         cmd
+    }
+}
+
+/// Build a task-type-aware prompt for Claude.
+fn build_prompt(task: &Task, task_type: &str) -> String {
+    let criteria = if task.acceptance_criteria.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "Acceptance criteria:\n{}\n\n",
+            task.acceptance_criteria
+                .iter()
+                .map(|c| format!("- {c}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    };
+
+    let files = if task.locked_files.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "Files in scope:\n{}\n\n",
+            task.locked_files
+                .iter()
+                .map(|f| format!("- {f}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    };
+
+    match task_type {
+        "design" => format!(
+            "You are working on task {id}: {title}\n\n\
+             This is a DESIGN task. Focus on architecture and system design.\n\n\
+             Description: {desc}\n\n\
+             {criteria}{files}\
+             Think through the design carefully. Consider trade-offs, edge cases, \
+             and how this fits into the broader system. Produce clear, actionable \
+             design documents or code structures.\n\n\
+             When done, summarize your design decisions and rationale.",
+            id = task.id, title = task.title, desc = task.description,
+        ),
+        "review" => format!(
+            "You are working on task {id}: {title}\n\n\
+             This is a REVIEW task. Analyze the code without making changes.\n\n\
+             Description: {desc}\n\n\
+             {criteria}{files}\
+             Read the relevant code, identify issues, and provide a clear \
+             assessment. Do NOT modify files — this is a read-only review.\n\n\
+             When done, summarize your findings.",
+            id = task.id, title = task.title, desc = task.description,
+        ),
+        "test" => format!(
+            "You are working on task {id}: {title}\n\n\
+             This is a TESTING task. Focus on test coverage and quality.\n\n\
+             Description: {desc}\n\n\
+             {criteria}{files}\
+             Write thorough tests with edge cases. Run existing tests to verify \
+             nothing breaks.\n\n\
+             When done, summarize what tests you added and their results.",
+            id = task.id, title = task.title, desc = task.description,
+        ),
+        "document" => format!(
+            "You are working on task {id}: {title}\n\n\
+             This is a DOCUMENTATION task. Focus on clarity and completeness.\n\n\
+             Description: {desc}\n\n\
+             {criteria}{files}\
+             Write clear, accurate documentation. Include examples where helpful.\n\n\
+             When done, summarize what you documented.",
+            id = task.id, title = task.title, desc = task.description,
+        ),
+        _ => format!(
+            "You are working on task {id}: {title}\n\n\
+             Description: {desc}\n\n\
+             {criteria}{files}\
+             Complete this task. When done, summarize what you did.",
+            id = task.id, title = task.title, desc = task.description,
+        ),
     }
 }

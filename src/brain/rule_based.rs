@@ -5,6 +5,60 @@ use crate::core::task::{AgentType, Task};
 /// This is the free tier / fallback brain.
 pub struct RuleBasedBrain;
 
+/// Classify a task's type from its title and description using keyword heuristics.
+pub fn classify_task_type(title: &str, description: &str) -> Option<String> {
+    let text = format!("{} {}", title.to_lowercase(), description.to_lowercase());
+
+    if text.contains("design")
+        || text.contains("architect")
+        || text.contains("plan")
+        || text.contains("schema")
+        || text.contains("strategy")
+    {
+        return Some("design".into());
+    }
+
+    if text.contains("review")
+        || text.contains("audit")
+        || text.contains("analyze")
+        || text.contains("evaluate")
+        || text.contains("inspect")
+    {
+        return Some("review".into());
+    }
+
+    if text.contains("test")
+        || text.contains("spec")
+        || text.contains("coverage")
+        || text.contains("assert")
+    {
+        return Some("test".into());
+    }
+
+    if text.contains("document")
+        || text.contains("readme")
+        || text.contains("docs")
+        || text.contains("api doc")
+        || text.contains("comment")
+    {
+        return Some("document".into());
+    }
+
+    if text.contains("implement")
+        || text.contains("build")
+        || text.contains("create")
+        || text.contains("add")
+        || text.contains("fix")
+        || text.contains("refactor")
+        || text.contains("code")
+        || text.contains("develop")
+    {
+        return Some("implement".into());
+    }
+
+    None
+}
+
 impl ForgeBrain for RuleBasedBrain {
     fn decompose_plan(
         &self,
@@ -18,7 +72,10 @@ impl ForgeBrain for RuleBasedBrain {
         for line in spec.lines() {
             if let Some(header) = line.strip_prefix("## ") {
                 let id = format!("T-{task_num:03}");
-                let task = Task::new(&id, header.trim(), format!("Implement: {}", header.trim()));
+                let title = header.trim();
+                let desc = format!("Implement: {title}");
+                let mut task = Task::new(&id, title, &desc);
+                task.task_type = classify_task_type(title, &desc);
                 tasks.push(task);
                 task_num += 1;
             }

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-02-11
+
+### Added
+- **DX-016: Smart Claude Adapter** — task-type-aware invocation replaces blanket `--dangerously-skip-permissions`
+  - `task_type` field on Task struct (`design`, `implement`, `review`, `test`, `document`)
+  - OpenAI brain classifies task types during `plan --generate`
+  - Rule-based brain uses keyword heuristics for task type classification
+  - Claude adapter scopes `--allowedTools` per task type (e.g., review tasks are read-only)
+  - Task-type-aware `--max-turns` (design: 30, review/test: 20, others: default)
+  - Type column in plan table and `plan.md` output
+
+### Changed
+- `design` tasks get full permissions + architecture-focused prompts
+- `review`/`test` tasks restricted to `Read,Glob,Grep,Bash` (no file mutations)
+- `document` tasks get `Write,Edit,Read,Glob,Grep` (no Bash)
+- `implement` tasks get `Write,Edit,Read,Glob,Grep,Bash` (focused toolset)
+- Unknown/legacy tasks fall back to `--dangerously-skip-permissions` for backward compat
+
 ## [0.2.0] - 2026-02-11
 
 ### Added
@@ -72,7 +90,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Animated SVG banner for README
 - 51 tests (30 unit + 9 CLI + 12 MCP integration)
 
-[Unreleased]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.1.0...v0.1.1

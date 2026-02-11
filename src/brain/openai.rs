@@ -172,9 +172,16 @@ impl ForgeBrain for OpenAIBrain {
             - \"title\": short task title (3-8 words)\n\
             - \"description\": detailed description of what to implement\n\
             - \"agent\": which AI tool should do this (choose from the available tools)\n\
+            - \"task_type\": one of: \"design\", \"implement\", \"review\", \"test\", \"document\"\n\
             - \"depends_on\": array of task indices (0-based) this depends on, or empty array\n\
             - \"acceptance_criteria\": array of testable acceptance criteria strings\n\
             - \"locked_files\": array of file paths this task will modify\n\n\
+            Task type guidelines:\n\
+            - \"design\": architecture, planning, API design, schema design, system design\n\
+            - \"implement\": coding, building features, refactoring, bug fixes\n\
+            - \"review\": code review, security audit, performance analysis\n\
+            - \"test\": writing tests, test infrastructure, coverage improvement\n\
+            - \"document\": documentation, READMEs, API docs, comments\n\n\
             Important rules:\n\
             - Assign architecture/design/review tasks to claude\n\
             - Assign implementation/coding tasks to codex (if available, else claude)\n\
@@ -248,8 +255,14 @@ impl ForgeBrain for OpenAIBrain {
                 })
                 .unwrap_or_default();
 
+            let task_type = item["task_type"]
+                .as_str()
+                .map(|s| s.to_lowercase())
+                .filter(|s| ["design", "implement", "review", "test", "document"].contains(&s.as_str()));
+
             let mut task = Task::new(&id, &title, &description);
             task.assigned_to = Some(agent);
+            task.task_type = task_type;
             task.depends_on = depends_on;
             task.acceptance_criteria = acceptance_criteria;
             task.locked_files = locked_files;
