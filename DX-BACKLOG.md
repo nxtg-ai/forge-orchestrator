@@ -1,0 +1,103 @@
+# Forge Orchestrator — DX Backlog
+
+> From live dogfood sessions on voice-jib-jab project (2026-02-10/11).
+> DX-001 through DX-008, DX-012, DX-015 already fixed and committed.
+
+## Open Items (Priority Order)
+
+### DX-009: Spinner / Progress Indicator During LLM Calls
+- **Priority:** Medium
+- **Where:** `src/cli/plan.rs` (plan generation), `src/adapters/*.rs` (task execution)
+- **Problem:** Silent wait while OpenAI/Claude thinks (~3-30 seconds). No feedback.
+- **Solution:** Use `indicatif` crate for terminal spinners. Show phased progress:
+  - `Analyzing spec...` → `Decomposing into tasks...` → `Assigning agents...`
+  - Even if LLM does it in one shot, the phases give perceived speed
+- **Stretch:** Skeleton rendering — show table frame, fill rows as they arrive
+
+### DX-010: Status Should Show Full Task Table with Dependencies
+- **Priority:** High
+- **Where:** `src/cli/status.rs`
+- **Problem:** Status shows only summary (Total: 17, Pending: 17, progress bar)
+- **Solution:** Render the same table as `plan --generate` output but with live statuses
+- **Critical:** Show which tasks are blocked and which can run in parallel
+- **Data needed:** Task dependencies (blocked_by field already exists in Task struct)
+
+### DX-011: Autonomous Loop Mode (`forge run` with no args)
+- **Priority:** CRITICAL
+- **Where:** `src/cli/run.rs` (new mode) or new `src/cli/orchestrate.rs`
+- **Problem:** `run --task T-001 --agent claude` runs one task then exits
+- **Solution:** `forge run` (no args) = autonomous loop:
+  1. Read task board
+  2. Find all unblocked pending tasks
+  3. Run them in parallel (respecting dependencies)
+  4. Update statuses in real-time
+  5. Keep going until all done or failure blocks progress
+- **Flags:** `--dry-run` (show what WOULD run), `--parallel N` (max concurrent)
+- **This is CEO mode — press one button, walk away, come back to results**
+
+### DX-013: Non-Blocking Agent Execution
+- **Priority:** HIGH (prerequisite for DX-011 and DX-014)
+- **Where:** `src/adapters/*.rs`
+- **Problem:** `Command::new("claude").output()` blocks the thread
+- **Solution:** Switch to `Command::new("claude").spawn()` + async I/O
+- **Dependencies:** Add `tokio` for async runtime
+- **This unlocks:** spinner (DX-009), parallel execution (DX-011), TUI panes (DX-014)
+
+### DX-014: Agent Pane TUI — THE KILLER FEATURE
+- **Priority:** THIS IS THE PRODUCT
+- **Where:** New `src/tui/` module
+- **Crates:** `ratatui`, `crossterm`, `tokio`
+- **Vision:**
+```
+forge dashboard
+  ┌─────────────────────────────────────────────────────┐
+  │  TASK BOARD                                          │
+  │  T-001 [██████░░░░] claude  T-003 [████░░░░░░] claude│
+  │  T-002 [░░░░░░░░░░] codex   T-016 [waiting...] gemini│
+  ├──────────────────────┬──────────────────────────────-─┤
+  │  agent: claude (T-001)│  agent: codex (T-002)         │
+  │  > Reading spec...   │  > Implementing event bus...   │
+  │  > Designing schema  │  > Writing EventBus struct     │
+  ├──────────────────────┼────────────────────────────────┤
+  │  agent: claude (T-003)│  agent: gemini (T-016)        │
+  │  > [blocked]         │  > [waiting for T-001]         │
+  └──────────────────────┴────────────────────────────────┘
+```
+- Each agent gets its own pane with live streaming output
+- Tasks auto-advance as dependencies complete
+- Parallel execution respecting the dependency graph
+- **Technical path:** `.spawn()` + `tokio` async + ratatui render loop + crossterm raw mode
+
+## Architecture Notes
+
+### Current adapter execution flow:
+```
+run.rs → adapter.execute_headless() → Command::new("claude").output() → blocks
+```
+
+### Target flow (for DX-011/013/014):
+```
+orchestrate.rs → spawn tasks based on dependency graph
+  → adapter.execute_async() → Command::new("claude").spawn() → non-blocking
+  → tokio::select! on multiple child processes
+  → stream stdout/stderr to TUI panes via channels
+  → on completion: update task status, unblock dependents, schedule next
+```
+
+### Dependency order for implementation:
+```
+DX-013 (async spawn) → DX-009 (spinner) → DX-011 (loop) → DX-014 (TUI)
+```
+
+DX-013 is the foundation. Everything else builds on non-blocking execution.
+
+## Config Features (Already Shipped)
+
+```bash
+forge config claude.auth subscription    # Strip API keys (default)
+forge config claude.auth api             # Pass API keys through
+forge config claude.permissions yolo     # Full autonomy mode
+forge config claude.permissions safe     # Read-only (default)
+```
+
+Same for codex.auth, codex.permissions, gemini.auth, gemini.permissions.
