@@ -11,7 +11,8 @@ use clap::Parser;
 use cli::{Cli, Commands};
 use std::path::PathBuf;
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     // Load .env from CWD first (default dotenvy behavior)
     dotenvy::dotenv().ok();
 
@@ -38,13 +39,13 @@ fn main() -> anyhow::Result<()> {
             cli::status::execute(&project_root, events)?;
         }
         Commands::Run { task, agent } => {
-            cli::run::execute(&project_root, &task, &agent)?;
+            cli::run::execute(&project_root, &task, &agent).await?;
         }
         Commands::Start { agent, r#loop } => {
             if r#loop {
-                cli::start::execute_loop(&project_root, agent.as_deref())?;
+                cli::start::execute_loop(&project_root, agent.as_deref()).await?;
             } else {
-                cli::start::execute(&project_root, agent.as_deref())?;
+                cli::start::execute(&project_root, agent.as_deref()).await?;
             }
         }
         Commands::Sync => {

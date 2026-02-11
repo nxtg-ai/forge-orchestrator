@@ -1,4 +1,4 @@
-use super::{ExecutionResult, ToolAdapter};
+use super::ToolAdapter;
 use crate::core::state::ForgeState;
 use crate::core::task::Task;
 use std::path::Path;
@@ -74,13 +74,13 @@ impl ToolAdapter for ClaudeAdapter {
         Ok(())
     }
 
-    fn execute_headless(
+    fn build_command(
         &self,
         task: &Task,
         project_root: &Path,
         auth_mode: &str,
         permissions: &str,
-    ) -> anyhow::Result<ExecutionResult> {
+    ) -> Command {
         let prompt = format!(
             "You are working on task {id}: {title}\n\n\
              Description: {desc}\n\n\
@@ -108,32 +108,14 @@ impl ToolAdapter for ClaudeAdapter {
         cmd.args(["-p", &prompt, "--output-format", "text"])
             .current_dir(project_root);
 
-        // Yolo mode: full autonomy — allow all tools without prompting
         if permissions == "yolo" {
             cmd.args(["--dangerously-skip-permissions"]);
         }
 
-        // In subscription mode, strip API key so CLI uses Pro/Max subscription auth
         if auth_mode == "subscription" {
             cmd.env_remove("ANTHROPIC_API_KEY");
         }
 
-        let output = cmd.output()?;
-
-        let exit_code = output.status.code().unwrap_or(-1);
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-        let combined = if stderr.is_empty() {
-            stdout
-        } else {
-            format!("{stdout}\n\nSTDERR:\n{stderr}")
-        };
-
-        Ok(ExecutionResult {
-            success: output.status.success(),
-            output: combined,
-            exit_code,
-        })
+        cmd
     }
 }

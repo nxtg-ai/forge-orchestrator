@@ -1,4 +1,4 @@
-use super::{ExecutionResult, ToolAdapter};
+use super::ToolAdapter;
 use crate::core::state::ForgeState;
 use crate::core::task::{AgentType, Task};
 use std::path::Path;
@@ -71,13 +71,13 @@ impl ToolAdapter for CodexAdapter {
         Ok(())
     }
 
-    fn execute_headless(
+    fn build_command(
         &self,
         task: &Task,
         project_root: &Path,
         auth_mode: &str,
         permissions: &str,
-    ) -> anyhow::Result<ExecutionResult> {
+    ) -> Command {
         let prompt = format!(
             "Complete task {id}: {title}\n\nDescription: {desc}\n\n\
              {criteria}\
@@ -100,7 +100,6 @@ impl ToolAdapter for CodexAdapter {
         );
 
         let mut cmd = Command::new("codex");
-        // Codex "exec --full-auto" is already autonomous; in safe mode use "exec" without --full-auto
         if permissions == "yolo" {
             cmd.args(["exec", "--full-auto", "--skip-git-repo-check", &prompt]);
         } else {
@@ -108,27 +107,10 @@ impl ToolAdapter for CodexAdapter {
         }
         cmd.current_dir(project_root);
 
-        // In subscription mode, strip API key so CLI uses subscription auth
         if auth_mode == "subscription" {
             cmd.env_remove("OPENAI_API_KEY");
         }
 
-        let output = cmd.output()?;
-
-        let exit_code = output.status.code().unwrap_or(-1);
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-        let combined = if stderr.is_empty() {
-            stdout
-        } else {
-            format!("{stdout}\n\nSTDERR:\n{stderr}")
-        };
-
-        Ok(ExecutionResult {
-            success: output.status.success(),
-            output: combined,
-            exit_code,
-        })
+        cmd
     }
 }

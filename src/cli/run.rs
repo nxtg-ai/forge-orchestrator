@@ -1,12 +1,12 @@
-use crate::adapters::ToolAdapter;
 use crate::adapters::claude::ClaudeAdapter;
+use crate::adapters::{execute_command_async, ToolAdapter};
 use crate::core::event::{EventLogger, EventType, ForgeEvent};
 use crate::core::state::StateManager;
 use crate::core::task::{AgentType, TaskManager, TaskStatus};
 use colored::Colorize;
 use std::path::Path;
 
-pub fn execute(project_root: &Path, task_id: &str, agent_name: &str) -> anyhow::Result<()> {
+pub async fn execute(project_root: &Path, task_id: &str, agent_name: &str) -> anyhow::Result<()> {
     let forge_dir = project_root.join(".forge");
 
     if !forge_dir.exists() {
@@ -92,26 +92,18 @@ pub fn execute(project_root: &Path, task_id: &str, agent_name: &str) -> anyhow::
         .get_agent_permissions(agent_name)
         .unwrap_or_else(|_| "safe".to_string());
 
-    // Execute via adapter
-    let result = match agent_type {
-        AgentType::Claude => {
-            let adapter = ClaudeAdapter;
-            adapter.execute_headless(&task, project_root, &auth_mode, &permissions)?
-        }
+    // Build command via adapter, execute asynchronously
+    let cmd = match agent_type {
+        AgentType::Claude => ClaudeAdapter.build_command(&task, project_root, &auth_mode, &permissions),
         AgentType::Codex => {
-            let adapter = crate::adapters::codex::CodexAdapter;
-            adapter.execute_headless(&task, project_root, &auth_mode, &permissions)?
+            crate::adapters::codex::CodexAdapter.build_command(&task, project_root, &auth_mode, &permissions)
         }
         AgentType::Gemini => {
-            let adapter = crate::adapters::gemini::GeminiAdapter;
-            adapter.execute_headless(&task, project_root, &auth_mode, &permissions)?
+            crate::adapters::gemini::GeminiAdapter.build_command(&task, project_root, &auth_mode, &permissions)
         }
-        AgentType::Any => {
-            // Default to Claude for unspecified agent
-            let adapter = ClaudeAdapter;
-            adapter.execute_headless(&task, project_root, &auth_mode, &permissions)?
-        }
+        AgentType::Any => ClaudeAdapter.build_command(&task, project_root, &auth_mode, &permissions),
     };
+    let result = execute_command_async(cmd).await?;
 
     // Save result
     let results_dir = forge_dir.join("results");

@@ -1,7 +1,7 @@
-use crate::adapters::ToolAdapter;
 use crate::adapters::claude::ClaudeAdapter;
 use crate::adapters::codex::CodexAdapter;
 use crate::adapters::gemini::GeminiAdapter;
+use crate::adapters::{execute_command_async, ToolAdapter};
 use crate::core::event::{EventLogger, EventType, ForgeEvent};
 use crate::core::state::StateManager;
 use crate::core::task::{AgentType, Task, TaskManager, TaskStatus};
@@ -9,7 +9,7 @@ use crate::detect;
 use colored::Colorize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 
 /// Max retries for transient failures (rate limits, timeouts).
@@ -48,7 +48,7 @@ struct OrcStats {
 
 /// CEO Mode: loop `execute()` until all tasks are done or permanently stuck.
 /// Resets failed tasks between passes (treats them as retryable).
-pub fn execute_loop(project_root: &Path, agent_filter: Option<&str>) -> anyhow::Result<()> {
+pub async fn execute_loop(project_root: &Path, agent_filter: Option<&str>) -> anyhow::Result<()> {
     let forge_dir = project_root.join(".forge");
     let mut pass = 0u32;
     const MAX_PASSES: u32 = 5;
@@ -66,7 +66,7 @@ pub fn execute_loop(project_root: &Path, agent_filter: Option<&str>) -> anyhow::
             println!();
         }
 
-        execute(project_root, agent_filter)?;
+        execute(project_root, agent_filter).await?;
 
         // Check remaining work
         let task_mgr = TaskManager::new(&forge_dir);
@@ -118,15 +118,15 @@ pub fn execute_loop(project_root: &Path, agent_filter: Option<&str>) -> anyhow::
 
         // Wait before next pass
         println!("\n  {} Waiting 30s before next pass...\n", "⏳".dimmed());
-        std::thread::sleep(std::time::Duration::from_secs(30));
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
     }
 
     Ok(())
 }
 
 /// Autonomous orchestration — runs all tasks respecting dependencies,
-/// one thread per agent type, with retry, progress tracking, and auto-sync.
-pub fn execute(project_root: &Path, agent_filter: Option<&str>) -> anyhow::Result<()> {
+/// one task per agent type, with retry, progress tracking, and auto-sync.
+pub async fn execute(project_root: &Path, agent_filter: Option<&str>) -> anyhow::Result<()> {
     let forge_dir = project_root.join(".forge");
 
     if !forge_dir.exists() {
@@ -234,12 +234,12 @@ pub fn execute(project_root: &Path, agent_filter: Option<&str>) -> anyhow::Resul
     });
 
     // ── Run orchestration ───────────────────────────────────────
-    let lock = Arc::new(Mutex::new(()));
+    let lock = Arc::new(tokio::sync::Mutex::new(()));
 
     if target_agents.len() == 1 {
-        run_agent_loop(project_root, &forge_dir, &target_agents[0], &lock, &stats)?;
+        run_agent_loop(project_root, &forge_dir, &target_agents[0], &lock, &stats).await?;
     } else {
-        run_parallel(project_root, &forge_dir, &target_agents, &stats)?;
+        run_parallel(project_root, &forge_dir, &target_agents, &stats).await?;
     }
 
     // ── Final report ────────────────────────────────────────────
@@ -408,7 +408,7 @@ fn is_transient_error(output: &str) -> bool {
 }
 
 /// Run multiple agents in parallel, each managing its own task queue.
-fn run_parallel(
+async fn run_parallel(
     project_root: &Path,
     forge_dir: &Path,
     agents: &[AgentType],
@@ -416,7 +416,7 @@ fn run_parallel(
 ) -> anyhow::Result<()> {
     let project_root = project_root.to_path_buf();
     let forge_dir = forge_dir.to_path_buf();
-    let lock = Arc::new(Mutex::new(()));
+    let lock = Arc::new(tokio::sync::Mutex::new(()));
 
     let handles: Vec<_> = agents
         .iter()
@@ -427,18 +427,18 @@ fn run_parallel(
             let lock = Arc::clone(&lock);
             let stats = Arc::clone(stats);
 
-            std::thread::spawn(move || -> anyhow::Result<()> {
-                run_agent_loop(&pr, &fd, &agent, &lock, &stats)
+            tokio::spawn(async move {
+                run_agent_loop(&pr, &fd, &agent, &lock, &stats).await
             })
         })
         .collect();
 
     let mut errors = Vec::new();
     for handle in handles {
-        match handle.join() {
+        match handle.await {
             Ok(Ok(())) => {}
             Ok(Err(e)) => errors.push(e.to_string()),
-            Err(_) => errors.push("Agent thread panicked".into()),
+            Err(e) => errors.push(format!("Agent task panicked: {e}")),
         }
     }
 
@@ -453,11 +453,11 @@ fn run_parallel(
 }
 
 /// Agent loop with retry, progress tracking, and shared coordination.
-fn run_agent_loop(
+async fn run_agent_loop(
     project_root: &Path,
     forge_dir: &Path,
     agent: &AgentType,
-    lock: &Arc<Mutex<()>>,
+    lock: &Arc<tokio::sync::Mutex<()>>,
     stats: &Arc<OrcStats>,
 ) -> anyhow::Result<()> {
     let tag = format!("[{}]", agent).cyan();
@@ -466,7 +466,7 @@ fn run_agent_loop(
     loop {
         // Under lock: find next available task for this agent
         let next_task = {
-            let _guard = lock.lock().unwrap();
+            let _guard = lock.lock().await;
             find_next_task(forge_dir, agent)?
         };
 
@@ -503,14 +503,10 @@ fn run_agent_loop(
                 }
 
                 // Smart timeout: only give up if NO progress is being made globally.
-                // Check if any other agent has completed work recently by comparing
-                // our snapshot of completed tasks vs the current count.
                 let current_done = stats.completed.load(Ordering::Relaxed);
                 let current_failed = stats.failed.load(Ordering::Relaxed);
                 let total_finished = current_done + current_failed;
 
-                // If other agents are still working (tasks in_progress exist),
-                // or if progress was made recently, keep waiting indefinitely.
                 let any_in_progress = {
                     let tasks = task_mgr.list_tasks()?;
                     tasks.iter().any(|t| t.status == TaskStatus::InProgress)
@@ -537,14 +533,14 @@ fn run_agent_loop(
                     break;
                 }
 
-                std::thread::sleep(std::time::Duration::from_secs(10));
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
                 continue;
             }
         };
 
         // Claim the task (under lock)
         {
-            let _guard = lock.lock().unwrap();
+            let _guard = lock.lock().await;
             claim_task(forge_dir, &task, agent)?;
         }
 
@@ -558,12 +554,12 @@ fn run_agent_loop(
 
         loop {
             attempt += 1;
-            let result = execute_task(&task, agent, project_root);
+            let result = execute_task(&task, agent, project_root).await;
             let elapsed = started.elapsed();
 
             match result {
                 Ok(output) if output.success => {
-                    let _guard = lock.lock().unwrap();
+                    let _guard = lock.lock().await;
                     complete_task(forge_dir, &task, agent)?;
                     let done = stats.completed.fetch_add(1, Ordering::Relaxed) + 1;
                     println!(
@@ -596,7 +592,7 @@ fn run_agent_loop(
 
                         // Reset task to in_progress for retry
                         {
-                            let _guard = lock.lock().unwrap();
+                            let _guard = lock.lock().await;
                             let task_mgr = TaskManager::new(forge_dir);
                             let mut updated = task.clone();
                             updated.status = TaskStatus::InProgress;
@@ -604,12 +600,12 @@ fn run_agent_loop(
                             task_mgr.update_task(&updated)?;
                         }
 
-                        std::thread::sleep(backoff);
+                        tokio::time::sleep(backoff).await;
                         continue;
                     }
 
                     // Permanent failure
-                    let _guard = lock.lock().unwrap();
+                    let _guard = lock.lock().await;
                     fail_task(forge_dir, &task)?;
                     stats.failed.fetch_add(1, Ordering::Relaxed);
                     let snippet = last_output.lines().next().unwrap_or("unknown error");
@@ -640,11 +636,11 @@ fn run_agent_loop(
                             MAX_RETRIES,
                             backoff.as_secs()
                         );
-                        std::thread::sleep(backoff);
+                        tokio::time::sleep(backoff).await;
                         continue;
                     }
 
-                    let _guard = lock.lock().unwrap();
+                    let _guard = lock.lock().await;
                     fail_task(forge_dir, &task)?;
                     stats.failed.fetch_add(1, Ordering::Relaxed);
                     println!(
@@ -771,8 +767,8 @@ fn save_result(forge_dir: &Path, task_id: &str, output: &str) -> anyhow::Result<
     Ok(())
 }
 
-/// Execute a task via the appropriate CLI adapter.
-fn execute_task(
+/// Execute a task via the appropriate CLI adapter (async).
+async fn execute_task(
     task: &Task,
     agent: &AgentType,
     project_root: &Path,
@@ -793,18 +789,20 @@ fn execute_task(
         ("subscription".to_string(), "safe".to_string())
     };
 
-    match agent {
+    let cmd = match agent {
         AgentType::Claude => {
-            ClaudeAdapter.execute_headless(task, project_root, &auth_mode, &permissions)
+            ClaudeAdapter.build_command(task, project_root, &auth_mode, &permissions)
         }
         AgentType::Codex => {
-            CodexAdapter.execute_headless(task, project_root, &auth_mode, &permissions)
+            CodexAdapter.build_command(task, project_root, &auth_mode, &permissions)
         }
         AgentType::Gemini => {
-            GeminiAdapter.execute_headless(task, project_root, &auth_mode, &permissions)
+            GeminiAdapter.build_command(task, project_root, &auth_mode, &permissions)
         }
         AgentType::Any => {
-            ClaudeAdapter.execute_headless(task, project_root, &auth_mode, &permissions)
+            ClaudeAdapter.build_command(task, project_root, &auth_mode, &permissions)
         }
-    }
+    };
+
+    execute_command_async(cmd).await
 }
