@@ -8,6 +8,7 @@ use crate::core::task::{AgentType, Task, TaskManager, TaskStatus};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
+use std::time::Instant;
 use tokio::io::AsyncBufReadExt;
 use tokio::process::Command as TokioCommand;
 use tokio::sync::mpsc;
@@ -56,6 +57,9 @@ pub struct App {
     pub parallel_limit: usize,
     pub watch_mode: bool,
     pub should_quit: bool,
+    pub all_complete: bool,
+    pub completed_at: Option<Instant>,
+    pub started_at: Instant,
 }
 
 impl App {
@@ -86,6 +90,9 @@ impl App {
             parallel_limit,
             watch_mode,
             should_quit: false,
+            all_complete: false,
+            completed_at: None,
+            started_at: Instant::now(),
         };
 
         (app, rx, tx)
@@ -223,7 +230,7 @@ impl App {
         Ok(())
     }
 
-    pub fn handle_key(&mut self, key: KeyEvent) {
+    pub fn handle_key(&mut self, key: KeyEvent, tx: &mpsc::UnboundedSender<AgentEvent>) {
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => {
                 self.should_quit = true;
@@ -244,6 +251,53 @@ impl App {
                 if self.selected_index + 1 < self.tasks.len() {
                     self.selected_index += 1;
                 }
+            }
+            KeyCode::Char('r') => {
+                self.retry_selected_task(tx);
+            }
+            _ => {}
+        }
+    }
+
+    fn retry_selected_task(&mut self, tx: &mpsc::UnboundedSender<AgentEvent>) {
+        if self.selected_index >= self.tasks.len() {
+            return;
+        }
+        let task = &self.tasks[self.selected_index];
+        let task_id = task.id.clone();
+
+        match task.status {
+            TaskStatus::Failed => {
+                // Reset to pending on disk, then schedule
+                let task_mgr = TaskManager::new(&self.forge_dir);
+                if let Ok(mut t) = task_mgr.get_task(&task_id) {
+                    t.status = TaskStatus::Pending;
+                    t.updated_at = chrono::Utc::now();
+                    task_mgr.update_task(&t).ok();
+                }
+                self.push_event(&format!("Retrying {} (was failed)", task_id));
+                self.reload_tasks().ok();
+                self.schedule_unblocked_tasks(tx);
+            }
+            TaskStatus::InProgress => {
+                // Remove from running set (the spawned process will finish on its own
+                // or be orphaned — we handle orphan detection on restart anyway)
+                self.running_task_ids.remove(&task_id);
+                // Also clear agent_running_task for the agent that was running it
+                self.agent_running_task.retain(|_, v| *v != task_id);
+
+                // Reset to pending on disk
+                let task_mgr = TaskManager::new(&self.forge_dir);
+                let state_mgr = StateManager::new(&self.forge_dir);
+                if let Ok(mut t) = task_mgr.get_task(&task_id) {
+                    t.status = TaskStatus::Pending;
+                    t.updated_at = chrono::Utc::now();
+                    task_mgr.update_task(&t).ok();
+                    state_mgr.unlock_files(&task_id).ok();
+                }
+                self.push_event(&format!("Retrying {} (was in-progress)", task_id));
+                self.reload_tasks().ok();
+                self.schedule_unblocked_tasks(tx);
             }
             _ => {}
         }
@@ -369,6 +423,56 @@ impl App {
                 });
             }
         }
+    }
+
+    /// Reset all running tasks back to pending on disk. Called on dashboard exit.
+    pub fn cleanup_running_tasks(&mut self) {
+        let task_mgr = TaskManager::new(&self.forge_dir);
+        let state_mgr = StateManager::new(&self.forge_dir);
+        let event_logger = EventLogger::new(&self.forge_dir);
+
+        for task_id in self.running_task_ids.drain() {
+            if let Ok(mut task) = task_mgr.get_task(&task_id) {
+                task.status = TaskStatus::Pending;
+                task.updated_at = chrono::Utc::now();
+                task_mgr.update_task(&task).ok();
+                state_mgr.unlock_files(&task_id).ok();
+
+                event_logger
+                    .log(&ForgeEvent::new(
+                        EventType::TaskStarted,
+                        format!("Reset {} to pending (dashboard exiting)", task_id),
+                    ))
+                    .ok();
+            }
+        }
+        self.agent_running_task.clear();
+    }
+
+    /// Scan all task files and reset any orphaned in-progress tasks to pending.
+    /// Called on dashboard startup before the main loop.
+    pub fn reset_orphaned_tasks(&mut self) -> anyhow::Result<()> {
+        let task_mgr = TaskManager::new(&self.forge_dir);
+        let state_mgr = StateManager::new(&self.forge_dir);
+        let event_logger = EventLogger::new(&self.forge_dir);
+
+        let tasks = task_mgr.list_tasks()?;
+        for task in tasks {
+            if task.status == TaskStatus::InProgress {
+                let mut updated = task.clone();
+                updated.status = TaskStatus::Pending;
+                updated.updated_at = chrono::Utc::now();
+                task_mgr.update_task(&updated)?;
+                state_mgr.unlock_files(&task.id).ok();
+
+                let msg = format!("Reset orphaned task {} to pending", task.id);
+                self.push_event(&msg);
+                event_logger
+                    .log(&ForgeEvent::new(EventType::TaskStarted, msg))
+                    .ok();
+            }
+        }
+        Ok(())
     }
 
     fn push_event(&mut self, msg: &str) {
@@ -515,20 +619,20 @@ mod tests {
 
     #[test]
     fn test_handle_key_quit() {
-        let (mut app, _rx, _tx) = App::new(
+        let (mut app, _rx, tx) = App::new(
             PathBuf::from("/tmp/test"),
             PathBuf::from("/tmp"),
             3,
             false,
         );
         let key = KeyEvent::from(KeyCode::Char('q'));
-        app.handle_key(key);
+        app.handle_key(key, &tx);
         assert!(app.should_quit);
     }
 
     #[test]
     fn test_handle_key_tab_cycles_focus() {
-        let (mut app, _rx, _tx) = App::new(
+        let (mut app, _rx, tx) = App::new(
             PathBuf::from("/tmp/test"),
             PathBuf::from("/tmp"),
             3,
@@ -536,19 +640,19 @@ mod tests {
         );
         assert_eq!(app.focus_area, FocusArea::TaskBoard);
 
-        app.handle_key(KeyEvent::from(KeyCode::Tab));
+        app.handle_key(KeyEvent::from(KeyCode::Tab), &tx);
         assert_eq!(app.focus_area, FocusArea::AgentPanes);
 
-        app.handle_key(KeyEvent::from(KeyCode::Tab));
+        app.handle_key(KeyEvent::from(KeyCode::Tab), &tx);
         assert_eq!(app.focus_area, FocusArea::EventLog);
 
-        app.handle_key(KeyEvent::from(KeyCode::Tab));
+        app.handle_key(KeyEvent::from(KeyCode::Tab), &tx);
         assert_eq!(app.focus_area, FocusArea::TaskBoard);
     }
 
     #[test]
     fn test_handle_key_navigation() {
-        let (mut app, _rx, _tx) = App::new(
+        let (mut app, _rx, tx) = App::new(
             PathBuf::from("/tmp/test"),
             PathBuf::from("/tmp"),
             3,
@@ -561,14 +665,14 @@ mod tests {
         ];
 
         assert_eq!(app.selected_index, 0);
-        app.handle_key(KeyEvent::from(KeyCode::Down));
+        app.handle_key(KeyEvent::from(KeyCode::Down), &tx);
         assert_eq!(app.selected_index, 1);
-        app.handle_key(KeyEvent::from(KeyCode::Down));
+        app.handle_key(KeyEvent::from(KeyCode::Down), &tx);
         assert_eq!(app.selected_index, 2);
-        app.handle_key(KeyEvent::from(KeyCode::Down));
+        app.handle_key(KeyEvent::from(KeyCode::Down), &tx);
         assert_eq!(app.selected_index, 2); // can't go past end
 
-        app.handle_key(KeyEvent::from(KeyCode::Up));
+        app.handle_key(KeyEvent::from(KeyCode::Up), &tx);
         assert_eq!(app.selected_index, 1);
     }
 
@@ -584,5 +688,125 @@ mod tests {
             app.push_event(&format!("event {}", i));
         }
         assert_eq!(app.events.len(), EVENT_BUFFER_CAP);
+    }
+
+    #[test]
+    fn test_cleanup_running_tasks_resets_tracking() {
+        let (mut app, _rx, _tx) = App::new(
+            PathBuf::from("/tmp/test-cleanup"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        app.running_task_ids.insert("T-001".to_string());
+        app.running_task_ids.insert("T-002".to_string());
+        app.agent_running_task
+            .insert(AgentType::Claude, "T-001".to_string());
+        app.agent_running_task
+            .insert(AgentType::Codex, "T-002".to_string());
+
+        app.cleanup_running_tasks();
+
+        assert!(app.running_task_ids.is_empty());
+        assert!(app.agent_running_task.is_empty());
+    }
+
+    #[test]
+    fn test_all_complete_defaults_false() {
+        let (app, _rx, _tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        assert!(!app.all_complete);
+        assert!(app.completed_at.is_none());
+    }
+
+    #[test]
+    fn test_retry_key_on_non_retryable_status_is_noop() {
+        let (mut app, _rx, tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        // Task is Pending — 'r' should do nothing
+        app.tasks = vec![make_task("T-001", TaskStatus::Pending, vec![])];
+        app.selected_index = 0;
+        let events_before = app.events.len();
+        app.handle_key(KeyEvent::from(KeyCode::Char('r')), &tx);
+        // No event was pushed (no retry happened)
+        assert_eq!(app.events.len(), events_before);
+    }
+
+    #[test]
+    fn test_reset_orphaned_tasks_with_temp_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let forge_dir = tmp.path().join(".forge");
+        let tasks_dir = forge_dir.join("tasks");
+        std::fs::create_dir_all(&tasks_dir).unwrap();
+
+        // Create an in-progress task on disk
+        let mut task = Task::new("T-099", "Orphan", "Was in-progress");
+        task.status = TaskStatus::InProgress;
+        task.assigned_to = Some(AgentType::Claude);
+        let json = serde_json::to_string_pretty(&task).unwrap();
+        std::fs::write(tasks_dir.join("T-099.json"), &json).unwrap();
+        // write_to_file for the .md (optional, but TaskManager reads .json)
+        std::fs::write(tasks_dir.join("T-099.md"), "# T-099").unwrap();
+
+        let (mut app, _rx, _tx) = App::new(
+            forge_dir.clone(),
+            tmp.path().to_path_buf(),
+            3,
+            false,
+        );
+
+        app.reset_orphaned_tasks().unwrap();
+
+        // Verify the task was reset to pending on disk
+        let task_mgr = TaskManager::new(&forge_dir);
+        let reloaded = task_mgr.get_task("T-099").unwrap();
+        assert_eq!(reloaded.status, TaskStatus::Pending);
+
+        // Verify an event was logged
+        assert!(app.events.iter().any(|e| e.contains("orphaned")));
+    }
+
+    #[test]
+    fn test_retry_failed_task_with_temp_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let forge_dir = tmp.path().join(".forge");
+        let tasks_dir = forge_dir.join("tasks");
+        std::fs::create_dir_all(&tasks_dir).unwrap();
+
+        // Create a failed task on disk
+        let mut task = Task::new("T-050", "Failed task", "It failed");
+        task.status = TaskStatus::Failed;
+        task.assigned_to = Some(AgentType::Claude);
+        let json = serde_json::to_string_pretty(&task).unwrap();
+        std::fs::write(tasks_dir.join("T-050.json"), json).unwrap();
+        std::fs::write(tasks_dir.join("T-050.md"), "# T-050").unwrap();
+
+        let (mut app, _rx, tx) = App::new(
+            forge_dir.clone(),
+            tmp.path().to_path_buf(),
+            3,
+            true, // watch mode so schedule won't actually spawn
+        );
+        app.reload_tasks().unwrap();
+        app.selected_index = 0;
+
+        // Press 'r' to retry
+        app.handle_key(KeyEvent::from(KeyCode::Char('r')), &tx);
+
+        // Verify task was reset to pending on disk
+        let task_mgr = TaskManager::new(&forge_dir);
+        let reloaded = task_mgr.get_task("T-050").unwrap();
+        assert_eq!(reloaded.status, TaskStatus::Pending);
+
+        // Verify event was logged
+        assert!(app.events.iter().any(|e| e.contains("Retrying T-050")));
     }
 }

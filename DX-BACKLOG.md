@@ -2,7 +2,7 @@
 
 > From live dogfood sessions on voice-jib-jab project (2026-02-10/11).
 
-## Open Items (5 remaining)
+## Open Items (9 remaining)
 
 ### DX-010: Status Should Show Full Task Table with Dependencies
 - **Priority:** High
@@ -45,12 +45,52 @@
 - **Fix:** Added `-p` flag for headless mode, `--yolo` + `--sandbox=false` in yolo permissions mode.
 - **Status:** Code patched, binary installed. Needs commit + push.
 
+### DX-021: Dashboard Should Clean Up Task Status on Quit/Restart
+- **Priority:** CRITICAL
+- **Where:** `src/tui/app.rs` + `src/cli/dashboard.rs`
+- **Problem:** When dashboard quits (q/Esc/Ctrl+C), tasks that were "in_progress" stay that way on disk. On restart, the scheduler sees them as already running and won't re-spawn. Result: orphaned tasks that never complete.
+- **Solution (two parts):**
+  1. **On quit:** Before exiting, reset all tasks the dashboard was actively running back to `"pending"` status. The dashboard knows which PIDs it spawned — if it kills them, it should also reset their task files.
+  2. **On startup:** Scan all tasks for `"in_progress"` status. Check if there's actually a running process for them (there won't be on fresh launch). Reset any orphaned in-progress tasks to `"pending"`.
+  3. **Bonus:** `r` key should also work on "in_progress" tasks (not just "failed"), resetting and re-spawning them.
+- **Root cause of this session's bug:** Dashboard quit with T-007 in_progress → restarted → T-007 stuck forever.
+
 ### DX-020: Key Legend in Dashboard Footer
 - **Priority:** Low
 - **Where:** `src/tui/ui.rs`
 - **Problem:** No key hints visible — user has to guess keyboard shortcuts.
 - **Solution:** Add a single-line footer bar below the event log showing: `q:Quit | Tab:Focus | ↑↓:Navigate | Enter:Detail | r:Retry | ?:Help`
 - **Pattern:** Same as vim/htop/nano status bars. Use `ratatui::widgets::Paragraph` with `Style::new().fg(Color::DarkGray)`.
+
+### DX-022: Dashboard Should NOT Auto-Exit on Completion
+- **Priority:** CRITICAL
+- **Where:** `src/tui/app.rs` (scheduler loop / completion detection)
+- **Problem:** When the last task completes, the dashboard immediately exits to terminal. This is shocking — user expects a summary, celebration, or at minimum a "press q to quit" state.
+- **Solution (progressive):**
+  1. **Minimum:** When all tasks complete, show a completion banner ("All 17/17 tasks done!") and STAY OPEN. User presses `q` to exit.
+  2. **Better:** Show a summary panel: tasks completed, time elapsed, agents used, failures, knowledge captured.
+  3. **Best:** Keep agent panes visible and scrollable so user can review terminal output at their leisure.
+- **User quote:** "once the last item was completed.. the dashboard just *SHUT DOWN* .. it was like a shock"
+
+### DX-023: Interactive Terminal Panes (Scrollable, Tab-Switchable)
+- **Priority:** High
+- **Where:** `src/tui/ui.rs` + `src/tui/app.rs`
+- **Problem:** Agent panes are read-only, not scrollable, and can't be individually focused/expanded.
+- **Solution:**
+  1. Terminal panes should be scrollable (↑↓ when focused)
+  2. Tab key should cycle focus between panes (visual border highlight on focused pane)
+  3. Enter on a focused pane could expand it to full-screen (press Esc to return to grid)
+  4. Each pane's ring buffer (200 lines) should be navigable
+- **Future (DX-024):** If panes were actual PTY bridges, user could TYPE into them — turning the dashboard into a true multi-terminal multiplexer.
+
+### DX-024: Forge Stargate — Embedded Interactive Agent TUIs
+- **Priority:** VISION (future)
+- **Where:** New architecture — PTY bridge per agent pane
+- **Problem:** Current agent panes show captured stdout text. The dream is embedding ACTUAL running TUIs (Claude Code's TUI, Gemini's TUI, Codex's TUI) inside forge dashboard panes.
+- **Solution:** Instead of spawning headless `-p` processes, spawn interactive CLIs in PTY sessions. Each pane becomes a real terminal with input/output. User can tab between them and interact directly.
+- **Why "Stargate":** It's a portal into each AI's universe. Three portals, one command center.
+- **Technical:** `portable-pty` or `pty-process` crate for PTY allocation, pipe each PTY's output to a ratatui pane, forward keystrokes when pane is focused.
+- **Prerequisite:** DX-023 (scrollable/focusable panes) must ship first.
 
 ## Completed Items (16 of 20)
 

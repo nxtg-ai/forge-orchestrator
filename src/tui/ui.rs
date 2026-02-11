@@ -209,11 +209,39 @@ fn render_event_log(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         Style::default().fg(Color::DarkGray)
     };
 
-    let items: Vec<ListItem> = app
+    let mut items: Vec<ListItem> = app
         .events
         .iter()
         .map(|e| ListItem::new(Line::from(e.as_str())))
         .collect();
+
+    // DX-022: Append completion banner when all tasks are done
+    if app.all_complete {
+        let total = app.tasks.len();
+        let completed = app
+            .tasks
+            .iter()
+            .filter(|t| t.status == TaskStatus::Completed)
+            .count();
+        let elapsed = app.started_at.elapsed();
+        let mins = elapsed.as_secs() / 60;
+        let secs = elapsed.as_secs() % 60;
+
+        items.push(ListItem::new(Line::from("")));
+        items.push(ListItem::new(Line::from(Span::styled(
+            format!(
+                "--- All {}/{} tasks completed in {}m {}s ---",
+                completed, total, mins, secs
+            ),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ))));
+        items.push(ListItem::new(Line::from(Span::styled(
+            "Press q to exit | r retry | \u{2191}\u{2193} scroll | Tab switch panes",
+            Style::default().fg(Color::DarkGray),
+        ))));
+    }
 
     // Auto-scroll: show only the last items that fit
     let inner_height = area.height.saturating_sub(2) as usize;
@@ -283,5 +311,36 @@ mod tests {
 
         terminal.draw(|f| render(f, &app)).unwrap();
         // Just verifying no panic occurs
+    }
+
+    #[test]
+    fn test_render_completion_banner() {
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let (mut app, _rx, _tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+
+        let mut t1 = Task::new("T-001", "Task one", "done");
+        t1.status = TaskStatus::Completed;
+        let mut t2 = Task::new("T-002", "Task two", "done");
+        t2.status = TaskStatus::Completed;
+        app.tasks = vec![t1, t2];
+        app.all_complete = true;
+
+        terminal.draw(|f| render(f, &app)).unwrap();
+
+        let buffer = terminal.backend().buffer().clone();
+        let content: String = buffer
+            .content()
+            .iter()
+            .map(|cell| cell.symbol().chars().next().unwrap_or(' '))
+            .collect();
+        assert!(content.contains("All 2/2 tasks completed"));
+        assert!(content.contains("Press q to exit"));
     }
 }

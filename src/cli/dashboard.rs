@@ -11,6 +11,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use std::io::stdout;
 use std::path::Path;
+use std::time::Instant;
 
 pub async fn execute(project_root: &Path, parallel_limit: usize, watch_mode: bool) -> anyhow::Result<()> {
     let forge_dir = project_root.join(".forge");
@@ -47,6 +48,10 @@ pub async fn execute(project_root: &Path, parallel_limit: usize, watch_mode: boo
     // Load initial tasks
     app.reload_tasks()?;
 
+    // DX-021 Part 2: Reset any orphaned in-progress tasks from a previous run
+    app.reset_orphaned_tasks()?;
+    app.reload_tasks()?;
+
     // Load recent events from disk
     let event_logger = EventLogger::new(&forge_dir);
     if let Ok(recent) = event_logger.read_recent(20) {
@@ -73,7 +78,7 @@ pub async fn execute(project_root: &Path, parallel_limit: usize, watch_mode: boo
                     TuiEvent::Key(key) => {
                         // crossterm 0.28 fires Press + Release on some platforms
                         if key.kind == KeyEventKind::Press {
-                            app.handle_key(key);
+                            app.handle_key(key, &agent_tx);
                             if app.should_quit {
                                 break;
                             }
@@ -81,8 +86,15 @@ pub async fn execute(project_root: &Path, parallel_limit: usize, watch_mode: boo
                     }
                     TuiEvent::Tick => {
                         app.reload_tasks()?;
-                        if !app.watch_mode && app.is_all_done() && app.running_task_ids.is_empty() {
-                            break;
+                        // DX-022: Don't auto-exit, set completion flag instead
+                        if !app.watch_mode
+                            && !app.all_complete
+                            && app.is_all_done()
+                            && app.running_task_ids.is_empty()
+                            && !app.tasks.is_empty()
+                        {
+                            app.all_complete = true;
+                            app.completed_at = Some(Instant::now());
                         }
                     }
                 }
@@ -92,6 +104,9 @@ pub async fn execute(project_root: &Path, parallel_limit: usize, watch_mode: boo
             }
         }
     }
+
+    // DX-021 Part 1: Reset running tasks back to pending before exit
+    app.cleanup_running_tasks();
 
     // Cleanup: restore terminal
     disable_raw_mode()?;
