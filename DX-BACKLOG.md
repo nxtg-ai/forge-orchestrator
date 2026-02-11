@@ -68,7 +68,128 @@ forge dashboard
 - Parallel execution respecting the dependency graph
 - **Technical path:** `.spawn()` + `tokio` async + ratatui render loop + crossterm raw mode
 
-## Architecture Notes
+### DX-017: Codebase-Aware Plan Generation (Spec vs Reality Diff)
+- **Priority:** CRITICAL — without this, forge generates tasks for already-built features
+- **Where:** `src/cli/plan.rs` (new `scan_codebase()` function), `src/brain/openai.rs` (updated system prompt)
+- **Problem:** `plan --generate` only reads the spec file and generates tasks for everything it describes. It has ZERO awareness of existing source code. If the project is already 80% built, it still generates tasks for 100% of the spec.
+- **Discovery:** Dogfood on voice-jib-jab — project already fully implemented, but forge generated 17 tasks to "design" and "implement" components that already exist.
+
+#### Root Cause
+The data flow is:
+```
+resolve_plan_input() → reads spec-jib-jab.md (607 lines)
+  → sends to brain.decompose_plan(spec, tools)
+    → brain sees ONLY the spec, not the codebase
+      → generates tasks for everything in spec
+```
+
+#### Solution: Add codebase scan to plan generation
+
+**Step 1: New function `scan_codebase()` in `src/cli/plan.rs`**
+
+Scan the project and build a concise inventory:
+```rust
+fn scan_codebase(project_root: &Path) -> anyhow::Result<String> {
+    let mut inventory = String::new();
+
+    // 1. Source file tree (just paths, no content)
+    //    Walk src/, lib/, app/ directories
+    //    List all .ts, .rs, .py, .go, .js, .tsx, .jsx files
+    //    Format: "src/event-bus.ts (142 lines)"
+
+    // 2. Key exports/structures (first 5 lines of each file, or grep for
+    //    export/pub/class/struct/interface/function patterns)
+    //    Format: "src/event-bus.ts: export class EventBus, export interface Event"
+
+    // 3. Test files inventory
+    //    List all *test*, *spec* files
+    //    Format: "tests/event-bus.test.ts (89 lines)"
+
+    // 4. Package dependencies (from package.json / Cargo.toml)
+    //    Already gathered in gather_project_context() — reuse
+
+    Ok(inventory)
+}
+```
+
+**Keep it lightweight** — file names + line counts + export signatures. Do NOT read full file contents (would blow up the token budget). Target: ~100-200 lines of inventory for a medium project.
+
+**Step 2: Update `generate_plan()` to call scan**
+
+In `generate_plan()`, after loading the spec, scan the codebase:
+```rust
+// After spec_content is loaded:
+let codebase_inventory = scan_codebase(project_root)?;
+println!("  {} Codebase scanned ({} source files)", "✓".green(), file_count);
+
+// Combine for the brain
+let brain_input = format!(
+    "PROJECT SPECIFICATION:\n\n{spec_content}\n\n---\n\n\
+     EXISTING CODEBASE INVENTORY:\n\n{codebase_inventory}\n\n---\n\n\
+     Generate tasks ONLY for what is missing, incomplete, or needs updating.\n\
+     Do NOT generate tasks for features that already exist in the codebase."
+);
+let tasks = brain.decompose_plan(&brain_input, &tools_for_brain)?;
+```
+
+**Step 3: Update OpenAI brain system prompt** in `src/brain/openai.rs`
+
+Add to the system prompt in `decompose_plan()`:
+```
+The input may include both a spec AND an existing codebase inventory.
+If a codebase inventory is provided:
+- Do NOT create tasks for features/modules that already exist
+- Focus on gaps: what's in the spec but NOT in the codebase
+- Create "review" tasks for existing code that may need updates
+- Create "test" tasks for existing code that lacks tests
+- If the codebase already covers the full spec, output fewer or zero tasks
+```
+
+**Step 4: Update rule-based brain** in `src/brain/rule_based.rs`
+
+The rule-based brain uses heading decomposition. Add a filter:
+- If the brain input contains `EXISTING CODEBASE INVENTORY`, extract file names
+- For each heading-based task, check if a matching file already exists
+- Skip tasks where the file already exists (or mark as "review" instead of "implement")
+
+#### File scanning patterns by language
+
+| Language | Source dirs | Extensions | Export patterns |
+|----------|-----------|------------|-----------------|
+| TypeScript/JS | `src/`, `lib/`, `app/` | `.ts`, `.tsx`, `.js`, `.jsx` | `export (class\|function\|const\|interface\|type)` |
+| Rust | `src/` | `.rs` | `pub (fn\|struct\|enum\|trait\|mod)` |
+| Python | `src/`, project name dir | `.py` | `class `, `def `, `__all__` |
+| Go | `.`, `cmd/`, `internal/`, `pkg/` | `.go` | `func `, `type ` |
+
+#### Constraints
+- **Token budget:** Keep inventory under 4000 tokens (~200 lines). Large projects need truncation
+- **Depth limit:** Only scan 3 levels deep. Don't recurse into node_modules, target, .git, etc.
+- **Ignore patterns:** `.git`, `node_modules`, `target`, `dist`, `build`, `__pycache__`, `.forge`
+- **Performance:** Use `walkdir` crate for efficient traversal (already a transitive dep via `glob`)
+
+#### Expected behavior after fix
+```
+forge plan --generate
+  → Reading spec: spec-jib-jab.md (607 lines)
+  → Scanning codebase... (34 source files found)
+  → 28 of 34 files match spec components
+  → Decomposing GAPS into tasks...
+  ✓ Generated 3 tasks (instead of 17)
+
+  ID       Title                          Agent      Type         Status
+  -----------------------------------------------------------------------
+  T-001    Add missing unit tests for...  gemini     test         pending
+  T-002    Review session manager for...  claude     review       pending
+  T-003    Document API endpoints         gemini     document     pending
+```
+
+#### Test cases
+1. **Greenfield project** (no src/): Should generate full task set (same as today)
+2. **Fully built project** (all features exist): Should generate 0-3 tasks (review/test/doc only)
+3. **Partially built** (some files exist): Should generate tasks only for missing pieces
+4. **Spec with no codebase section**: Should work identically to today (backward compat)
+
+
 
 ### Current adapter execution flow:
 ```
