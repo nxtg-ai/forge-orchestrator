@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-02-11
+
+### Added
+- **DX-014: TUI Dashboard** — `forge dashboard` launches a live terminal UI for multi-agent orchestration
+  - Task board table with status icons, colors, and progress indicators (top 30%)
+  - 2x2 agent pane grid with live streaming output from spawned processes (middle 50%)
+  - Event log with timestamped entries (bottom 20%)
+  - **Live execution**: spawns agent processes via `tokio::process::Command`, pipes stdout/stderr line-by-line to panes via `mpsc` channels
+  - **Auto-scheduling**: dependency-aware task scheduling — when a task completes, unblocked tasks auto-start (up to `--parallel N`, default 3)
+  - Keyboard navigation: `q`/`Esc` quit, `Tab` cycle focus, `↑↓` navigate tasks, `Enter` view detail, `r` retry failed
+  - Panic hook restores terminal (disables raw mode + leaves alternate screen)
+  - Ring buffer caps agent output at 200 lines per pane
+  - Works over SSH (keyboard-only, no mouse required)
+- **CLI flags**: `forge dashboard --watch` (read-only), `forge dashboard --parallel 4` (max concurrent agents)
+- New dependencies: `ratatui = "0.29"`, `crossterm = "0.28"`
+- 12 new TUI tests (unit tests for scheduling, rendering via TestBackend)
+- `Eq` and `Hash` derives on `AgentType` for HashMap support
+
+### Changed
+- **71 tests** passing (49 unit + 10 integration + 12 MCP), up from 59
+
 ## [0.2.2] - 2026-02-11
 
 ### Added
@@ -106,7 +127,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Animated SVG banner for README
 - 51 tests (30 unit + 9 CLI + 12 MCP integration)
 
-[Unreleased]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.1.2...v0.2.0

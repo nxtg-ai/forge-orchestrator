@@ -1,6 +1,6 @@
 [package]
 name = "forge-orchestrator"
-version = "0.2.2"
+version = "0.3.0"
 edition = "2024"
 description = "Universal coordination engine for AI-powered development"
 license = "MIT"
@@ -40,6 +40,8 @@ chrono = { version = "0.4", features = ["serde"] }
 # Terminal UI
 colored = "3"
 indicatif = "0.17"
+ratatui = { version = "0.29", default-features = false, features = ["crossterm"] }
+crossterm = "0.28"
 
 # Filesystem traversal
 walkdir = "2"

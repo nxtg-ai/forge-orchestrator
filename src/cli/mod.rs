@@ -1,4 +1,5 @@
 pub mod config;
+pub mod dashboard;
 pub mod init;
 pub mod mcp;
 pub mod plan;
@@ -80,6 +81,17 @@ pub enum Commands {
 
     /// Start the MCP server (stdio transport) — AI tools connect to query/update state
     Mcp,
+
+    /// Live TUI dashboard — task board, agent output, event log
+    Dashboard {
+        /// Watch mode: display tasks without auto-executing
+        #[arg(short, long)]
+        watch: bool,
+
+        /// Maximum number of parallel agent tasks
+        #[arg(short, long, default_value = "3")]
+        parallel: usize,
+    },
 
     /// Get or set configuration values
     Config {

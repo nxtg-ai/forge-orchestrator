@@ -6,6 +6,7 @@ mod cli;
 mod core;
 mod detect;
 mod mcp;
+mod tui;
 
 use clap::Parser;
 use cli::{Cli, Commands};
@@ -53,6 +54,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Mcp => {
             cli::mcp::execute(&project_root)?;
+        }
+        Commands::Dashboard { watch, parallel } => {
+            cli::dashboard::execute(&project_root, parallel, watch).await?;
         }
         Commands::Config { key, value } => {
             if let Some(key) = key {
