@@ -777,10 +777,34 @@ fn execute_task(
     agent: &AgentType,
     project_root: &Path,
 ) -> anyhow::Result<crate::adapters::ExecutionResult> {
+    // Read per-agent config from state
+    let forge_dir = project_root.join(".forge");
+    let agent_name = agent.to_string().to_lowercase();
+    let (auth_mode, permissions) = if forge_dir.exists() {
+        let state_mgr = crate::core::state::StateManager::new(&forge_dir);
+        let auth = state_mgr
+            .get_agent_auth(&agent_name)
+            .unwrap_or_else(|_| "subscription".to_string());
+        let perms = state_mgr
+            .get_agent_permissions(&agent_name)
+            .unwrap_or_else(|_| "safe".to_string());
+        (auth, perms)
+    } else {
+        ("subscription".to_string(), "safe".to_string())
+    };
+
     match agent {
-        AgentType::Claude => ClaudeAdapter.execute_headless(task, project_root),
-        AgentType::Codex => CodexAdapter.execute_headless(task, project_root),
-        AgentType::Gemini => GeminiAdapter.execute_headless(task, project_root),
-        AgentType::Any => ClaudeAdapter.execute_headless(task, project_root),
+        AgentType::Claude => {
+            ClaudeAdapter.execute_headless(task, project_root, &auth_mode, &permissions)
+        }
+        AgentType::Codex => {
+            CodexAdapter.execute_headless(task, project_root, &auth_mode, &permissions)
+        }
+        AgentType::Gemini => {
+            GeminiAdapter.execute_headless(task, project_root, &auth_mode, &permissions)
+        }
+        AgentType::Any => {
+            ClaudeAdapter.execute_headless(task, project_root, &auth_mode, &permissions)
+        }
     }
 }

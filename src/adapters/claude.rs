@@ -78,6 +78,8 @@ impl ToolAdapter for ClaudeAdapter {
         &self,
         task: &Task,
         project_root: &Path,
+        auth_mode: &str,
+        permissions: &str,
     ) -> anyhow::Result<ExecutionResult> {
         let prompt = format!(
             "You are working on task {id}: {title}\n\n\
@@ -102,10 +104,21 @@ impl ToolAdapter for ClaudeAdapter {
             },
         );
 
-        let output = Command::new("claude")
-            .args(["-p", &prompt, "--output-format", "text"])
-            .current_dir(project_root)
-            .output()?;
+        let mut cmd = Command::new("claude");
+        cmd.args(["-p", &prompt, "--output-format", "text"])
+            .current_dir(project_root);
+
+        // Yolo mode: full autonomy — allow all tools without prompting
+        if permissions == "yolo" {
+            cmd.args(["--dangerously-skip-permissions"]);
+        }
+
+        // In subscription mode, strip API key so CLI uses Pro/Max subscription auth
+        if auth_mode == "subscription" {
+            cmd.env_remove("ANTHROPIC_API_KEY");
+        }
+
+        let output = cmd.output()?;
 
         let exit_code = output.status.code().unwrap_or(-1);
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();

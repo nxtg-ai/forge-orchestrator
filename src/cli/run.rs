@@ -84,24 +84,32 @@ pub fn execute(project_root: &Path, task_id: &str, agent_name: &str) -> anyhow::
     );
     println!();
 
+    // Read per-agent config (defaults: subscription auth, safe permissions)
+    let auth_mode = state_mgr
+        .get_agent_auth(agent_name)
+        .unwrap_or_else(|_| "subscription".to_string());
+    let permissions = state_mgr
+        .get_agent_permissions(agent_name)
+        .unwrap_or_else(|_| "safe".to_string());
+
     // Execute via adapter
     let result = match agent_type {
         AgentType::Claude => {
             let adapter = ClaudeAdapter;
-            adapter.execute_headless(&task, project_root)?
+            adapter.execute_headless(&task, project_root, &auth_mode, &permissions)?
         }
         AgentType::Codex => {
             let adapter = crate::adapters::codex::CodexAdapter;
-            adapter.execute_headless(&task, project_root)?
+            adapter.execute_headless(&task, project_root, &auth_mode, &permissions)?
         }
         AgentType::Gemini => {
             let adapter = crate::adapters::gemini::GeminiAdapter;
-            adapter.execute_headless(&task, project_root)?
+            adapter.execute_headless(&task, project_root, &auth_mode, &permissions)?
         }
         AgentType::Any => {
             // Default to Claude for unspecified agent
             let adapter = ClaudeAdapter;
-            adapter.execute_headless(&task, project_root)?
+            adapter.execute_headless(&task, project_root, &auth_mode, &permissions)?
         }
     };
 

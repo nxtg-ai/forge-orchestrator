@@ -75,6 +75,8 @@ impl ToolAdapter for GeminiAdapter {
         &self,
         task: &Task,
         project_root: &Path,
+        auth_mode: &str,
+        permissions: &str,
     ) -> anyhow::Result<ExecutionResult> {
         let prompt = format!(
             "Complete task {id}: {title}\n\nDescription: {desc}\n\n\
@@ -97,10 +99,22 @@ impl ToolAdapter for GeminiAdapter {
             },
         );
 
-        let output = Command::new("gemini")
-            .arg(&prompt)
-            .current_dir(project_root)
-            .output()?;
+        let mut cmd = Command::new("gemini");
+        // Gemini CLI: --sandbox=false for yolo mode
+        if permissions == "yolo" {
+            cmd.args(["--sandbox=false", &prompt]);
+        } else {
+            cmd.arg(&prompt);
+        }
+        cmd.current_dir(project_root);
+
+        // In subscription mode, strip API key so CLI uses subscription auth
+        if auth_mode == "subscription" {
+            cmd.env_remove("GOOGLE_API_KEY")
+                .env_remove("GEMINI_API_KEY");
+        }
+
+        let output = cmd.output()?;
 
         let exit_code = output.status.code().unwrap_or(-1);
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();

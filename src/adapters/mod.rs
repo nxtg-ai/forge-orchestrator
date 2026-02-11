@@ -19,9 +19,16 @@ pub trait ToolAdapter {
         project_root: &Path,
     ) -> anyhow::Result<()>;
 
-    /// Execute a task headlessly using this tool
-    fn execute_headless(&self, task: &Task, project_root: &Path)
-    -> anyhow::Result<ExecutionResult>;
+    /// Execute a task headlessly using this tool.
+    /// `auth_mode`: "subscription" (strip API keys) or "api" (pass through).
+    /// `permissions`: "safe" (read-only) or "yolo" (full autonomy).
+    fn execute_headless(
+        &self,
+        task: &Task,
+        project_root: &Path,
+        auth_mode: &str,
+        permissions: &str,
+    ) -> anyhow::Result<ExecutionResult>;
 }
 
 #[derive(Debug)]

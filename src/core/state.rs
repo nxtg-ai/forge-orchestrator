@@ -15,6 +15,12 @@ pub struct ForgeState {
     pub brain: BrainConfig,
     pub task_summary: TaskSummary,
     pub active_locks: HashMap<String, FileLock>,
+    /// Per-agent auth mode: "subscription" strips API keys, "api" passes them through
+    #[serde(default)]
+    pub agent_auth: HashMap<String, String>,
+    /// Per-agent permission mode: "safe" (read-only) or "yolo" (full autonomy)
+    #[serde(default)]
+    pub agent_permissions: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +71,8 @@ impl Default for ForgeState {
             },
             task_summary: TaskSummary::default(),
             active_locks: HashMap::new(),
+            agent_auth: HashMap::new(),
+            agent_permissions: HashMap::new(),
         }
     }
 }
@@ -180,6 +188,26 @@ impl StateManager {
         );
         state.updated_at = Utc::now();
         self.save(&state)
+    }
+
+    /// Get the auth mode for an agent ("subscription" or "api"). Defaults to "subscription".
+    pub fn get_agent_auth(&self, agent: &str) -> anyhow::Result<String> {
+        let state = self.load()?;
+        Ok(state
+            .agent_auth
+            .get(agent)
+            .cloned()
+            .unwrap_or_else(|| "subscription".to_string()))
+    }
+
+    /// Get the permission mode for an agent ("safe" or "yolo"). Defaults to "safe".
+    pub fn get_agent_permissions(&self, agent: &str) -> anyhow::Result<String> {
+        let state = self.load()?;
+        Ok(state
+            .agent_permissions
+            .get(agent)
+            .cloned()
+            .unwrap_or_else(|| "safe".to_string()))
     }
 
     /// Unlock files for a completed task
