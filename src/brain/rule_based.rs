@@ -65,14 +65,46 @@ impl ForgeBrain for RuleBasedBrain {
         spec: &str,
         _available_tools: &[AgentType],
     ) -> anyhow::Result<Vec<Task>> {
+        // Check if codebase inventory is present
+        let inventory_files = extract_inventory_files(spec);
+
         // Simple heuristic: split spec by markdown headers into tasks
         let mut tasks = Vec::new();
         let mut task_num = 1;
 
         for line in spec.lines() {
             if let Some(header) = line.strip_prefix("## ") {
-                let id = format!("T-{task_num:03}");
                 let title = header.trim();
+
+                // Skip inventory section headers
+                if title == "Source Files" || title == "Test Files" {
+                    continue;
+                }
+
+                // If we have an inventory, check if this feature already exists
+                if !inventory_files.is_empty() {
+                    let title_lower = title.to_lowercase().replace([' ', '-'], "_");
+                    let already_exists = inventory_files.iter().any(|f| {
+                        let f_lower = f.to_lowercase();
+                        // Check if any source file name matches the heading
+                        f_lower.contains(&title_lower)
+                            || title_lower.split('_').any(|word| {
+                                word.len() > 3 && f_lower.contains(word)
+                            })
+                    });
+                    if already_exists {
+                        // Create a review task instead of implement
+                        let id = format!("T-{task_num:03}");
+                        let desc = format!("Review existing implementation of: {title}");
+                        let mut task = Task::new(&id, title, &desc);
+                        task.task_type = Some("review".into());
+                        tasks.push(task);
+                        task_num += 1;
+                        continue;
+                    }
+                }
+
+                let id = format!("T-{task_num:03}");
                 let desc = format!("Implement: {title}");
                 let mut task = Task::new(&id, title, &desc);
                 task.task_type = classify_task_type(title, &desc);
@@ -202,6 +234,28 @@ impl ForgeBrain for RuleBasedBrain {
 
         Ok(KnowledgeCategory::Unknown)
     }
+}
+
+/// Extract file paths from codebase inventory section if present.
+fn extract_inventory_files(spec: &str) -> Vec<String> {
+    let marker = "EXISTING CODEBASE INVENTORY:";
+    let Some(idx) = spec.find(marker) else {
+        return Vec::new();
+    };
+    let inventory_section = &spec[idx..];
+    inventory_section
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim().strip_prefix("- ")?;
+            // Lines like "src/foo.rs (42 lines)" — extract the path part
+            let path = trimmed.split(' ').next()?;
+            if path.contains('.') {
+                Some(path.to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

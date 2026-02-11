@@ -6,7 +6,32 @@ use crate::core::plan::PlanManager;
 use crate::core::state::StateManager;
 use crate::core::task::{AgentType, TaskManager};
 use colored::Colorize;
+use indicatif::{ProgressBar, ProgressStyle};
 use std::path::Path;
+
+fn spinner_style() -> ProgressStyle {
+    ProgressStyle::default_spinner()
+        .template("  {spinner:.cyan} {msg}")
+        .unwrap()
+        .tick_strings(&[
+            "\u{280b}", "\u{2819}", "\u{2839}", "\u{2838}", "\u{283c}", "\u{2834}", "\u{2826}",
+            "\u{2827}", "\u{2807}", "\u{280f}", " ",
+        ])
+}
+
+fn new_spinner(msg: &str) -> ProgressBar {
+    let sp = ProgressBar::new_spinner();
+    sp.set_style(spinner_style());
+    sp.set_message(msg.to_string());
+    sp.enable_steady_tick(std::time::Duration::from_millis(80));
+    sp
+}
+
+/// Finish spinner and print message to stdout (spinner output is unreliable in non-TTY).
+fn finish_spinner(sp: ProgressBar, msg: &str) {
+    sp.finish_and_clear();
+    println!("  {msg}");
+}
 
 pub fn execute(
     project_root: &Path,
@@ -59,8 +84,43 @@ fn generate_plan(
     println!("{}", "=".repeat(40));
     println!();
 
-    // Resolve the input content: spec file or gathered project context
+    // ── Phase 1: Load spec ──────────────────────────────────────
+    let sp = new_spinner("Loading spec...");
     let (spec_content, source_label) = resolve_plan_input(project_root, spec_path)?;
+    finish_spinner(sp, &format!(
+        "{} Spec loaded ({} lines) from {}",
+        "✓".green(),
+        spec_content.lines().count(),
+        source_label
+    ));
+
+    // ── Phase 2: Scan codebase ──────────────────────────────────
+    let sp = new_spinner("Scanning codebase...");
+    let (inventory, file_count) = scan_codebase(project_root);
+    if file_count > 0 {
+        finish_spinner(sp, &format!(
+            "{} Codebase scanned ({} source files)",
+            "✓".green(),
+            file_count
+        ));
+    } else {
+        finish_spinner(sp, &format!(
+            "{} No source files found (greenfield project)",
+            "—".dimmed()
+        ));
+    }
+
+    // Combine spec + inventory for the brain
+    let brain_input = if inventory.is_empty() {
+        spec_content.clone()
+    } else {
+        format!(
+            "{spec_content}\n\n---\n\n\
+             EXISTING CODEBASE INVENTORY:\n\n{inventory}\n\n---\n\n\
+             Generate tasks ONLY for what is missing, incomplete, or needs updating.\n\
+             Do NOT generate tasks for features that already exist in the codebase."
+        )
+    };
 
     // Detect available tools
     let state_mgr = StateManager::new(forge_dir);
@@ -99,22 +159,29 @@ fn generate_plan(
         }
     };
 
-    // Use brain to decompose spec into tasks
-    println!("  {} Decomposing spec into tasks...", "→".cyan());
     let tools_for_brain = if available_tools.is_empty() {
         vec![AgentType::Any]
     } else {
         available_tools.clone()
     };
-    let mut tasks = brain.decompose_plan(&spec_content, &tools_for_brain)?;
 
-    // Assign each task to an agent
+    // ── Phase 3: Decompose into tasks ───────────────────────────
+    let sp = new_spinner("Decomposing spec into tasks...");
+    let mut tasks = brain.decompose_plan(&brain_input, &tools_for_brain)?;
+    finish_spinner(sp, &format!(
+        "{} Generated {} tasks",
+        "✓".green(),
+        tasks.len()
+    ));
+
+    // ── Phase 4: Assign agents ──────────────────────────────────
+    let sp = new_spinner("Assigning agents to tasks...");
     for task in &mut tasks {
         let assigned = brain.assign_task(task, &tools_for_brain)?;
         task.assigned_to = Some(assigned);
     }
+    finish_spinner(sp, &format!("{} Agents assigned", "✓".green()));
 
-    println!("  {} Generated {} tasks", "✓".green(), tasks.len());
     println!();
 
     // Display task table
@@ -147,33 +214,30 @@ fn generate_plan(
     }
     println!();
 
-    // Write tasks to .forge/tasks/
+    // ── Phase 5: Write to disk ──────────────────────────────────
+    let sp = new_spinner("Writing task board...");
     let task_mgr = TaskManager::new(forge_dir);
     for task in &tasks {
         task_mgr.create_task(task)?;
     }
-    println!("  {} Tasks written to .forge/tasks/", "✓".green());
 
-    // Generate plan.md
     let plan_mgr = PlanManager::new(forge_dir);
     let plan_content = generate_plan_markdown(&state.project_name, &tasks);
     plan_mgr.write_plan(&plan_content)?;
-    println!("  {} Plan written to .forge/plan.md", "✓".green());
 
-    // Log event
     let event_logger = EventLogger::new(forge_dir);
     event_logger.log(&ForgeEvent::new(
         EventType::PlanCreated,
         format!("Plan generated from {source_label}: {} tasks", tasks.len()),
     ))?;
 
-    // Update state summary
     let summary = crate::core::state::TaskSummary {
         total: tasks.len(),
         pending: tasks.len(),
         ..Default::default()
     };
     state_mgr.update_task_summary(summary)?;
+    finish_spinner(sp, &format!("{} Plan written to .forge/plan.md", "✓".green()));
 
     println!();
     println!(
@@ -204,7 +268,7 @@ fn generate_plan(
 fn generate_plan_markdown(project_name: &str, tasks: &[crate::core::task::Task]) -> String {
     let mut content = String::new();
     content.push_str(&format!("# {project_name} — Master Plan\n\n"));
-    content.push_str("**Generated by:** Forge Orchestrator v0.1.0\n");
+    content.push_str("**Generated by:** Forge Orchestrator v0.2.0\n");
     content.push_str(&format!(
         "**Date:** {}\n",
         chrono::Utc::now().format("%Y-%m-%d %H:%M UTC")
@@ -257,12 +321,6 @@ fn resolve_plan_input(
             anyhow::bail!("Spec file not found: {}", spec_file.display());
         }
         let content = std::fs::read_to_string(&spec_file)?;
-        println!("  {} Reading spec: {}", "→".cyan(), spec_file.display());
-        println!(
-            "  {} Spec loaded ({} lines)",
-            "✓".green(),
-            content.lines().count()
-        );
         let label = spec_file
             .file_name()
             .map(|f| f.to_string_lossy().to_string())
@@ -280,12 +338,6 @@ fn resolve_plan_input(
 
     if let Some(spec_file) = found {
         let content = std::fs::read_to_string(&spec_file)?;
-        println!("  {} Reading spec: {}", "→".cyan(), spec_file.display());
-        println!(
-            "  {} Spec loaded ({} lines)",
-            "✓".green(),
-            content.lines().count()
-        );
         let label = spec_file
             .file_name()
             .map(|f| f.to_string_lossy().to_string())
@@ -294,26 +346,16 @@ fn resolve_plan_input(
     }
 
     // No spec file — gather project context instead
-    println!(
-        "  {} No SPEC.md found — gathering project context...",
-        "→".cyan()
-    );
     let context = gather_project_context(project_root)?;
     if context.is_empty() {
         anyhow::bail!(
             "No project context found. Create a README.md or SPEC.md, then run `forge plan --generate`."
         );
     }
-    println!(
-        "  {} Project context gathered ({} lines)",
-        "✓".green(),
-        context.lines().count()
-    );
     Ok((context, "project context".to_string()))
 }
 
 /// Gather project context from README, markdown files, and manifest files.
-/// This is used when no SPEC.md exists — the brain analyzes whatever context is available.
 fn gather_project_context(project_root: &Path) -> anyhow::Result<String> {
     let mut sections: Vec<String> = Vec::new();
 
@@ -322,7 +364,6 @@ fn gather_project_context(project_root: &Path) -> anyhow::Result<String> {
     if readme.exists() {
         let content = std::fs::read_to_string(&readme)?;
         if !content.trim().is_empty() {
-            println!("    {} README.md", "✓".green());
             sections.push(format!("# README.md\n\n{content}"));
         }
     }
@@ -339,12 +380,11 @@ fn gather_project_context(project_root: &Path) -> anyhow::Result<String> {
             && let Ok(content) = std::fs::read_to_string(&path)
         {
             let truncated: String = content.lines().take(80).collect::<Vec<_>>().join("\n");
-            println!("    {} {} ({})", "✓".green(), name, label);
             sections.push(format!("# {name} ({label})\n\n```\n{truncated}\n```"));
         }
     }
 
-    // 3. Other markdown files in root — CLAUDE.md, AGENTS.md, CONTRIBUTING.md, etc.
+    // 3. Other markdown files in root
     if let Ok(entries) = std::fs::read_dir(project_root) {
         let mut md_files: Vec<_> = entries
             .flatten()
@@ -365,7 +405,6 @@ fn gather_project_context(project_root: &Path) -> anyhow::Result<String> {
             {
                 let truncated: String =
                     content.lines().take(100).collect::<Vec<_>>().join("\n");
-                println!("    {} {}", "✓".green(), name);
                 sections.push(format!("# {name}\n\n{truncated}"));
             }
         }
@@ -389,7 +428,6 @@ fn gather_project_context(project_root: &Path) -> anyhow::Result<String> {
             {
                 let truncated: String =
                     content.lines().take(80).collect::<Vec<_>>().join("\n");
-                println!("    {} docs/{}", "✓".green(), name);
                 sections.push(format!("# docs/{name}\n\n{truncated}"));
             }
         }
@@ -417,4 +455,185 @@ fn truncate(s: &str, max: usize) -> String {
     } else {
         format!("{}...", &s[..max - 3])
     }
+}
+
+// ─── DX-017: Codebase Scanner ───────────────────────────────────────────────
+
+/// Directories to skip during codebase scanning.
+const IGNORE_DIRS: &[&str] = &[
+    ".git",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    "__pycache__",
+    ".forge",
+    ".next",
+    ".nuxt",
+    "vendor",
+    "venv",
+    ".venv",
+    "coverage",
+];
+
+/// Source file extensions to include.
+const SOURCE_EXTENSIONS: &[&str] = &[
+    "ts", "tsx", "js", "jsx", "rs", "py", "go", "java", "kt", "swift", "rb", "cs", "cpp", "c",
+    "h", "hpp",
+];
+
+/// Test file patterns.
+const TEST_PATTERNS: &[&str] = &["test", "spec", "_test.", ".test.", ".spec."];
+
+/// Export/definition patterns by extension for signature extraction.
+fn export_patterns(ext: &str) -> &'static [&'static str] {
+    match ext {
+        "ts" | "tsx" | "js" | "jsx" => &[
+            "export class ",
+            "export function ",
+            "export const ",
+            "export interface ",
+            "export type ",
+            "export default ",
+            "export enum ",
+        ],
+        "rs" => &[
+            "pub fn ",
+            "pub struct ",
+            "pub enum ",
+            "pub trait ",
+            "pub mod ",
+            "pub type ",
+        ],
+        "py" => &["class ", "def ", "__all__"],
+        "go" => &["func ", "type "],
+        _ => &[],
+    }
+}
+
+/// Scan the project codebase and build a concise inventory.
+/// Returns (inventory_text, source_file_count).
+fn scan_codebase(project_root: &Path) -> (String, usize) {
+    let mut source_files: Vec<(String, usize, Vec<String>)> = Vec::new(); // (path, lines, exports)
+    let mut test_files: Vec<(String, usize)> = Vec::new(); // (path, lines)
+    let mut total_chars = 0usize;
+    const MAX_CHARS: usize = 12_000; // ~4000 tokens
+
+    let walker = walkdir::WalkDir::new(project_root)
+        .max_depth(4) // 3 levels below root
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            // Skip ignored directories
+            if e.file_type().is_dir() {
+                return !IGNORE_DIRS.contains(&name.as_ref());
+            }
+            true
+        });
+
+    for entry in walker.flatten() {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+
+        let path = entry.path();
+        let ext = match path.extension().and_then(|e| e.to_str()) {
+            Some(e) if SOURCE_EXTENSIONS.contains(&e) => e,
+            _ => continue,
+        };
+
+        // Relative path from project root
+        let rel_path = path
+            .strip_prefix(project_root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .to_string();
+
+        // Count lines
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let line_count = content.lines().count();
+
+        // Check if test file
+        let rel_lower = rel_path.to_lowercase();
+        if TEST_PATTERNS.iter().any(|p| rel_lower.contains(p)) {
+            let entry_str = format!("{rel_path} ({line_count} lines)\n");
+            total_chars += entry_str.len();
+            test_files.push((rel_path, line_count));
+            if total_chars > MAX_CHARS {
+                break;
+            }
+            continue;
+        }
+
+        // Extract export signatures
+        let patterns = export_patterns(ext);
+        let exports: Vec<String> = if patterns.is_empty() {
+            Vec::new()
+        } else {
+            content
+                .lines()
+                .filter(|line| {
+                    let trimmed = line.trim();
+                    patterns.iter().any(|p| trimmed.starts_with(p))
+                })
+                .take(10) // max 10 exports per file
+                .map(|line| {
+                    let trimmed = line.trim();
+                    // Truncate long lines
+                    if trimmed.len() > 80 {
+                        format!("{}...", &trimmed[..77])
+                    } else {
+                        trimmed.to_string()
+                    }
+                })
+                .collect()
+        };
+
+        let entry_str = format!("{rel_path} ({line_count} lines)\n");
+        total_chars += entry_str.len();
+        total_chars += exports.iter().map(|e| e.len() + 4).sum::<usize>(); // "  - " prefix
+
+        source_files.push((rel_path, line_count, exports));
+
+        if total_chars > MAX_CHARS {
+            break;
+        }
+    }
+
+    let file_count = source_files.len() + test_files.len();
+    if file_count == 0 {
+        return (String::new(), 0);
+    }
+
+    // Build inventory string
+    let mut inventory = String::new();
+
+    // Source files
+    if !source_files.is_empty() {
+        inventory.push_str("## Source Files\n\n");
+        for (path, lines, exports) in &source_files {
+            inventory.push_str(&format!("- {path} ({lines} lines)"));
+            if !exports.is_empty() {
+                inventory.push('\n');
+                for export in exports {
+                    inventory.push_str(&format!("  - {export}\n"));
+                }
+            } else {
+                inventory.push('\n');
+            }
+        }
+    }
+
+    // Test files
+    if !test_files.is_empty() {
+        inventory.push_str("\n## Test Files\n\n");
+        for (path, lines) in &test_files {
+            inventory.push_str(&format!("- {path} ({lines} lines)\n"));
+        }
+    }
+
+    (inventory, file_count)
 }

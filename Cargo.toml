@@ -1,6 +1,6 @@
 [package]
 name = "forge-orchestrator"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 description = "Universal coordination engine for AI-powered development"
 license = "MIT"
@@ -39,6 +39,10 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # Terminal UI
 colored = "3"
+indicatif = "0.17"
+
+# Filesystem traversal
+walkdir = "2"
 
 # UUID for task IDs
 uuid = { version = "1", features = ["v4"] }

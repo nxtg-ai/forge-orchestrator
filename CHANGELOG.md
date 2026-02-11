@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-02-11
+
+### Added
+- **DX-009: Spinner / progress indicators** — phased spinners during plan generation and task execution using `indicatif` crate
+  - 5 phases in `plan --generate`: spec loading, codebase scan, task decomposition, agent assignment, disk write
+  - Spinner during headless `run --task` execution with success/failure finish message
+  - Removed `eprintln!` debug noise from OpenAI brain that clashed with spinner output
+- **DX-017: Codebase-aware plan generation** — spec vs reality diff before task generation
+  - New `scan_codebase()` in plan.rs: walks source dirs with `walkdir`, extracts file paths + line counts + export signatures
+  - Token-budgeted to ~4000 tokens, 3 levels deep, skips node_modules/target/.git/dist/build
+  - Combined spec + codebase inventory sent to brain with gap-only instructions
+  - OpenAI brain system prompt updated to skip tasks for features that already exist
+  - Rule-based brain creates "review" tasks instead of "implement" when matching files found
+  - Greenfield projects (no source files) behave identically to before
+- New dependencies: `indicatif = "0.17"`, `walkdir = "2"`
+
 ## [0.2.1] - 2026-02-11
 
 ### Added
@@ -90,7 +106,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Animated SVG banner for README
 - 51 tests (30 unit + 9 CLI + 12 MCP integration)
 
-[Unreleased]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.1.1...v0.1.2

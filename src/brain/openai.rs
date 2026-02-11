@@ -154,7 +154,6 @@ impl ForgeBrain for OpenAIBrain {
         available_tools: &[AgentType],
     ) -> anyhow::Result<Vec<Task>> {
         if !self.has_api_key() {
-            eprintln!("[forge-brain] No API key — falling back to rule-based decomposition");
             let fallback = super::rule_based::RuleBasedBrain;
             return fallback.decompose_plan(spec, available_tools);
         }
@@ -188,14 +187,17 @@ impl ForgeBrain for OpenAIBrain {
             - Assign testing/documentation tasks to gemini (if available, else claude)\n\
             - Keep tasks small enough for one focused session\n\
             - Use dependencies to enforce ordering where needed\n\
-            - Output raw JSON only, no markdown fences";
+            - Output raw JSON only, no markdown fences\n\n\
+            The input may include both a spec AND an existing codebase inventory.\n\
+            If a codebase inventory is provided:\n\
+            - Do NOT create tasks for features/modules that already exist in the codebase\n\
+            - Focus on gaps: what is in the spec but NOT in the codebase\n\
+            - Create \"review\" tasks for existing code that may need updates\n\
+            - Create \"test\" tasks for existing code that lacks tests\n\
+            - If the codebase already covers the full spec, output fewer or zero tasks";
 
         let user = format!("Available AI tools: {tools_str}\n\nProject specification:\n\n{spec}");
 
-        eprintln!(
-            "[forge-brain] Calling OpenAI ({}) for plan decomposition...",
-            self.model
-        );
         let response = self.chat(system, &user, 0.3)?;
 
         // Parse the JSON response
@@ -271,12 +273,10 @@ impl ForgeBrain for OpenAIBrain {
         }
 
         if tasks.is_empty() {
-            eprintln!("[forge-brain] OpenAI returned no tasks — falling back to rule-based");
             let fallback = super::rule_based::RuleBasedBrain;
             return fallback.decompose_plan(spec, available_tools);
         }
 
-        eprintln!("[forge-brain] Generated {} tasks via OpenAI", tasks.len());
         Ok(tasks)
     }
 
@@ -330,10 +330,6 @@ impl ForgeBrain for OpenAIBrain {
 
         let user = format!("PROJECT VISION:\n{vision}\n\nCOMPLETED WORK:\n{work_summary}");
 
-        eprintln!(
-            "[forge-brain] Calling OpenAI ({}) for drift evaluation...",
-            self.model
-        );
         let response = self.chat(system, &user, 0.2)?;
 
         // Parse response

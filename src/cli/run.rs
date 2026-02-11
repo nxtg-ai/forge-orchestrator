@@ -4,7 +4,18 @@ use crate::core::event::{EventLogger, EventType, ForgeEvent};
 use crate::core::state::StateManager;
 use crate::core::task::{AgentType, TaskManager, TaskStatus};
 use colored::Colorize;
+use indicatif::{ProgressBar, ProgressStyle};
 use std::path::Path;
+
+fn spinner_style() -> ProgressStyle {
+    ProgressStyle::default_spinner()
+        .template("  {spinner:.cyan} {msg}")
+        .unwrap()
+        .tick_strings(&[
+            "\u{280b}", "\u{2819}", "\u{2839}", "\u{2838}", "\u{283c}", "\u{2834}", "\u{2826}",
+            "\u{2827}", "\u{2807}", "\u{280f}", " ",
+        ])
+}
 
 pub async fn execute(project_root: &Path, task_id: &str, agent_name: &str) -> anyhow::Result<()> {
     let forge_dir = project_root.join(".forge");
@@ -76,14 +87,6 @@ pub async fn execute(project_root: &Path, task_id: &str, agent_name: &str) -> an
             .with_agent(agent_type.clone()),
     )?;
 
-    println!(
-        "{} Executing {} via {} headless mode...",
-        "→".cyan(),
-        task_id.bold(),
-        agent_name.cyan()
-    );
-    println!();
-
     // Read per-agent config (defaults: subscription auth, safe permissions)
     let auth_mode = state_mgr
         .get_agent_auth(agent_name)
@@ -92,7 +95,12 @@ pub async fn execute(project_root: &Path, task_id: &str, agent_name: &str) -> an
         .get_agent_permissions(agent_name)
         .unwrap_or_else(|_| "safe".to_string());
 
-    // Build command via adapter, execute asynchronously
+    // Build command via adapter, execute asynchronously with spinner
+    let sp = ProgressBar::new_spinner();
+    sp.set_style(spinner_style());
+    sp.set_message(format!("Running {} on {}...", agent_name, task_id));
+    sp.enable_steady_tick(std::time::Duration::from_millis(80));
+
     let cmd = match agent_type {
         AgentType::Claude => ClaudeAdapter.build_command(&task, project_root, &auth_mode, &permissions),
         AgentType::Codex => {
@@ -114,7 +122,8 @@ pub async fn execute(project_root: &Path, task_id: &str, agent_name: &str) -> an
     if result.success {
         task.status = TaskStatus::Completed;
         task.completed_at = Some(chrono::Utc::now());
-        println!("{} Task {} completed successfully!", "✓".green(), task_id);
+        sp.finish_and_clear();
+        println!("  {} {} completed", "✓".green(), task_id);
 
         event_logger.log(
             &ForgeEvent::new(
@@ -126,8 +135,9 @@ pub async fn execute(project_root: &Path, task_id: &str, agent_name: &str) -> an
         )?;
     } else {
         task.status = TaskStatus::Failed;
+        sp.finish_and_clear();
         println!(
-            "{} Task {} failed (exit code: {})",
+            "  {} {} failed (exit code: {})",
             "✗".red(),
             task_id,
             result.exit_code

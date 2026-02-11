@@ -365,9 +365,7 @@ fn test_plan_generate_from_readme_context() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("No SPEC.md found"))
-        .stdout(predicate::str::contains("Project context gathered"))
-        .stdout(predicate::str::contains("Generated"))
+        .stdout(predicate::str::contains("project context"))
         .stdout(predicate::str::contains("T-001"));
 
     // Verify task files were created
