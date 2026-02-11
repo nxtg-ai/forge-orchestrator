@@ -34,6 +34,7 @@ fn test_init_creates_forge_directory() {
     assert!(dir.path().join(".forge").exists());
     assert!(dir.path().join(".forge/state.json").exists());
     assert!(dir.path().join(".forge/events.jsonl").exists());
+    assert!(dir.path().join(".forge/governance.json").exists());
     assert!(dir.path().join(".forge/tasks").is_dir());
     assert!(dir.path().join(".forge/knowledge").is_dir());
 }
@@ -293,7 +294,7 @@ fn test_full_loop_init_plan_sync_status() {
 }
 
 #[test]
-fn test_plan_generate_without_spec_shows_help() {
+fn test_plan_generate_without_any_context_shows_error() {
     let dir = TempDir::new().unwrap();
 
     std::process::Command::new("git")
@@ -313,6 +314,48 @@ fn test_plan_generate_without_spec_shows_help() {
         .assert()
         .success();
 
+    // No SPEC.md and no README.md → error with guidance
+    forge_cmd()
+        .args([
+            "--project",
+            dir.path().to_str().unwrap(),
+            "plan",
+            "--generate",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("No project context found"));
+}
+
+#[test]
+fn test_plan_generate_from_readme_context() {
+    let dir = TempDir::new().unwrap();
+
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    forge_cmd()
+        .args([
+            "--project",
+            dir.path().to_str().unwrap(),
+            "init",
+            "--name",
+            "ContextPlan",
+        ])
+        .assert()
+        .success();
+
+    // Create a README with sections — no SPEC.md
+    std::fs::write(
+        dir.path().join("README.md"),
+        "# ContextPlan\n\n## Authentication\nOAuth2 login flow\n\n## Dashboard\nReal-time metrics\n",
+    )
+    .unwrap();
+
+    // Should gather README as context and generate tasks from it
     forge_cmd()
         .args([
             "--project",
@@ -322,7 +365,13 @@ fn test_plan_generate_without_spec_shows_help() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("No specification file found"));
+        .stdout(predicate::str::contains("No SPEC.md found"))
+        .stdout(predicate::str::contains("Project context gathered"))
+        .stdout(predicate::str::contains("Generated"))
+        .stdout(predicate::str::contains("T-001"));
+
+    // Verify task files were created
+    assert!(dir.path().join(".forge/tasks/T-001.json").exists());
 }
 
 #[test]

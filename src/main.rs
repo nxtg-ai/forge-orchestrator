@@ -58,7 +58,9 @@ fn main() -> anyhow::Result<()> {
                 if let Some(value) = value {
                     cli::config::execute(&project_root, &key, &value)?;
                 } else {
-                    anyhow::bail!("Missing value. Usage: forge config <key> <value>");
+                    anyhow::bail!(
+                        "Missing value.\n\nUsage: forge config <key> <value>\n\nExamples:\n  forge config brain openai\n  forge config brain.model gpt-4.1"
+                    );
                 }
             } else {
                 cli::config::show(&project_root)?;

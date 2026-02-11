@@ -43,9 +43,7 @@ impl PlanManager {
              ## Vision\n\n\
              _Describe the project vision here._\n\n\
              ## Tasks\n\n\
-             | ID | Title | Agent | Status | Depends On |\n\
-             |----|-------|-------|--------|------------|\n\
-             | T-001 | Example task | claude | pending | - |\n\n\
+             No tasks yet. Run `forge plan --generate` to create tasks from your project context.\n\n\
              ## Notes\n\n\
              _Add any notes about the plan here._\n",
             date = chrono::Utc::now().format("%Y-%m-%d"),

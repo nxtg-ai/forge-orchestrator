@@ -59,53 +59,8 @@ fn generate_plan(
     println!("{}", "=".repeat(40));
     println!();
 
-    // Find spec file
-    let spec_file = if let Some(path) = spec_path {
-        project_root.join(path)
-    } else {
-        // Check exact filenames first, then glob patterns for variants
-        let exact_candidates = ["SPEC.md", "spec.md", "PRD.md", "REQUIREMENTS.md"];
-        let found = exact_candidates
-            .iter()
-            .map(|f| project_root.join(f))
-            .find(|p| p.exists());
-
-        if let Some(path) = found {
-            path
-        } else {
-            // Try glob patterns for variants like SPEC-FINAL.md, spec-v2.md, etc.
-            let glob_found = find_spec_by_glob(project_root);
-            match glob_found {
-                Some(path) => path,
-                None => {
-                    println!("{} No specification file found. Looked for:", "!".yellow());
-                    for c in &exact_candidates {
-                        println!("    - {c}");
-                    }
-                    println!("    - SPEC-*.md, spec-*.md, PRD-*.md, REQUIREMENTS-*.md");
-                    println!();
-                    println!(
-                        "Create a SPEC.md or use {} to specify a path.",
-                        "--spec <path>".cyan()
-                    );
-                    return Ok(());
-                }
-            }
-        }
-    };
-
-    if !spec_file.exists() {
-        println!("{} Spec file not found: {}", "✗".red(), spec_file.display());
-        return Ok(());
-    }
-
-    println!("  {} Reading spec: {}", "→".cyan(), spec_file.display());
-    let spec_content = std::fs::read_to_string(&spec_file)?;
-    println!(
-        "  {} Spec loaded ({} lines)",
-        "✓".green(),
-        spec_content.lines().count()
-    );
+    // Resolve the input content: spec file or gathered project context
+    let (spec_content, source_label) = resolve_plan_input(project_root, spec_path)?;
 
     // Detect available tools
     let state_mgr = StateManager::new(forge_dir);
@@ -206,14 +161,7 @@ fn generate_plan(
     let event_logger = EventLogger::new(forge_dir);
     event_logger.log(&ForgeEvent::new(
         EventType::PlanCreated,
-        format!(
-            "Plan generated from {}: {} tasks",
-            spec_file
-                .file_name()
-                .map(|f| f.to_string_lossy().to_string())
-                .unwrap_or_default(),
-            tasks.len()
-        ),
+        format!("Plan generated from {source_label}: {} tasks", tasks.len()),
     ))?;
 
     // Update state summary
@@ -290,6 +238,160 @@ fn generate_plan_markdown(project_name: &str, tasks: &[crate::core::task::Task])
     }
 
     content
+}
+
+/// Resolve plan input: either a spec file or gathered project context.
+/// Returns (content, source_label) where source_label describes where the content came from.
+fn resolve_plan_input(
+    project_root: &Path,
+    spec_path: Option<String>,
+) -> anyhow::Result<(String, String)> {
+    // If explicit --spec path given, use that
+    if let Some(path) = spec_path {
+        let spec_file = project_root.join(&path);
+        if !spec_file.exists() {
+            anyhow::bail!("Spec file not found: {}", spec_file.display());
+        }
+        let content = std::fs::read_to_string(&spec_file)?;
+        println!("  {} Reading spec: {}", "→".cyan(), spec_file.display());
+        println!(
+            "  {} Spec loaded ({} lines)",
+            "✓".green(),
+            content.lines().count()
+        );
+        let label = spec_file
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.clone());
+        return Ok((content, label));
+    }
+
+    // Try to find a spec file automatically
+    let exact_candidates = ["SPEC.md", "spec.md", "PRD.md", "REQUIREMENTS.md"];
+    let found = exact_candidates
+        .iter()
+        .map(|f| project_root.join(f))
+        .find(|p| p.exists())
+        .or_else(|| find_spec_by_glob(project_root));
+
+    if let Some(spec_file) = found {
+        let content = std::fs::read_to_string(&spec_file)?;
+        println!("  {} Reading spec: {}", "→".cyan(), spec_file.display());
+        println!(
+            "  {} Spec loaded ({} lines)",
+            "✓".green(),
+            content.lines().count()
+        );
+        let label = spec_file
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_default();
+        return Ok((content, label));
+    }
+
+    // No spec file — gather project context instead
+    println!(
+        "  {} No SPEC.md found — gathering project context...",
+        "→".cyan()
+    );
+    let context = gather_project_context(project_root)?;
+    if context.is_empty() {
+        anyhow::bail!(
+            "No project context found. Create a README.md or SPEC.md, then run `forge plan --generate`."
+        );
+    }
+    println!(
+        "  {} Project context gathered ({} lines)",
+        "✓".green(),
+        context.lines().count()
+    );
+    Ok((context, "project context".to_string()))
+}
+
+/// Gather project context from README, markdown files, and manifest files.
+/// This is used when no SPEC.md exists — the brain analyzes whatever context is available.
+fn gather_project_context(project_root: &Path) -> anyhow::Result<String> {
+    let mut sections: Vec<String> = Vec::new();
+
+    // 1. README.md — primary context
+    let readme = project_root.join("README.md");
+    if readme.exists() {
+        let content = std::fs::read_to_string(&readme)?;
+        if !content.trim().is_empty() {
+            println!("    {} README.md", "✓".green());
+            sections.push(format!("# README.md\n\n{content}"));
+        }
+    }
+
+    // 2. Project manifest — tech stack detection
+    for (name, label) in [
+        ("package.json", "Node.js manifest"),
+        ("Cargo.toml", "Rust manifest"),
+        ("pyproject.toml", "Python manifest"),
+        ("go.mod", "Go manifest"),
+    ] {
+        let path = project_root.join(name);
+        if path.exists()
+            && let Ok(content) = std::fs::read_to_string(&path)
+        {
+            let truncated: String = content.lines().take(80).collect::<Vec<_>>().join("\n");
+            println!("    {} {} ({})", "✓".green(), name, label);
+            sections.push(format!("# {name} ({label})\n\n```\n{truncated}\n```"));
+        }
+    }
+
+    // 3. Other markdown files in root — CLAUDE.md, AGENTS.md, CONTRIBUTING.md, etc.
+    if let Ok(entries) = std::fs::read_dir(project_root) {
+        let mut md_files: Vec<_> = entries
+            .flatten()
+            .filter(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                name.ends_with(".md")
+                    && name != "README.md"
+                    && !name.starts_with("CHANGELOG")
+                    && !name.starts_with("LICENSE")
+            })
+            .collect();
+        md_files.sort_by_key(|e| e.file_name());
+
+        for entry in md_files {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if let Ok(content) = std::fs::read_to_string(entry.path())
+                && !content.trim().is_empty()
+            {
+                let truncated: String =
+                    content.lines().take(100).collect::<Vec<_>>().join("\n");
+                println!("    {} {}", "✓".green(), name);
+                sections.push(format!("# {name}\n\n{truncated}"));
+            }
+        }
+    }
+
+    // 4. Markdown files in docs/ directory
+    let docs_dir = project_root.join("docs");
+    if docs_dir.is_dir()
+        && let Ok(entries) = std::fs::read_dir(&docs_dir)
+    {
+        let mut doc_files: Vec<_> = entries
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".md"))
+            .collect();
+        doc_files.sort_by_key(|e| e.file_name());
+
+        for entry in doc_files.into_iter().take(5) {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if let Ok(content) = std::fs::read_to_string(entry.path())
+                && !content.trim().is_empty()
+            {
+                let truncated: String =
+                    content.lines().take(80).collect::<Vec<_>>().join("\n");
+                println!("    {} docs/{}", "✓".green(), name);
+                sections.push(format!("# docs/{name}\n\n{truncated}"));
+            }
+        }
+    }
+
+    Ok(sections.join("\n\n---\n\n"))
 }
 
 fn find_spec_by_glob(project_root: &Path) -> Option<std::path::PathBuf> {

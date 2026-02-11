@@ -33,22 +33,15 @@ pub fn execute(project_root: &Path, name: Option<String>) -> anyhow::Result<()> 
             .unwrap_or_else(|| "unnamed-project".into())
     });
 
-    // Scan for existing files
-    let spec_exists = project_root.join("SPEC.md").exists();
-    let claude_md_exists = project_root.join("CLAUDE.md").exists();
-    let agents_md_exists = project_root.join("AGENTS.md").exists();
-    let gemini_md_exists = project_root.join("GEMINI.md").exists();
-    let readme_exists = project_root.join("README.md").exists();
+    // Scan for project files
     let package_json_exists = project_root.join("package.json").exists();
     let cargo_toml_exists = project_root.join("Cargo.toml").exists();
     let git_exists = project_root.join(".git").exists();
-    // Python project markers
-    let requirements_txt_exists = project_root.join("requirements.txt").exists();
     let pyproject_toml_exists = project_root.join("pyproject.toml").exists();
+    let requirements_txt_exists = project_root.join("requirements.txt").exists();
     let setup_py_exists = project_root.join("setup.py").exists();
     let pipfile_exists = project_root.join("Pipfile").exists();
     let makefile_exists = project_root.join("Makefile").exists();
-    // Go project markers
     let go_mod_exists = project_root.join("go.mod").exists();
 
     let check = |exists: bool| {
@@ -59,11 +52,28 @@ pub fn execute(project_root: &Path, name: Option<String>) -> anyhow::Result<()> 
         }
     };
 
-    println!("  {} SPEC.md", check(spec_exists));
-    println!("  {} CLAUDE.md", check(claude_md_exists));
-    println!("  {} AGENTS.md", check(agents_md_exists));
-    println!("  {} GEMINI.md", check(gemini_md_exists));
-    println!("  {} README.md", check(readme_exists));
+    // Discover all markdown files in root (DX-001: not just 4 hardcoded names)
+    let mut discovered_md: Vec<String> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(project_root) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.ends_with(".md") && entry.path().is_file() {
+                discovered_md.push(name);
+            }
+        }
+    }
+    discovered_md.sort();
+
+    // Display discovered markdown files
+    if discovered_md.is_empty() {
+        println!("  {} *.md (no markdown files found)", "✗".dimmed());
+    } else {
+        for md in &discovered_md {
+            println!("  {} {}", "✓".green(), md);
+        }
+    }
+
+    // Display project manifest files
     println!("  {} package.json", check(package_json_exists));
     println!("  {} Cargo.toml", check(cargo_toml_exists));
     if requirements_txt_exists || pyproject_toml_exists || setup_py_exists || pipfile_exists {
@@ -79,6 +89,22 @@ pub fn execute(project_root: &Path, name: Option<String>) -> anyhow::Result<()> 
         println!("  {} go.mod", check(go_mod_exists));
     }
     println!("  {} .git", check(git_exists));
+
+    // Check for docs/ directory
+    let docs_dir = project_root.join("docs");
+    if docs_dir.is_dir() {
+        let doc_count = std::fs::read_dir(&docs_dir)
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .filter(|e| e.file_name().to_string_lossy().ends_with(".md"))
+                    .count()
+            })
+            .unwrap_or(0);
+        if doc_count > 0 {
+            println!("  {} docs/ ({} markdown files)", "✓".green(), doc_count);
+        }
+    }
 
     // Detect project type
     let project_type = if cargo_toml_exists {
@@ -99,6 +125,8 @@ pub fn execute(project_root: &Path, name: Option<String>) -> anyhow::Result<()> 
         project_type.cyan()
     );
     println!();
+
+    let spec_exists = discovered_md.iter().any(|n| n == "SPEC.md");
 
     // Step 1: Detect tools
     println!("{}", "Step 2: Tool Detection".bold());
@@ -151,11 +179,14 @@ pub fn execute(project_root: &Path, name: Option<String>) -> anyhow::Result<()> 
     );
     println!();
     println!("Next steps:");
-    println!("  {} — see the task board", "forge status".cyan());
-    println!("  {} — create/view the master plan", "forge plan".cyan());
     println!(
-        "  {} — run a task headlessly",
-        "forge run --task T-001 --agent claude".cyan()
+        "  {} — generate tasks from project context",
+        "forge plan --generate".cyan()
+    );
+    println!("  {} — see the task board", "forge status".cyan());
+    println!(
+        "  {} — configure the AI brain",
+        "forge config brain openai".cyan()
     );
     println!();
 
@@ -183,6 +214,22 @@ fn scaffold_forge_dir(forge_dir: &Path) -> anyhow::Result<()> {
     std::fs::write(
         forge_dir.join(".gitignore"),
         "# Forge-managed directories\nworktrees/\nresults/\n",
+    )?;
+
+    // Scaffold governance.json — the shared state bus between all 3 products (DX-002)
+    let governance = serde_json::json!({
+        "version": "1.0.0",
+        "created_at": chrono::Utc::now().to_rfc3339(),
+        "constitution": {
+            "principles": [],
+            "constraints": []
+        },
+        "workstreams": [],
+        "audit_trail": []
+    });
+    std::fs::write(
+        forge_dir.join("governance.json"),
+        serde_json::to_string_pretty(&governance)?,
     )?;
 
     println!("  {} .forge/ directory scaffolded", "✓".green());
