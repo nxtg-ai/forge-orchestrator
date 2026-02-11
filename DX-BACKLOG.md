@@ -6,13 +6,99 @@
 ## Open Items (Priority Order)
 
 ### DX-009: Spinner / Progress Indicator During LLM Calls
-- **Priority:** Medium
-- **Where:** `src/cli/plan.rs` (plan generation), `src/adapters/*.rs` (task execution)
-- **Problem:** Silent wait while OpenAI/Claude thinks (~3-30 seconds). No feedback.
-- **Solution:** Use `indicatif` crate for terminal spinners. Show phased progress:
-  - `Analyzing spec...` → `Decomposing into tasks...` → `Assigning agents...`
-  - Even if LLM does it in one shot, the phases give perceived speed
-- **Stretch:** Skeleton rendering — show table frame, fill rows as they arrive
+- **Priority:** HIGH — DO THIS BEFORE DX-017 (codebase scan adds more latency)
+- **Where:** `src/cli/plan.rs` (plan generation), `src/cli/run.rs` (task execution)
+- **Problem:** Silent wait while OpenAI/Claude thinks (~3-30 seconds). No feedback. DX-017 will make this worse by adding a codebase scan phase.
+- **Solution:** Use `indicatif` crate for terminal spinners.
+- **Implementation:**
+
+#### Step 1: Add dependency
+```toml
+# Cargo.toml
+indicatif = "0.17"
+```
+
+#### Step 2: Plan generation spinners in `src/cli/plan.rs`
+Replace the current static `println!` progress with phased spinners:
+```rust
+use indicatif::{ProgressBar, ProgressStyle};
+
+let spinner_style = ProgressStyle::default_spinner()
+    .template("{spinner:.cyan} {msg}")
+    .unwrap()
+    .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]);
+
+// Phase 1: Loading spec
+let sp = ProgressBar::new_spinner();
+sp.set_style(spinner_style.clone());
+sp.set_message("Loading spec...");
+sp.enable_steady_tick(std::time::Duration::from_millis(80));
+// ... load spec ...
+sp.finish_with_message("✓ Spec loaded (607 lines)");
+
+// Phase 2: Scanning codebase (placeholder for DX-017)
+// sp.set_message("Scanning codebase...");
+
+// Phase 3: Decomposing into tasks (THE SLOW PART — 5-30 seconds)
+let sp = ProgressBar::new_spinner();
+sp.set_style(spinner_style.clone());
+sp.set_message("Decomposing spec into tasks...");
+sp.enable_steady_tick(std::time::Duration::from_millis(80));
+let tasks = brain.decompose_plan(&spec_content, &tools)?;
+sp.finish_with_message(format!("✓ Generated {} tasks", tasks.len()));
+
+// Phase 4: Assigning agents
+let sp = ProgressBar::new_spinner();
+sp.set_style(spinner_style.clone());
+sp.set_message("Assigning agents to tasks...");
+sp.enable_steady_tick(std::time::Duration::from_millis(80));
+for task in &mut tasks { ... }
+sp.finish_with_message("✓ Agents assigned");
+
+// Phase 5: Writing to disk
+let sp = ProgressBar::new_spinner();
+sp.set_style(spinner_style.clone());
+sp.set_message("Writing task board...");
+sp.enable_steady_tick(std::time::Duration::from_millis(80));
+// ... write tasks + plan.md ...
+sp.finish_with_message("✓ Plan written to .forge/plan.md");
+```
+
+#### Step 3: Task execution spinner in `src/cli/run.rs`
+The headless `forge run --task T-001 --agent claude` is also silent during execution:
+```rust
+let sp = ProgressBar::new_spinner();
+sp.set_style(spinner_style);
+sp.set_message(format!("Running {} on {}...", agent_name, task.id));
+sp.enable_steady_tick(std::time::Duration::from_millis(80));
+let result = adapter.execute_headless(&task, project_root, &auth_mode, &permissions)?;
+sp.finish_with_message(match result.success {
+    true => format!("✓ {} completed", task.id),
+    false => format!("✗ {} failed", task.id),
+});
+```
+
+#### Step 4: Suppress `eprintln!` debug noise
+The `[forge-brain]` debug prints in `openai.rs` clash with spinners (they write to stderr while the spinner is on stdout). Either:
+- Remove them (the spinner replaces their purpose)
+- Or gate them behind a `--verbose` flag
+
+#### Expected UX after fix
+```
+forge plan --generate
+  ⠹ Loading spec...
+  ✓ Spec loaded (607 lines)
+  ⠼ Decomposing spec into tasks...     ← this spins for 5-15 seconds
+  ✓ Generated 17 tasks
+  ⠧ Assigning agents to tasks...
+  ✓ Agents assigned
+  ⠏ Writing task board...
+  ✓ Plan written to .forge/plan.md
+
+  [task table renders here]
+```
+
+- **Stretch:** Skeleton rendering — show table frame first, fill rows as they stream in from LLM
 
 ### DX-010: Status Should Show Full Task Table with Dependencies
 - **Priority:** High
