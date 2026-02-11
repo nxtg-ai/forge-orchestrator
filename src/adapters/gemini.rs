@@ -100,10 +100,11 @@ impl ToolAdapter for GeminiAdapter {
         );
 
         let mut cmd = Command::new("gemini");
+        // -p = non-interactive (headless) mode — REQUIRED for orchestrated execution
+        cmd.args(["-p", &prompt]);
         if permissions == "yolo" {
-            cmd.args(["--sandbox=false", &prompt]);
-        } else {
-            cmd.arg(&prompt);
+            // --yolo auto-approves all tool calls, --sandbox=false removes filesystem restrictions
+            cmd.args(["--yolo", "--sandbox=false"]);
         }
         cmd.current_dir(project_root);
 
