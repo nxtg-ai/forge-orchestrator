@@ -91,6 +91,40 @@ DX-013 (async spawn) → DX-009 (spinner) → DX-011 (loop) → DX-014 (TUI)
 
 DX-013 is the foundation. Everything else builds on non-blocking execution.
 
+### DX-016: Smart Claude Adapter — Enhance, Don't Strip (CRITICAL)
+- **Priority:** CRITICAL — this is what makes forge-orca the BEST way to use Claude Code
+- **Where:** `src/adapters/claude.rs`
+- **Problem:** Current adapter uses `claude -p` for everything — a one-shot, no-tools, no-plan invocation. This WASTES Claude Code's most powerful features: Plan mode, Agent Teams, MCP tools, CLAUDE.md context, interactive review, resume.
+- **Principle:** "The DX must elevate and enhance existing capabilities of Claude, not strip them out." — Asif
+- **Solution:** The Claude adapter should choose invocation strategy based on task metadata:
+
+| Task Type | Detection | Claude Invocation |
+|-----------|-----------|-------------------|
+| Simple (fix/tweak) | Short description, single file | `claude -p` (current) |
+| Design (architecture) | Title contains "Design", "Architect", "Plan" | `claude -p` with plan-encouraging prompt |
+| Multi-file (feature) | `locked_files.len() > 2` or "Implement" keyword | Spawn with agent teams hint in prompt |
+| Review (analysis) | "Review", "Test", "Document" keywords | `claude -p` with read-only `--allowedTools Read,Glob,Grep` |
+| Complex (full feature) | Long description, many acceptance criteria | `claude -p --allowedTools Write,Edit,Read,Glob,Grep,Bash` with structured prompt |
+
+- **Task metadata already exists:** The brain (gpt-4.1) classifies tasks during `plan --generate`. We can add a `task_type` field (design/implement/review/test/document) to the Task struct.
+- **Claude CLI flags to leverage:**
+  - `--allowedTools Write,Edit,Read,Glob,Grep,Bash` — scoped permissions (better than yolo)
+  - `--model` — could use different models for different task types (haiku for simple, opus for design)
+  - `--append-system-prompt` — inject task-specific context
+  - `--max-turns` — limit turns for simple tasks, unlimited for complex
+- **Implementation steps:**
+  1. Add `task_type: Option<String>` to Task struct (design, implement, review, test, document)
+  2. Have the brain classify task types during plan generation
+  3. Update `ClaudeAdapter::build_command()` to read task type and choose flags
+  4. Similar approach for Codex and Gemini adapters
+
+## Completed Items
+
+- DX-001 through DX-008: All fixed (commit `f99193b`)
+- DX-012: Auth config (commit `6945863`)
+- DX-013: Async execution via tokio (commit `8740251`)
+- DX-015: Yolo permissions mode (commit `6945863`)
+
 ## Config Features (Already Shipped)
 
 ```bash
