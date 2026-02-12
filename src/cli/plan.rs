@@ -166,8 +166,20 @@ fn generate_plan(
     };
 
     // ── Phase 3: Decompose into tasks ───────────────────────────
+    let task_mgr = TaskManager::new(forge_dir);
+    let start_id = task_mgr.next_task_number()?;
+
+    if start_id > 1 {
+        println!(
+            "  {} Existing tasks found (up to T-{:03}). New tasks start at T-{:03}.",
+            "\u{2192}".cyan(),
+            start_id - 1,
+            start_id
+        );
+    }
+
     let sp = new_spinner("Decomposing spec into tasks...");
-    let mut tasks = brain.decompose_plan(&brain_input, &tools_for_brain)?;
+    let mut tasks = brain.decompose_plan(&brain_input, &tools_for_brain, start_id)?;
     finish_spinner(sp, &format!(
         "{} Generated {} tasks",
         "✓".green(),
@@ -181,6 +193,22 @@ fn generate_plan(
         task.assigned_to = Some(assigned);
     }
     finish_spinner(sp, &format!("{} Agents assigned", "✓".green()));
+
+    // Stamp plan version on all new tasks
+    let plan_version = if start_id > 1 {
+        let existing = task_mgr.list_tasks()?;
+        existing
+            .iter()
+            .filter_map(|t| t.plan_version)
+            .max()
+            .unwrap_or(1)
+            + 1
+    } else {
+        1
+    };
+    for task in &mut tasks {
+        task.plan_version = Some(plan_version);
+    }
 
     println!();
 

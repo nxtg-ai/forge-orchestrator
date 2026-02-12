@@ -2,7 +2,7 @@
 
 > From live dogfood sessions on voice-jib-jab project (2026-02-10/11).
 
-## Open Items (9 remaining)
+## Open Items (12 remaining)
 
 ### DX-010: Status Should Show Full Task Table with Dependencies
 - **Priority:** High
@@ -92,7 +92,91 @@
 - **Technical:** `portable-pty` or `pty-process` crate for PTY allocation, pipe each PTY's output to a ratatui pane, forward keystrokes when pane is focused.
 - **Prerequisite:** DX-023 (scrollable/focusable panes) must ship first.
 
-## Completed Items (16 of 20)
+### DX-025: Plan --generate Overwrites Completed Tasks (CRITICAL BUG)
+- **Priority:** CRITICAL
+- **Where:** `src/cli/plan.rs` (task file generation)
+- **Problem:** Running `plan --generate` a second time reuses T-001–T-013 IDs, overwriting previously completed tasks. History is lost. Dashboard shows stale "Completed: 4/17" from old tasks that weren't overwritten.
+- **Solution (two options, pick one):**
+  1. **Append mode:** Find the highest existing task ID (e.g., T-017) and start new tasks from T-018. Never reuse IDs.
+  2. **Archive mode:** Move old `.forge/tasks/T-*.json` to `.forge/tasks/archive/` before generating new plan. Clean slate but history preserved.
+- **Recommendation:** Option 1 (append). Simpler, no data loss, task IDs are monotonically increasing.
+- **Also:** Add a `generation` or `plan_version` field to task JSON so the dashboard can group tasks by plan run.
+
+### DX-026: Tab/Enter/Focus Keys Laggy Under Load
+- **Priority:** HIGH
+- **Where:** `src/cli/dashboard.rs` (event loop) + `src/tui/app.rs` (key handling)
+- **Problem:** When 3 agents are streaming output, Tab and Enter/f are unresponsive. User has to press repeatedly before the key registers. Feels broken.
+- **Root cause (likely):** The `tokio::select!` in the main loop processes agent events and key events in the same select. Under heavy agent output, the agent channel floods and key events get starved.
+- **Solution:**
+  1. **Priority key handling:** Process ALL pending key events before agent events in each tick. Use `try_recv()` in a loop to drain the key channel first.
+  2. **Or separate tasks:** Move agent event processing to a separate tokio task that updates shared state, so the key handler is never blocked.
+  3. **Tick rate:** Current tick might be too slow. Reduce to 50ms for snappier key response.
+- **Test:** Run dashboard with 3 agents streaming heavily. Tab should register on first press every time.
+
+### DX-027: User-Spawnable Shell Panes
+- **Priority:** HIGH (stepping stone to Stargate)
+- **Where:** `src/tui/app.rs` + `src/tui/ui.rs`
+- **Problem:** User can't open a new terminal while agents work. They're stuck watching. Want to run `ls`, `git status`, `npm test` etc. while waiting.
+- **Solution:**
+  1. New key: `+` or `n` = "new pane" → spawns a shell (user's $SHELL) in a new PTY pane
+  2. The pane appears in the agent grid (expanding from 2x2 to 2x3 or scrollable)
+  3. When focused, keystrokes go to the shell (not to dashboard controls)
+  4. `Ctrl+D` or `exit` closes the pane
+- **This is DX-024 (Stargate) for user shells.** If we can spawn a user shell in a pane, we can spawn agent TUIs in panes too.
+- **Prerequisite:** DX-026 (key handling must be reliable first)
+
+### DX-028: Git Discipline — Auto-Commit Per Task
+- **Priority:** HIGH
+- **Where:** `src/tui/app.rs` (post-task-completion hook) + adapter configs
+- **Problem:** Agents complete 17 tasks but commit NOTHING. All work sits as uncommitted changes. A stray `git checkout .` destroys everything. Zero traceability — can't `git blame` to see which agent wrote what.
+- **Solution (three tiers, implement progressively):**
+
+  **Tier 1 — Post-task auto-commit (minimum viable):**
+  1. When a task completes successfully (exit 0), the dashboard runs:
+     ```
+     git add -A && git commit -m "feat(T-007): Implement FallbackPlanner Stub"
+     ```
+  2. Commit message format: `type(T-ID): Task title` where type = feat/test/docs/fix based on task_type
+  3. Add `--no-gpg-sign` flag (common in CI/automated contexts)
+  4. If commit fails (nothing to commit, merge conflict), log warning but don't fail the task
+  5. Config: `forge config git.auto_commit true|false` (default: true)
+
+  **Tier 2 — Git worktrees for parallel isolation:**
+  1. Each agent gets its own `git worktree` branching from main:
+     - `git worktree add .forge/worktrees/claude-T-001 -b forge/T-001`
+     - `git worktree add .forge/worktrees/codex-T-002 -b forge/T-002`
+  2. Agent's CWD is set to its worktree (not the main working tree)
+  3. No merge conflicts between parallel agents — each has its own branch
+  4. On task completion: commit in worktree, then merge to main:
+     ```
+     cd .forge/worktrees/codex-T-002
+     git add -A && git commit -m "feat(T-002): Implement ControlEngine"
+     cd ../../..
+     git merge forge/T-002 --no-edit
+     git worktree remove .forge/worktrees/codex-T-002
+     git branch -d forge/T-002
+     ```
+  5. If merge conflicts: mark task as `needs_merge`, flag in dashboard, human resolves
+
+  **Tier 3 — Branch strategy options (configurable):**
+  - `forge config git.strategy single` — All agents commit to current branch (Tier 1)
+  - `forge config git.strategy worktree` — Each agent gets a worktree (Tier 2)
+  - `forge config git.strategy branch` — Each agent gets a branch, no worktree (lightweight alternative)
+  - Default: `single` (simplest, works for most projects)
+
+- **Git worktree primer:**
+  - `git worktree` lets you check out multiple branches simultaneously in different directories
+  - Each worktree shares the same `.git` repo but has independent working tree + index
+  - Perfect for parallel agents: no conflicts, independent staging areas
+  - Cleanup: `git worktree prune` removes stale worktrees
+  - Limitation: Can't have two worktrees on the same branch
+
+- **Industry patterns:**
+  - Claude Code teams use worktrees for parallel teammates
+  - Codex runs in a sandbox (ephemeral container per task) — no git needed inside
+  - Gemini CLI has no built-in git strategy
+
+## Completed Items (20 of 29)
 
 | DX | Description | Version |
 |----|-------------|---------|

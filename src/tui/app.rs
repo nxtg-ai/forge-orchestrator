@@ -16,6 +16,30 @@ use tokio::sync::mpsc;
 const OUTPUT_BUFFER_CAP: usize = 200;
 const EVENT_BUFFER_CAP: usize = 50;
 
+/// Number of agent/summary panes in the 2x2 grid.
+pub const PANE_COUNT: usize = 4;
+
+/// Maximum rate-limit backoff attempts before marking task as permanently failed.
+pub const MAX_BACKOFF_ATTEMPTS: u32 = 5;
+
+/// Rate limit patterns to detect in agent output.
+const RATE_LIMIT_PATTERNS: &[&str] = &[
+    "rate limit",
+    "rate_limit",
+    "429",
+    "quota exceeded",
+    "too many requests",
+    "resource exhausted",
+    "resource_exhausted",
+];
+
+/// Per-agent rate limit backoff tracking.
+pub struct BackoffState {
+    pub attempt: u32,
+    pub next_retry: Option<Instant>,
+    pub task_id: String,
+}
+
 pub enum AgentEvent {
     Output {
         task_id: String,
@@ -35,11 +59,33 @@ pub enum AgentEvent {
     },
 }
 
+/// Focus target: task board or one of the 4 panes (Claude/Codex/Gemini/Summary).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FocusArea {
     TaskBoard,
-    AgentPanes,
-    EventLog,
+    /// Pane index: 0=Claude, 1=Codex, 2=Gemini, 3=Summary
+    Pane(usize),
+}
+
+/// Map pane index to agent type (pane 3 = Summary, has no agent).
+pub fn pane_agent(index: usize) -> Option<AgentType> {
+    match index {
+        0 => Some(AgentType::Claude),
+        1 => Some(AgentType::Codex),
+        2 => Some(AgentType::Gemini),
+        _ => None,
+    }
+}
+
+/// Pane labels for display.
+pub fn pane_label(index: usize) -> &'static str {
+    match index {
+        0 => "Claude",
+        1 => "Codex",
+        2 => "Gemini",
+        3 => "Summary",
+        _ => "?",
+    }
 }
 
 pub struct App {
@@ -53,13 +99,23 @@ pub struct App {
     /// Maps agent type to the task ID it's currently running
     pub agent_running_task: HashMap<AgentType, String>,
     pub selected_index: usize,
-    pub focus_area: FocusArea,
+    pub focus: FocusArea,
     pub parallel_limit: usize,
     pub watch_mode: bool,
     pub should_quit: bool,
     pub all_complete: bool,
     pub completed_at: Option<Instant>,
     pub started_at: Instant,
+    /// Per-pane scroll offset (lines from bottom; 0 = latest output visible).
+    pub pane_scroll: [usize; PANE_COUNT],
+    /// Per-pane pin: true = user scrolled up, don't auto-scroll on new output.
+    pub pane_pinned: [bool; PANE_COUNT],
+    /// If Some(i), pane i is expanded to full screen.
+    pub expanded_pane: Option<usize>,
+    /// Per-agent rate limit backoff tracking.
+    pub agent_backoff: HashMap<AgentType, BackoffState>,
+    /// Throttle: last time we reloaded task JSONs from disk.
+    pub last_task_reload: Instant,
 }
 
 impl App {
@@ -86,13 +142,18 @@ impl App {
             running_task_ids: HashSet::new(),
             agent_running_task: HashMap::new(),
             selected_index: 0,
-            focus_area: FocusArea::TaskBoard,
+            focus: FocusArea::TaskBoard,
             parallel_limit,
             watch_mode,
             should_quit: false,
             all_complete: false,
             completed_at: None,
             started_at: Instant::now(),
+            pane_scroll: [0; PANE_COUNT],
+            pane_pinned: [false; PANE_COUNT],
+            expanded_pane: None,
+            agent_backoff: HashMap::new(),
+            last_task_reload: Instant::now(),
         };
 
         (app, rx, tx)
@@ -123,6 +184,16 @@ impl App {
                     && !t.is_blocked(&self.completed_task_ids)
                     && !self.running_task_ids.contains(&t.id)
             })
+            .filter(|t| {
+                // Skip tasks whose agent is in backoff
+                let agent = t.assigned_to.clone().unwrap_or(AgentType::Claude);
+                let agent = if agent == AgentType::Any {
+                    AgentType::Claude
+                } else {
+                    agent
+                };
+                !self.is_agent_in_backoff(&agent)
+            })
             .take(slots)
             .cloned()
             .collect();
@@ -143,12 +214,23 @@ impl App {
             } => {
                 let buf = self
                     .agent_outputs
-                    .entry(agent)
+                    .entry(agent.clone())
                     .or_default();
                 if buf.len() >= OUTPUT_BUFFER_CAP {
                     buf.pop_front();
                 }
                 buf.push_back(line);
+
+                // If the pane for this agent is pinned, keep scroll offset stable.
+                // If not pinned, auto-scroll stays at 0 (no-op needed).
+                // When pinned and buffer overflows, the removed front line means
+                // the scroll offset should decrease by 1 to keep the same view.
+                if let Some(idx) = agent_pane_index(&agent)
+                    && self.pane_pinned[idx]
+                    && self.pane_scroll[idx] > 0
+                {
+                    self.pane_scroll[idx] = self.pane_scroll[idx].saturating_sub(1);
+                }
             }
             AgentEvent::Completed {
                 task_id,
@@ -163,39 +245,128 @@ impl App {
                 let state_mgr = StateManager::new(&self.forge_dir);
                 let event_logger = EventLogger::new(&self.forge_dir);
 
-                if let Ok(task) = task_mgr.get_task(&task_id) {
-                    let mut updated = task;
-                    if success {
+                if success {
+                    // Reset backoff on success
+                    self.agent_backoff.remove(&agent);
+
+                    if let Ok(task) = task_mgr.get_task(&task_id) {
+                        let mut updated = task;
                         updated.status = TaskStatus::Completed;
                         updated.completed_at = Some(chrono::Utc::now());
-                    } else {
-                        updated.status = TaskStatus::Failed;
-                    }
-                    updated.updated_at = chrono::Utc::now();
-                    task_mgr.update_task(&updated).ok();
-                    state_mgr.unlock_files(&task_id).ok();
+                        updated.updated_at = chrono::Utc::now();
+                        task_mgr.update_task(&updated).ok();
+                        state_mgr.unlock_files(&task_id).ok();
 
-                    let status_str = if success { "completed" } else { "failed" };
-                    let event_msg = format!(
-                        "{} {} by {} (exit {})",
-                        task_id, status_str, agent, exit_code
-                    );
-                    self.push_event(&event_msg);
-
-                    event_logger
-                        .log(
-                            &ForgeEvent::new(
-                                if success {
-                                    EventType::TaskCompleted
-                                } else {
-                                    EventType::TaskFailed
-                                },
-                                event_msg,
+                        let event_msg = format!(
+                            "{} completed by {} (exit {})",
+                            task_id, agent, exit_code
+                        );
+                        self.push_event(&event_msg);
+                        event_logger
+                            .log(
+                                &ForgeEvent::new(EventType::TaskCompleted, event_msg)
+                                    .with_task(&task_id)
+                                    .with_agent(agent),
                             )
-                            .with_task(&task_id)
-                            .with_agent(agent),
-                        )
-                        .ok();
+                            .ok();
+                    }
+                } else {
+                    // Check if failure is due to rate limiting
+                    let rate_limited = self
+                        .agent_outputs
+                        .get(&agent)
+                        .is_some_and(is_rate_limited);
+
+                    if rate_limited {
+                        let attempt = {
+                            let backoff = self
+                                .agent_backoff
+                                .entry(agent.clone())
+                                .or_insert(BackoffState {
+                                    attempt: 0,
+                                    next_retry: None,
+                                    task_id: String::new(),
+                                });
+                            backoff.attempt += 1;
+                            backoff.attempt
+                        };
+
+                        if attempt >= MAX_BACKOFF_ATTEMPTS {
+                            // Max retries exhausted — permanent failure
+                            self.agent_backoff.remove(&agent);
+
+                            if let Ok(task) = task_mgr.get_task(&task_id) {
+                                let mut updated = task;
+                                updated.status = TaskStatus::Failed;
+                                updated.updated_at = chrono::Utc::now();
+                                task_mgr.update_task(&updated).ok();
+                                state_mgr.unlock_files(&task_id).ok();
+                            }
+
+                            let event_msg = format!(
+                                "{} failed after {} rate limit retries by {}",
+                                task_id, MAX_BACKOFF_ATTEMPTS, agent
+                            );
+                            self.push_event(&event_msg);
+                            event_logger
+                                .log(
+                                    &ForgeEvent::new(EventType::TaskFailed, event_msg)
+                                        .with_task(&task_id)
+                                        .with_agent(agent),
+                                )
+                                .ok();
+                        } else {
+                            // Reset task to pending and apply backoff delay
+                            if let Ok(task) = task_mgr.get_task(&task_id) {
+                                let mut updated = task;
+                                updated.status = TaskStatus::Pending;
+                                updated.updated_at = chrono::Utc::now();
+                                task_mgr.update_task(&updated).ok();
+                                state_mgr.unlock_files(&task_id).ok();
+                            }
+
+                            let delay = compute_backoff_delay(attempt);
+                            let delay_secs = delay.as_secs();
+                            let backoff = self.agent_backoff.get_mut(&agent).unwrap();
+                            backoff.next_retry = Some(Instant::now() + delay);
+                            backoff.task_id = task_id.clone();
+
+                            let event_msg = format!(
+                                "{} rate limited. Retrying in {}s (attempt {}/{})",
+                                task_id, delay_secs, attempt, MAX_BACKOFF_ATTEMPTS
+                            );
+                            self.push_event(&event_msg);
+                            event_logger
+                                .log(
+                                    &ForgeEvent::new(EventType::TaskFailed, event_msg)
+                                        .with_task(&task_id)
+                                        .with_agent(agent),
+                                )
+                                .ok();
+                        }
+                    } else {
+                        // Normal failure (not rate limited)
+                        if let Ok(task) = task_mgr.get_task(&task_id) {
+                            let mut updated = task;
+                            updated.status = TaskStatus::Failed;
+                            updated.updated_at = chrono::Utc::now();
+                            task_mgr.update_task(&updated).ok();
+                            state_mgr.unlock_files(&task_id).ok();
+                        }
+
+                        let event_msg = format!(
+                            "{} failed by {} (exit {})",
+                            task_id, agent, exit_code
+                        );
+                        self.push_event(&event_msg);
+                        event_logger
+                            .log(
+                                &ForgeEvent::new(EventType::TaskFailed, event_msg)
+                                    .with_task(&task_id)
+                                    .with_agent(agent),
+                            )
+                            .ok();
+                    }
                 }
 
                 self.reload_tasks()?;
@@ -231,32 +402,203 @@ impl App {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent, tx: &mpsc::UnboundedSender<AgentEvent>) {
+        // In expanded pane mode, Esc or Enter collapses back to grid
+        if self.expanded_pane.is_some() {
+            match key.code {
+                KeyCode::Esc | KeyCode::Enter => {
+                    self.expanded_pane = None;
+                    return;
+                }
+                KeyCode::Char('q') => {
+                    self.should_quit = true;
+                    return;
+                }
+                // Allow scrolling in expanded mode
+                KeyCode::Up => {
+                    if let Some(idx) = self.expanded_pane {
+                        self.scroll_pane_up(idx);
+                    }
+                    return;
+                }
+                KeyCode::Down => {
+                    if let Some(idx) = self.expanded_pane {
+                        self.scroll_pane_down(idx);
+                    }
+                    return;
+                }
+                KeyCode::Home => {
+                    if let Some(idx) = self.expanded_pane {
+                        self.scroll_pane_to_top(idx);
+                    }
+                    return;
+                }
+                KeyCode::End => {
+                    if let Some(idx) = self.expanded_pane {
+                        self.scroll_pane_to_bottom(idx);
+                    }
+                    return;
+                }
+                _ => return,
+            }
+        }
+
         match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => {
+            KeyCode::Char('q') => {
                 self.should_quit = true;
             }
-            KeyCode::Tab => {
-                self.focus_area = match self.focus_area {
-                    FocusArea::TaskBoard => FocusArea::AgentPanes,
-                    FocusArea::AgentPanes => FocusArea::EventLog,
-                    FocusArea::EventLog => FocusArea::TaskBoard,
-                };
-            }
-            KeyCode::Up => {
-                if self.selected_index > 0 {
-                    self.selected_index -= 1;
+            KeyCode::Esc => {
+                // Esc from a pane returns to task board; from task board quits
+                match self.focus {
+                    FocusArea::Pane(_) => self.focus = FocusArea::TaskBoard,
+                    FocusArea::TaskBoard => self.should_quit = true,
                 }
             }
-            KeyCode::Down => {
-                if self.selected_index + 1 < self.tasks.len() {
-                    self.selected_index += 1;
+            KeyCode::Tab => {
+                self.focus = match self.focus {
+                    FocusArea::TaskBoard => FocusArea::Pane(0),
+                    FocusArea::Pane(i) if i + 1 < PANE_COUNT => FocusArea::Pane(i + 1),
+                    FocusArea::Pane(_) => FocusArea::TaskBoard,
+                };
+            }
+            KeyCode::BackTab => {
+                // Shift+Tab: reverse cycle
+                self.focus = match self.focus {
+                    FocusArea::TaskBoard => FocusArea::Pane(PANE_COUNT - 1),
+                    FocusArea::Pane(0) => FocusArea::TaskBoard,
+                    FocusArea::Pane(i) => FocusArea::Pane(i - 1),
+                };
+            }
+            KeyCode::Up => match self.focus {
+                FocusArea::TaskBoard => {
+                    if self.selected_index > 0 {
+                        self.selected_index -= 1;
+                    }
+                }
+                FocusArea::Pane(idx) => self.scroll_pane_up(idx),
+            },
+            KeyCode::Down => match self.focus {
+                FocusArea::TaskBoard => {
+                    if self.selected_index + 1 < self.tasks.len() {
+                        self.selected_index += 1;
+                    }
+                }
+                FocusArea::Pane(idx) => self.scroll_pane_down(idx),
+            },
+            KeyCode::Home => {
+                if let FocusArea::Pane(idx) = self.focus {
+                    self.scroll_pane_to_top(idx);
+                }
+            }
+            KeyCode::End => {
+                if let FocusArea::Pane(idx) = self.focus {
+                    self.scroll_pane_to_bottom(idx);
+                }
+            }
+            KeyCode::Enter | KeyCode::Char('f') => {
+                if let FocusArea::Pane(idx) = self.focus {
+                    self.expanded_pane = Some(idx);
                 }
             }
             KeyCode::Char('r') => {
-                self.retry_selected_task(tx);
+                if self.focus == FocusArea::TaskBoard {
+                    self.retry_selected_task(tx);
+                }
             }
             _ => {}
         }
+    }
+
+    fn scroll_pane_up(&mut self, idx: usize) {
+        let max = self.pane_buffer_len(idx);
+        if self.pane_scroll[idx] < max.saturating_sub(1) {
+            self.pane_scroll[idx] += 1;
+            self.pane_pinned[idx] = true;
+        }
+    }
+
+    fn scroll_pane_down(&mut self, idx: usize) {
+        if self.pane_scroll[idx] > 0 {
+            self.pane_scroll[idx] -= 1;
+            if self.pane_scroll[idx] == 0 {
+                self.pane_pinned[idx] = false;
+            }
+        }
+    }
+
+    fn scroll_pane_to_top(&mut self, idx: usize) {
+        let max = self.pane_buffer_len(idx);
+        self.pane_scroll[idx] = max.saturating_sub(1);
+        if self.pane_scroll[idx] > 0 {
+            self.pane_pinned[idx] = true;
+        }
+    }
+
+    fn scroll_pane_to_bottom(&mut self, idx: usize) {
+        self.pane_scroll[idx] = 0;
+        self.pane_pinned[idx] = false;
+    }
+
+    /// Get the number of lines in a pane's buffer.
+    pub fn pane_buffer_len(&self, idx: usize) -> usize {
+        match pane_agent(idx) {
+            Some(agent) => self
+                .agent_outputs
+                .get(&agent)
+                .map(|b| b.len())
+                .unwrap_or(0),
+            None => 0, // Summary pane has no scrollable buffer
+        }
+    }
+
+    /// Check if an agent is currently in backoff (waiting to retry after rate limit).
+    pub fn is_agent_in_backoff(&self, agent: &AgentType) -> bool {
+        self.agent_backoff
+            .get(agent)
+            .and_then(|state| state.next_retry)
+            .is_some_and(|t| Instant::now() < t)
+    }
+
+    /// Check backoff timers and re-schedule when expired.
+    pub fn check_backoff_timers(&mut self, tx: &mpsc::UnboundedSender<AgentEvent>) {
+        let now = Instant::now();
+        let mut expired = Vec::new();
+
+        for (agent, state) in &mut self.agent_backoff {
+            if state.next_retry.is_some_and(|t| now >= t) {
+                state.next_retry = None;
+                expired.push((agent.clone(), state.task_id.clone()));
+            }
+        }
+
+        for (agent, task_id) in &expired {
+            self.push_event(&format!(
+                "Backoff expired for {}. Re-scheduling {}...",
+                agent, task_id
+            ));
+        }
+
+        if !expired.is_empty() {
+            self.schedule_unblocked_tasks(tx);
+        }
+    }
+
+    /// Handle a tick event: throttled task reload, backoff checks, completion detection.
+    pub fn handle_tick(&mut self, agent_tx: &mpsc::UnboundedSender<AgentEvent>) -> anyhow::Result<()> {
+        if self.last_task_reload.elapsed() > std::time::Duration::from_secs(2) {
+            self.reload_tasks()?;
+            self.last_task_reload = Instant::now();
+        }
+        self.check_backoff_timers(agent_tx);
+        if !self.watch_mode
+            && !self.all_complete
+            && self.is_all_done()
+            && self.running_task_ids.is_empty()
+            && !self.tasks.is_empty()
+        {
+            self.all_complete = true;
+            self.completed_at = Some(Instant::now());
+        }
+        Ok(())
     }
 
     fn retry_selected_task(&mut self, tx: &mpsc::UnboundedSender<AgentEvent>) {
@@ -268,7 +610,6 @@ impl App {
 
         match task.status {
             TaskStatus::Failed => {
-                // Reset to pending on disk, then schedule
                 let task_mgr = TaskManager::new(&self.forge_dir);
                 if let Ok(mut t) = task_mgr.get_task(&task_id) {
                     t.status = TaskStatus::Pending;
@@ -280,13 +621,9 @@ impl App {
                 self.schedule_unblocked_tasks(tx);
             }
             TaskStatus::InProgress => {
-                // Remove from running set (the spawned process will finish on its own
-                // or be orphaned — we handle orphan detection on restart anyway)
                 self.running_task_ids.remove(&task_id);
-                // Also clear agent_running_task for the agent that was running it
                 self.agent_running_task.retain(|_, v| *v != task_id);
 
-                // Reset to pending on disk
                 let task_mgr = TaskManager::new(&self.forge_dir);
                 let state_mgr = StateManager::new(&self.forge_dir);
                 if let Ok(mut t) = task_mgr.get_task(&task_id) {
@@ -315,14 +652,12 @@ impl App {
             .clone()
             .unwrap_or(AgentType::Claude);
 
-        // Resolve Any -> Claude
         let agent = if agent == AgentType::Any {
             AgentType::Claude
         } else {
             agent
         };
 
-        // Build std::process::Command via adapter
         let auth_mode = "subscription";
         let permissions = {
             let state_mgr = StateManager::new(&self.forge_dir);
@@ -344,7 +679,6 @@ impl App {
             }
         };
 
-        // Convert to tokio command with piped stdout/stderr
         let mut tokio_cmd = TokioCommand::from(std_cmd);
         tokio_cmd
             .stdout(std::process::Stdio::piped())
@@ -360,7 +694,6 @@ impl App {
                 let tx2 = tx.clone();
                 let tx3 = tx.clone();
 
-                // Stream stdout
                 if let Some(stdout) = child.stdout.take() {
                     let tx_out = tx.clone();
                     let tid = task_id.clone();
@@ -368,12 +701,10 @@ impl App {
                     tokio::spawn(stream_lines(stdout, tid, ag, tx_out));
                 }
 
-                // Stream stderr
                 if let Some(stderr) = child.stderr.take() {
                     tokio::spawn(stream_lines(stderr, task_id2, agent2, tx2));
                 }
 
-                // Wait for exit
                 tokio::spawn(async move {
                     match child.wait().await {
                         Ok(status) => {
@@ -395,7 +726,6 @@ impl App {
                     }
                 });
 
-                // Update task to InProgress on disk
                 let task_mgr = TaskManager::new(&self.forge_dir);
                 let state_mgr = StateManager::new(&self.forge_dir);
                 let mut updated = task.clone();
@@ -425,7 +755,6 @@ impl App {
         }
     }
 
-    /// Reset all running tasks back to pending on disk. Called on dashboard exit.
     pub fn cleanup_running_tasks(&mut self) {
         let task_mgr = TaskManager::new(&self.forge_dir);
         let state_mgr = StateManager::new(&self.forge_dir);
@@ -449,8 +778,6 @@ impl App {
         self.agent_running_task.clear();
     }
 
-    /// Scan all task files and reset any orphaned in-progress tasks to pending.
-    /// Called on dashboard startup before the main loop.
     pub fn reset_orphaned_tasks(&mut self) -> anyhow::Result<()> {
         let task_mgr = TaskManager::new(&self.forge_dir);
         let state_mgr = StateManager::new(&self.forge_dir);
@@ -482,6 +809,46 @@ impl App {
             self.events.pop_front();
         }
         self.events.push_back(entry);
+    }
+}
+
+/// Check if recent agent output contains rate limit indicators.
+fn is_rate_limited(output: &VecDeque<String>) -> bool {
+    output.iter().rev().take(20).any(|line| {
+        let lower = line.to_lowercase();
+        RATE_LIMIT_PATTERNS.iter().any(|p| lower.contains(p))
+    })
+}
+
+/// Compute exponential backoff delay with jitter for a given attempt.
+fn compute_backoff_delay(attempt: u32) -> std::time::Duration {
+    let base_secs: u64 = match attempt {
+        1 => 10,
+        2 => 30,
+        3 => 60,
+        _ => 120,
+    };
+    let jitter_max: u64 = match attempt {
+        1 => 5,
+        2 => 10,
+        3 => 15,
+        _ => 30,
+    };
+    // Simple jitter using system time nanoseconds (no rand dependency needed)
+    let jitter = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .subsec_nanos() as u64
+        % (jitter_max + 1);
+    std::time::Duration::from_secs(base_secs + jitter)
+}
+
+/// Map an agent type to its pane index.
+fn agent_pane_index(agent: &AgentType) -> Option<usize> {
+    match agent {
+        AgentType::Claude | AgentType::Any => Some(0),
+        AgentType::Codex => Some(1),
+        AgentType::Gemini => Some(2),
     }
 }
 
@@ -524,6 +891,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             completed_at: None,
+            plan_version: None,
         }
     }
 
@@ -576,12 +944,10 @@ mod tests {
             2,
             false,
         );
-        // Fill running slots
         app.running_task_ids.insert("T-001".to_string());
         app.running_task_ids.insert("T-002".to_string());
         app.tasks = vec![make_task("T-003", TaskStatus::Pending, vec![])];
         app.schedule_unblocked_tasks(&tx);
-        // Should not have spawned (no slots)
         assert!(!app.running_task_ids.contains("T-003"));
     }
 
@@ -598,9 +964,8 @@ mod tests {
             TaskStatus::Pending,
             vec!["T-001".to_string()],
         )];
-        app.completed_task_ids = vec![]; // T-001 not completed
+        app.completed_task_ids = vec![];
         app.schedule_unblocked_tasks(&tx);
-        // T-002 should not be in running (it's blocked and also spawn would fail without forge dir)
         assert!(!app.running_task_ids.contains("T-002"));
     }
 
@@ -610,7 +975,7 @@ mod tests {
             PathBuf::from("/tmp/test"),
             PathBuf::from("/tmp"),
             3,
-            true, // watch mode
+            true,
         );
         app.tasks = vec![make_task("T-001", TaskStatus::Pending, vec![])];
         app.schedule_unblocked_tasks(&tx);
@@ -625,33 +990,55 @@ mod tests {
             3,
             false,
         );
-        let key = KeyEvent::from(KeyCode::Char('q'));
-        app.handle_key(key, &tx);
+        app.handle_key(KeyEvent::from(KeyCode::Char('q')), &tx);
         assert!(app.should_quit);
     }
 
     #[test]
-    fn test_handle_key_tab_cycles_focus() {
+    fn test_tab_cycles_through_panes_and_back() {
         let (mut app, _rx, tx) = App::new(
             PathBuf::from("/tmp/test"),
             PathBuf::from("/tmp"),
             3,
             false,
         );
-        assert_eq!(app.focus_area, FocusArea::TaskBoard);
+        assert_eq!(app.focus, FocusArea::TaskBoard);
 
         app.handle_key(KeyEvent::from(KeyCode::Tab), &tx);
-        assert_eq!(app.focus_area, FocusArea::AgentPanes);
+        assert_eq!(app.focus, FocusArea::Pane(0));
 
         app.handle_key(KeyEvent::from(KeyCode::Tab), &tx);
-        assert_eq!(app.focus_area, FocusArea::EventLog);
+        assert_eq!(app.focus, FocusArea::Pane(1));
 
         app.handle_key(KeyEvent::from(KeyCode::Tab), &tx);
-        assert_eq!(app.focus_area, FocusArea::TaskBoard);
+        assert_eq!(app.focus, FocusArea::Pane(2));
+
+        app.handle_key(KeyEvent::from(KeyCode::Tab), &tx);
+        assert_eq!(app.focus, FocusArea::Pane(3));
+
+        app.handle_key(KeyEvent::from(KeyCode::Tab), &tx);
+        assert_eq!(app.focus, FocusArea::TaskBoard);
     }
 
     #[test]
-    fn test_handle_key_navigation() {
+    fn test_backtab_reverse_cycles() {
+        let (mut app, _rx, tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        assert_eq!(app.focus, FocusArea::TaskBoard);
+
+        app.handle_key(KeyEvent::from(KeyCode::BackTab), &tx);
+        assert_eq!(app.focus, FocusArea::Pane(3));
+
+        app.handle_key(KeyEvent::from(KeyCode::BackTab), &tx);
+        assert_eq!(app.focus, FocusArea::Pane(2));
+    }
+
+    #[test]
+    fn test_task_board_navigation() {
         let (mut app, _rx, tx) = App::new(
             PathBuf::from("/tmp/test"),
             PathBuf::from("/tmp"),
@@ -670,10 +1057,130 @@ mod tests {
         app.handle_key(KeyEvent::from(KeyCode::Down), &tx);
         assert_eq!(app.selected_index, 2);
         app.handle_key(KeyEvent::from(KeyCode::Down), &tx);
-        assert_eq!(app.selected_index, 2); // can't go past end
+        assert_eq!(app.selected_index, 2); // clamped
 
         app.handle_key(KeyEvent::from(KeyCode::Up), &tx);
         assert_eq!(app.selected_index, 1);
+    }
+
+    #[test]
+    fn test_pane_scroll_up_down() {
+        let (mut app, _rx, tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        // Fill Claude pane (index 0) with 20 lines
+        let buf = app.agent_outputs.get_mut(&AgentType::Claude).unwrap();
+        for i in 0..20 {
+            buf.push_back(format!("line {}", i));
+        }
+
+        // Focus on pane 0
+        app.focus = FocusArea::Pane(0);
+
+        // Scroll up
+        app.handle_key(KeyEvent::from(KeyCode::Up), &tx);
+        assert_eq!(app.pane_scroll[0], 1);
+        assert!(app.pane_pinned[0]);
+
+        app.handle_key(KeyEvent::from(KeyCode::Up), &tx);
+        assert_eq!(app.pane_scroll[0], 2);
+
+        // Scroll down
+        app.handle_key(KeyEvent::from(KeyCode::Down), &tx);
+        assert_eq!(app.pane_scroll[0], 1);
+        assert!(app.pane_pinned[0]); // still pinned
+
+        app.handle_key(KeyEvent::from(KeyCode::Down), &tx);
+        assert_eq!(app.pane_scroll[0], 0);
+        assert!(!app.pane_pinned[0]); // unpinned at bottom
+    }
+
+    #[test]
+    fn test_pane_home_end() {
+        let (mut app, _rx, tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        let buf = app.agent_outputs.get_mut(&AgentType::Claude).unwrap();
+        for i in 0..50 {
+            buf.push_back(format!("line {}", i));
+        }
+
+        app.focus = FocusArea::Pane(0);
+
+        // Home = scroll to top
+        app.handle_key(KeyEvent::from(KeyCode::Home), &tx);
+        assert_eq!(app.pane_scroll[0], 49); // 50 lines - 1
+        assert!(app.pane_pinned[0]);
+
+        // End = scroll to bottom
+        app.handle_key(KeyEvent::from(KeyCode::End), &tx);
+        assert_eq!(app.pane_scroll[0], 0);
+        assert!(!app.pane_pinned[0]);
+    }
+
+    #[test]
+    fn test_enter_expands_pane() {
+        let (mut app, _rx, tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+
+        app.focus = FocusArea::Pane(2);
+        app.handle_key(KeyEvent::from(KeyCode::Enter), &tx);
+        assert_eq!(app.expanded_pane, Some(2));
+
+        // Esc collapses
+        app.handle_key(KeyEvent::from(KeyCode::Esc), &tx);
+        assert_eq!(app.expanded_pane, None);
+    }
+
+    #[test]
+    fn test_expanded_pane_blocks_other_keys() {
+        let (mut app, _rx, tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        app.expanded_pane = Some(0);
+
+        // Tab should not change focus while expanded
+        app.handle_key(KeyEvent::from(KeyCode::Tab), &tx);
+        assert_eq!(app.expanded_pane, Some(0)); // still expanded
+    }
+
+    #[test]
+    fn test_esc_from_pane_returns_to_board() {
+        let (mut app, _rx, tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        app.focus = FocusArea::Pane(1);
+        app.handle_key(KeyEvent::from(KeyCode::Esc), &tx);
+        assert_eq!(app.focus, FocusArea::TaskBoard);
+        assert!(!app.should_quit);
+    }
+
+    #[test]
+    fn test_esc_from_board_quits() {
+        let (mut app, _rx, tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        app.handle_key(KeyEvent::from(KeyCode::Esc), &tx);
+        assert!(app.should_quit);
     }
 
     #[test]
@@ -731,12 +1238,26 @@ mod tests {
             3,
             false,
         );
-        // Task is Pending — 'r' should do nothing
         app.tasks = vec![make_task("T-001", TaskStatus::Pending, vec![])];
         app.selected_index = 0;
         let events_before = app.events.len();
         app.handle_key(KeyEvent::from(KeyCode::Char('r')), &tx);
-        // No event was pushed (no retry happened)
+        assert_eq!(app.events.len(), events_before);
+    }
+
+    #[test]
+    fn test_r_key_ignored_when_pane_focused() {
+        let (mut app, _rx, tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        app.tasks = vec![make_task("T-001", TaskStatus::Failed, vec![])];
+        app.focus = FocusArea::Pane(0);
+        let events_before = app.events.len();
+        app.handle_key(KeyEvent::from(KeyCode::Char('r')), &tx);
+        // r should only work on task board
         assert_eq!(app.events.len(), events_before);
     }
 
@@ -747,13 +1268,11 @@ mod tests {
         let tasks_dir = forge_dir.join("tasks");
         std::fs::create_dir_all(&tasks_dir).unwrap();
 
-        // Create an in-progress task on disk
         let mut task = Task::new("T-099", "Orphan", "Was in-progress");
         task.status = TaskStatus::InProgress;
         task.assigned_to = Some(AgentType::Claude);
         let json = serde_json::to_string_pretty(&task).unwrap();
         std::fs::write(tasks_dir.join("T-099.json"), &json).unwrap();
-        // write_to_file for the .md (optional, but TaskManager reads .json)
         std::fs::write(tasks_dir.join("T-099.md"), "# T-099").unwrap();
 
         let (mut app, _rx, _tx) = App::new(
@@ -765,12 +1284,9 @@ mod tests {
 
         app.reset_orphaned_tasks().unwrap();
 
-        // Verify the task was reset to pending on disk
         let task_mgr = TaskManager::new(&forge_dir);
         let reloaded = task_mgr.get_task("T-099").unwrap();
         assert_eq!(reloaded.status, TaskStatus::Pending);
-
-        // Verify an event was logged
         assert!(app.events.iter().any(|e| e.contains("orphaned")));
     }
 
@@ -781,7 +1297,6 @@ mod tests {
         let tasks_dir = forge_dir.join("tasks");
         std::fs::create_dir_all(&tasks_dir).unwrap();
 
-        // Create a failed task on disk
         let mut task = Task::new("T-050", "Failed task", "It failed");
         task.status = TaskStatus::Failed;
         task.assigned_to = Some(AgentType::Claude);
@@ -793,20 +1308,311 @@ mod tests {
             forge_dir.clone(),
             tmp.path().to_path_buf(),
             3,
-            true, // watch mode so schedule won't actually spawn
+            true,
         );
         app.reload_tasks().unwrap();
         app.selected_index = 0;
 
-        // Press 'r' to retry
         app.handle_key(KeyEvent::from(KeyCode::Char('r')), &tx);
 
-        // Verify task was reset to pending on disk
         let task_mgr = TaskManager::new(&forge_dir);
         let reloaded = task_mgr.get_task("T-050").unwrap();
         assert_eq!(reloaded.status, TaskStatus::Pending);
-
-        // Verify event was logged
         assert!(app.events.iter().any(|e| e.contains("Retrying T-050")));
+    }
+
+    #[test]
+    fn test_f_key_expands_pane() {
+        let (mut app, _rx, tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        app.focus = FocusArea::Pane(1);
+        app.handle_key(KeyEvent::from(KeyCode::Char('f')), &tx);
+        assert_eq!(app.expanded_pane, Some(1));
+    }
+
+    #[test]
+    fn test_scroll_in_expanded_mode() {
+        let (mut app, _rx, tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        let buf = app.agent_outputs.get_mut(&AgentType::Claude).unwrap();
+        for i in 0..30 {
+            buf.push_back(format!("line {}", i));
+        }
+        app.expanded_pane = Some(0);
+
+        app.handle_key(KeyEvent::from(KeyCode::Up), &tx);
+        assert_eq!(app.pane_scroll[0], 1);
+
+        app.handle_key(KeyEvent::from(KeyCode::End), &tx);
+        assert_eq!(app.pane_scroll[0], 0);
+    }
+
+    // ── DX-018: Rate limit backoff tests ─────────────────────────
+
+    #[test]
+    fn test_is_rate_limited_detects_429() {
+        let mut buf = VecDeque::new();
+        buf.push_back("Starting task...".to_string());
+        buf.push_back("Error: 429 Too Many Requests".to_string());
+        assert!(is_rate_limited(&buf));
+    }
+
+    #[test]
+    fn test_is_rate_limited_detects_patterns() {
+        for pattern in &[
+            "rate limit exceeded",
+            "RESOURCE_EXHAUSTED",
+            "quota exceeded for project",
+            "too many requests, please slow down",
+        ] {
+            let mut buf = VecDeque::new();
+            buf.push_back(pattern.to_string());
+            assert!(is_rate_limited(&buf), "should detect: {}", pattern);
+        }
+    }
+
+    #[test]
+    fn test_is_rate_limited_false_for_normal_output() {
+        let mut buf = VecDeque::new();
+        buf.push_back("Compiling project...".to_string());
+        buf.push_back("Error: syntax error on line 42".to_string());
+        buf.push_back("Build failed with exit code 1".to_string());
+        assert!(!is_rate_limited(&buf));
+    }
+
+    #[test]
+    fn test_is_rate_limited_only_checks_last_20_lines() {
+        let mut buf = VecDeque::new();
+        // Rate limit pattern buried in old output (> 20 lines ago)
+        buf.push_back("Error: 429 Too Many Requests".to_string());
+        for i in 0..25 {
+            buf.push_back(format!("normal output line {}", i));
+        }
+        assert!(!is_rate_limited(&buf));
+    }
+
+    #[test]
+    fn test_backoff_delay_attempt_1() {
+        let delay = compute_backoff_delay(1);
+        // Attempt 1: 10s base + 0-5s jitter = 10-15s
+        assert!(delay.as_secs() >= 10 && delay.as_secs() <= 15);
+    }
+
+    #[test]
+    fn test_backoff_delay_attempt_2() {
+        let delay = compute_backoff_delay(2);
+        // Attempt 2: 30s base + 0-10s jitter = 30-40s
+        assert!(delay.as_secs() >= 30 && delay.as_secs() <= 40);
+    }
+
+    #[test]
+    fn test_backoff_delay_attempt_4() {
+        let delay = compute_backoff_delay(4);
+        // Attempt 4: 120s base + 0-30s jitter = 120-150s
+        assert!(delay.as_secs() >= 120 && delay.as_secs() <= 150);
+    }
+
+    #[test]
+    fn test_is_agent_in_backoff_true() {
+        let (mut app, _rx, _tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        app.agent_backoff.insert(
+            AgentType::Gemini,
+            BackoffState {
+                attempt: 1,
+                next_retry: Some(Instant::now() + std::time::Duration::from_secs(60)),
+                task_id: "T-001".to_string(),
+            },
+        );
+        assert!(app.is_agent_in_backoff(&AgentType::Gemini));
+        assert!(!app.is_agent_in_backoff(&AgentType::Claude));
+    }
+
+    #[test]
+    fn test_is_agent_in_backoff_false_when_expired() {
+        let (mut app, _rx, _tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        // Set next_retry in the past
+        app.agent_backoff.insert(
+            AgentType::Gemini,
+            BackoffState {
+                attempt: 1,
+                next_retry: Some(Instant::now() - std::time::Duration::from_secs(1)),
+                task_id: "T-001".to_string(),
+            },
+        );
+        assert!(!app.is_agent_in_backoff(&AgentType::Gemini));
+    }
+
+    #[test]
+    fn test_schedule_skips_agent_in_backoff() {
+        let (mut app, _rx, tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        app.tasks = vec![make_task("T-001", TaskStatus::Pending, vec![])];
+        // Claude is in backoff (T-001 is assigned to Claude via make_task)
+        app.agent_backoff.insert(
+            AgentType::Claude,
+            BackoffState {
+                attempt: 1,
+                next_retry: Some(Instant::now() + std::time::Duration::from_secs(60)),
+                task_id: "T-001".to_string(),
+            },
+        );
+        app.schedule_unblocked_tasks(&tx);
+        // Should NOT have scheduled T-001
+        assert!(!app.running_task_ids.contains("T-001"));
+    }
+
+    #[test]
+    fn test_check_backoff_timers_clears_expired() {
+        let (mut app, _rx, tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        // Set Gemini backoff that's already expired
+        app.agent_backoff.insert(
+            AgentType::Gemini,
+            BackoffState {
+                attempt: 2,
+                next_retry: Some(Instant::now() - std::time::Duration::from_secs(1)),
+                task_id: "T-005".to_string(),
+            },
+        );
+        app.check_backoff_timers(&tx);
+        // next_retry should be cleared
+        assert!(app.agent_backoff.get(&AgentType::Gemini).unwrap().next_retry.is_none());
+        // attempt should be preserved (for escalation if it fails again)
+        assert_eq!(app.agent_backoff.get(&AgentType::Gemini).unwrap().attempt, 2);
+        // Event should be logged
+        assert!(app.events.iter().any(|e| e.contains("Backoff expired")));
+    }
+
+    #[test]
+    fn test_backoff_reset_on_success_tracking() {
+        let (mut app, _rx, _tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        app.agent_backoff.insert(
+            AgentType::Claude,
+            BackoffState {
+                attempt: 3,
+                next_retry: None,
+                task_id: "T-001".to_string(),
+            },
+        );
+        assert!(app.agent_backoff.contains_key(&AgentType::Claude));
+        // Simulate what handle_agent_event does on success
+        app.agent_backoff.remove(&AgentType::Claude);
+        assert!(!app.agent_backoff.contains_key(&AgentType::Claude));
+    }
+
+    // ── DX-026: Key event starvation fix tests ──────────────────
+
+    #[test]
+    fn test_handle_tick_throttles_reload() {
+        let tmp = tempfile::tempdir().unwrap();
+        let forge_dir = tmp.path().join(".forge");
+        std::fs::create_dir_all(forge_dir.join("tasks")).unwrap();
+
+        let (mut app, _rx, tx) = App::new(
+            forge_dir,
+            tmp.path().to_path_buf(),
+            3,
+            false,
+        );
+
+        // First handle_tick should reload (last_task_reload was just set)
+        // But since < 2s have elapsed, reload should be skipped
+        let before = app.last_task_reload;
+        app.handle_tick(&tx).unwrap();
+        assert_eq!(app.last_task_reload, before, "should not reload within 2s");
+
+        // Force last_task_reload to 3 seconds ago
+        app.last_task_reload = Instant::now() - std::time::Duration::from_secs(3);
+        let before = app.last_task_reload;
+        app.handle_tick(&tx).unwrap();
+        assert_ne!(app.last_task_reload, before, "should reload after 2s elapsed");
+    }
+
+    #[test]
+    fn test_handle_tick_sets_all_complete() {
+        let tmp = tempfile::tempdir().unwrap();
+        let forge_dir = tmp.path().join(".forge");
+        let tasks_dir = forge_dir.join("tasks");
+        std::fs::create_dir_all(&tasks_dir).unwrap();
+
+        // Create a completed task on disk
+        let mut task = Task::new("T-001", "Done task", "It's done");
+        task.status = TaskStatus::Completed;
+        task.assigned_to = Some(AgentType::Claude);
+        let json = serde_json::to_string_pretty(&task).unwrap();
+        std::fs::write(tasks_dir.join("T-001.json"), json).unwrap();
+
+        let (mut app, _rx, tx) = App::new(
+            forge_dir,
+            tmp.path().to_path_buf(),
+            3,
+            false,
+        );
+        app.reload_tasks().unwrap();
+        assert!(!app.all_complete);
+
+        // Force reload so handle_tick updates
+        app.last_task_reload = Instant::now() - std::time::Duration::from_secs(3);
+        app.handle_tick(&tx).unwrap();
+
+        assert!(app.all_complete);
+        assert!(app.completed_at.is_some());
+    }
+
+    #[test]
+    fn test_handle_tick_no_complete_in_watch_mode() {
+        let tmp = tempfile::tempdir().unwrap();
+        let forge_dir = tmp.path().join(".forge");
+        let tasks_dir = forge_dir.join("tasks");
+        std::fs::create_dir_all(&tasks_dir).unwrap();
+
+        let mut task = Task::new("T-001", "Done task", "It's done");
+        task.status = TaskStatus::Completed;
+        task.assigned_to = Some(AgentType::Claude);
+        let json = serde_json::to_string_pretty(&task).unwrap();
+        std::fs::write(tasks_dir.join("T-001.json"), json).unwrap();
+
+        let (mut app, _rx, tx) = App::new(
+            forge_dir,
+            tmp.path().to_path_buf(),
+            3,
+            true, // watch mode
+        );
+        app.reload_tasks().unwrap();
+        app.last_task_reload = Instant::now() - std::time::Duration::from_secs(3);
+        app.handle_tick(&tx).unwrap();
+
+        assert!(!app.all_complete, "watch mode should not auto-complete");
     }
 }

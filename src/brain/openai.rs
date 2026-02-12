@@ -152,10 +152,11 @@ impl ForgeBrain for OpenAIBrain {
         &self,
         spec: &str,
         available_tools: &[AgentType],
+        start_id: u32,
     ) -> anyhow::Result<Vec<Task>> {
         if !self.has_api_key() {
             let fallback = super::rule_based::RuleBasedBrain;
-            return fallback.decompose_plan(spec, available_tools);
+            return fallback.decompose_plan(spec, available_tools, start_id);
         }
 
         let tools_str = available_tools
@@ -222,7 +223,7 @@ impl ForgeBrain for OpenAIBrain {
 
         let mut tasks = Vec::new();
         for (i, item) in parsed.iter().enumerate() {
-            let id = format!("T-{:03}", i + 1);
+            let id = format!("T-{:03}", start_id + i as u32);
             let title = item["title"].as_str().unwrap_or("Untitled").to_string();
             let description = item["description"].as_str().unwrap_or(&title).to_string();
 
@@ -234,7 +235,7 @@ impl ForgeBrain for OpenAIBrain {
                 .map(|arr| {
                     arr.iter()
                         .filter_map(|v| v.as_u64())
-                        .map(|idx| format!("T-{:03}", idx + 1))
+                        .map(|idx| format!("T-{:03}", start_id + idx as u32))
                         .collect()
                 })
                 .unwrap_or_default();
@@ -274,7 +275,7 @@ impl ForgeBrain for OpenAIBrain {
 
         if tasks.is_empty() {
             let fallback = super::rule_based::RuleBasedBrain;
-            return fallback.decompose_plan(spec, available_tools);
+            return fallback.decompose_plan(spec, available_tools, start_id);
         }
 
         Ok(tasks)
@@ -401,7 +402,7 @@ mod tests {
             api_key: None,
         };
         let spec = "## Auth\n## Database\n";
-        let tasks = brain.decompose_plan(spec, &[AgentType::Claude]).unwrap();
+        let tasks = brain.decompose_plan(spec, &[AgentType::Claude], 1).unwrap();
         assert_eq!(tasks.len(), 2);
     }
 
@@ -433,5 +434,18 @@ mod tests {
             .route_knowledge("Research finding: Rust is fast")
             .unwrap();
         assert_eq!(cat, KnowledgeCategory::Research);
+    }
+
+    #[test]
+    fn test_openai_fallback_respects_start_id() {
+        let brain = OpenAIBrain {
+            model: "gpt-4o".into(),
+            api_key: None,
+        };
+        let spec = "## Caching\n## Monitoring\n";
+        let tasks = brain.decompose_plan(spec, &[AgentType::Claude], 7).unwrap();
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0].id, "T-007");
+        assert_eq!(tasks[1].id, "T-008");
     }
 }

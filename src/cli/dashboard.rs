@@ -11,7 +11,6 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use std::io::stdout;
 use std::path::Path;
-use std::time::Instant;
 
 pub async fn execute(project_root: &Path, parallel_limit: usize, watch_mode: bool) -> anyhow::Result<()> {
     let forge_dir = project_root.join(".forge");
@@ -68,39 +67,64 @@ pub async fn execute(project_root: &Path, parallel_limit: usize, watch_mode: boo
     let (tui_tx, mut tui_rx) = tokio::sync::mpsc::unbounded_channel();
     spawn_event_listener(tui_tx);
 
-    // Main loop
+    // Main loop — priority drain pattern (DX-026):
+    // Keys are drained first to prevent starvation under heavy agent output.
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(50));
     loop {
         terminal.draw(|f| ui::render(f, &app))?;
 
-        tokio::select! {
-            Some(tui_event) = tui_rx.recv() => {
-                match tui_event {
-                    TuiEvent::Key(key) => {
-                        // crossterm 0.28 fires Press + Release on some platforms
-                        if key.kind == KeyEventKind::Press {
-                            app.handle_key(key, &agent_tx);
-                            if app.should_quit {
-                                break;
-                            }
-                        }
-                    }
-                    TuiEvent::Tick => {
-                        app.reload_tasks()?;
-                        // DX-022: Don't auto-exit, set completion flag instead
-                        if !app.watch_mode
-                            && !app.all_complete
-                            && app.is_all_done()
-                            && app.running_task_ids.is_empty()
-                            && !app.tasks.is_empty()
-                        {
-                            app.all_complete = true;
-                            app.completed_at = Some(Instant::now());
+        // 1. PRIORITY: Drain ALL pending key/tick events first
+        while let Ok(tui_event) = tui_rx.try_recv() {
+            match tui_event {
+                TuiEvent::Key(key) => {
+                    if key.kind == KeyEventKind::Press {
+                        app.handle_key(key, &agent_tx);
+                        if app.should_quit {
+                            break;
                         }
                     }
                 }
+                TuiEvent::Tick => {
+                    app.handle_tick(&agent_tx)?;
+                }
             }
-            Some(agent_event) = agent_rx.recv() => {
-                app.handle_agent_event(agent_event, &agent_tx)?;
+        }
+        if app.should_quit {
+            break;
+        }
+
+        // 2. Then drain pending agent events (batch up to 50 per frame to stay responsive)
+        let mut agent_count = 0;
+        while let Ok(agent_event) = agent_rx.try_recv() {
+            app.handle_agent_event(agent_event, &agent_tx)?;
+            agent_count += 1;
+            if agent_count >= 50 {
+                break;
+            }
+        }
+
+        // 3. If nothing was ready, wait for the next event with a short timeout
+        //    This prevents busy-spinning when idle
+        if agent_count == 0 {
+            tokio::select! {
+                Some(tui_event) = tui_rx.recv() => {
+                    match tui_event {
+                        TuiEvent::Key(key) => {
+                            if key.kind == KeyEventKind::Press {
+                                app.handle_key(key, &agent_tx);
+                            }
+                        }
+                        TuiEvent::Tick => {
+                            app.handle_tick(&agent_tx)?;
+                        }
+                    }
+                }
+                Some(agent_event) = agent_rx.recv() => {
+                    app.handle_agent_event(agent_event, &agent_tx)?;
+                }
+                _ = interval.tick() => {
+                    // Periodic tick to keep UI refreshed even when idle
+                }
             }
         }
     }

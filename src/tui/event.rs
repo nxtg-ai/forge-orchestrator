@@ -7,12 +7,12 @@ pub enum TuiEvent {
     Tick,
 }
 
-/// Spawns a blocking task that polls crossterm for keyboard input every 250ms.
+/// Spawns a blocking task that polls crossterm for keyboard input every 100ms.
 /// Sends Key events on key press, Tick events otherwise.
 pub fn spawn_event_listener(tx: mpsc::UnboundedSender<TuiEvent>) {
     tokio::task::spawn_blocking(move || {
         loop {
-            match event::poll(Duration::from_millis(250)) {
+            match event::poll(Duration::from_millis(100)) {
                 Ok(true) => {
                     if let Ok(Event::Key(key)) = event::read()
                         && tx.send(TuiEvent::Key(key)).is_err()

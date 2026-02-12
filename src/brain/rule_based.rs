@@ -64,13 +64,14 @@ impl ForgeBrain for RuleBasedBrain {
         &self,
         spec: &str,
         _available_tools: &[AgentType],
+        start_id: u32,
     ) -> anyhow::Result<Vec<Task>> {
         // Check if codebase inventory is present
         let inventory_files = extract_inventory_files(spec);
 
         // Simple heuristic: split spec by markdown headers into tasks
         let mut tasks = Vec::new();
-        let mut task_num = 1;
+        let mut task_num = start_id;
 
         for line in spec.lines() {
             if let Some(header) = line.strip_prefix("## ") {
@@ -116,7 +117,7 @@ impl ForgeBrain for RuleBasedBrain {
         // If no headers found, create a single task
         if tasks.is_empty() {
             tasks.push(Task::new(
-                "T-001",
+                format!("T-{start_id:03}"),
                 "Implement specification",
                 spec.chars().take(500).collect::<String>(),
             ));
@@ -333,9 +334,29 @@ mod tests {
     fn test_decompose_plan_from_headers() {
         let brain = RuleBasedBrain;
         let spec = "# My Project\n## Authentication\n## Database\n## API endpoints\n";
-        let tasks = brain.decompose_plan(spec, &[AgentType::Claude]).unwrap();
+        let tasks = brain.decompose_plan(spec, &[AgentType::Claude], 1).unwrap();
         assert_eq!(tasks.len(), 3);
         assert_eq!(tasks[0].title, "Authentication");
         assert_eq!(tasks[1].title, "Database");
+    }
+
+    #[test]
+    fn test_decompose_plan_with_start_id_offset() {
+        let brain = RuleBasedBrain;
+        let spec = "## Caching\n## Monitoring\n";
+        let tasks = brain.decompose_plan(spec, &[AgentType::Claude], 5).unwrap();
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0].id, "T-005");
+        assert_eq!(tasks[1].id, "T-006");
+    }
+
+    #[test]
+    fn test_decompose_plan_fallback_uses_start_id() {
+        let brain = RuleBasedBrain;
+        // No ## headers → single fallback task
+        let spec = "Just a plain spec with no headers.";
+        let tasks = brain.decompose_plan(spec, &[AgentType::Claude], 10).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].id, "T-010");
     }
 }

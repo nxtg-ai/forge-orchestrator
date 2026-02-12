@@ -62,6 +62,9 @@ pub struct Task {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
+    /// Which plan generation pass created this task.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_version: Option<u32>,
 }
 
 impl Task {
@@ -84,6 +87,7 @@ impl Task {
             created_at: now,
             updated_at: now,
             completed_at: None,
+            plan_version: None,
         }
     }
 
@@ -230,11 +234,131 @@ impl TaskManager {
             .collect())
     }
 
+    /// Find the highest existing task ID number and return the next one.
+    /// If no tasks exist, returns 1.
+    pub fn next_task_number(&self) -> anyhow::Result<u32> {
+        let tasks_dir = self.forge_dir.join("tasks");
+        if !tasks_dir.exists() {
+            return Ok(1);
+        }
+
+        let mut max_id: u32 = 0;
+        for entry in std::fs::read_dir(&tasks_dir)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            if let Some(num_str) = name
+                .strip_prefix("T-")
+                .and_then(|s| s.strip_suffix(".json"))
+                && let Ok(num) = num_str.parse::<u32>()
+            {
+                max_id = max_id.max(num);
+            }
+        }
+
+        Ok(max_id + 1)
+    }
+
     pub fn get_next_available(&self) -> anyhow::Result<Option<Task>> {
         let completed = self.get_completed_task_ids()?;
         Ok(self
             .list_tasks()?
             .into_iter()
             .find(|t| t.status == TaskStatus::Pending && !t.is_blocked(&completed)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_next_task_number_empty_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+        assert_eq!(mgr.next_task_number().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_next_task_number_sequential() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+        // Create T-001, T-002, T-003
+        for i in 1..=3 {
+            let task = Task::new(format!("T-{i:03}"), "Test", "desc");
+            mgr.create_task(&task).unwrap();
+        }
+        assert_eq!(mgr.next_task_number().unwrap(), 4);
+    }
+
+    #[test]
+    fn test_next_task_number_finds_max_not_count() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+        // Create T-001, T-005, T-017 (gaps)
+        for i in [1, 5, 17] {
+            let task = Task::new(format!("T-{i:03}"), "Test", "desc");
+            mgr.create_task(&task).unwrap();
+        }
+        // Should return 18, not 4
+        assert_eq!(mgr.next_task_number().unwrap(), 18);
+    }
+
+    #[test]
+    fn test_next_task_number_ignores_non_task_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+        let tasks_dir = tmp.path().join("tasks");
+        std::fs::create_dir_all(&tasks_dir).unwrap();
+
+        // Create a real task
+        let task = Task::new("T-003", "Test", "desc");
+        mgr.create_task(&task).unwrap();
+
+        // Create non-task files that should be ignored
+        std::fs::write(tasks_dir.join("archive.json"), "{}").unwrap();
+        std::fs::write(tasks_dir.join("T-003.md"), "# markdown").unwrap();
+        std::fs::write(tasks_dir.join("notes.txt"), "notes").unwrap();
+
+        assert_eq!(mgr.next_task_number().unwrap(), 4);
+    }
+
+    #[test]
+    fn test_plan_version_field() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        let mut task = Task::new("T-001", "Test", "desc");
+        task.plan_version = Some(1);
+        mgr.create_task(&task).unwrap();
+
+        let loaded = mgr.get_task("T-001").unwrap();
+        assert_eq!(loaded.plan_version, Some(1));
+    }
+
+    #[test]
+    fn test_existing_tasks_not_overwritten() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        // Simulate first plan: T-001 completed
+        let mut task1 = Task::new("T-001", "Auth module", "Implement auth");
+        task1.status = TaskStatus::Completed;
+        task1.plan_version = Some(1);
+        mgr.create_task(&task1).unwrap();
+
+        // Simulate second plan: new task at T-002
+        let mut task2 = Task::new("T-002", "Caching layer", "Add caching");
+        task2.plan_version = Some(2);
+        mgr.create_task(&task2).unwrap();
+
+        // Verify T-001 is still completed and untouched
+        let loaded_t1 = mgr.get_task("T-001").unwrap();
+        assert_eq!(loaded_t1.status, TaskStatus::Completed);
+        assert_eq!(loaded_t1.plan_version, Some(1));
+        assert_eq!(loaded_t1.title, "Auth module");
+
+        // Verify T-002 exists with version 2
+        let loaded_t2 = mgr.get_task("T-002").unwrap();
+        assert_eq!(loaded_t2.plan_version, Some(2));
     }
 }

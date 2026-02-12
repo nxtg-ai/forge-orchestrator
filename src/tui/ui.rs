@@ -1,26 +1,55 @@
-use crate::core::task::{AgentType, TaskStatus};
-use crate::tui::app::{App, FocusArea};
-use ratatui::layout::{Constraint, Layout};
+use crate::core::task::TaskStatus;
+use crate::tui::app::{pane_agent, pane_label, App, FocusArea, MAX_BACKOFF_ATTEMPTS};
+use ratatui::layout::{Constraint, Layout, Rect};
+use std::time::Instant;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table};
 use ratatui::Frame;
 
 pub fn render(f: &mut Frame, app: &App) {
+    // If a pane is expanded, render only that pane full-screen + footer
+    if let Some(idx) = app.expanded_pane {
+        let chunks = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)])
+            .split(f.area());
+        render_single_pane(f, app, idx, chunks[0], true);
+        render_footer(f, app, chunks[1]);
+        return;
+    }
+
     let chunks = Layout::vertical([
-        Constraint::Percentage(30),
-        Constraint::Percentage(50),
-        Constraint::Percentage(20),
+        Constraint::Percentage(30), // Task board
+        Constraint::Percentage(50), // Agent panes 2x2
+        Constraint::Percentage(20), // Event log
+        Constraint::Length(1),      // Footer
     ])
     .split(f.area());
 
     render_task_board(f, app, chunks[0]);
     render_agent_panes(f, app, chunks[1]);
     render_event_log(f, app, chunks[2]);
+    render_footer(f, app, chunks[3]);
 }
 
-fn render_task_board(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
-    let focused = app.focus_area == FocusArea::TaskBoard;
+fn render_footer(f: &mut Frame, app: &App, area: Rect) {
+    let text = if app.all_complete {
+        "q:Quit | \u{2191}\u{2193}:Scroll | Tab:Switch Pane"
+    } else if app.expanded_pane.is_some() {
+        "Esc:Back | \u{2191}\u{2193}:Scroll | Home/End:Jump | q:Quit"
+    } else {
+        "q:Quit | Tab:Focus | \u{2191}\u{2193}:Navigate | Enter/f:Expand | r:Retry"
+    };
+
+    let paragraph = Paragraph::new(Line::from(Span::styled(
+        text,
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    f.render_widget(paragraph, area);
+}
+
+fn render_task_board(f: &mut Frame, app: &App, area: Rect) {
+    let focused = app.focus == FocusArea::TaskBoard;
     let border_style = if focused {
         Style::default().fg(Color::Cyan)
     } else {
@@ -91,14 +120,7 @@ fn render_task_board(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     f.render_widget(table, area);
 }
 
-fn render_agent_panes(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
-    let focused = app.focus_area == FocusArea::AgentPanes;
-    let border_style = if focused {
-        Style::default().fg(Color::Cyan)
-    } else {
-        Style::default().fg(Color::DarkGray)
-    };
-
+fn render_agent_panes(f: &mut Frame, app: &App, area: Rect) {
     let rows = Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(area);
     let top_cols =
@@ -106,38 +128,92 @@ fn render_agent_panes(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     let bot_cols =
         Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(rows[1]);
 
-    render_agent_pane(f, app, &AgentType::Claude, "Claude", top_cols[0], border_style);
-    render_agent_pane(f, app, &AgentType::Codex, "Codex", top_cols[1], border_style);
-    render_agent_pane(f, app, &AgentType::Gemini, "Gemini", bot_cols[0], border_style);
-    render_summary_pane(f, app, bot_cols[1], border_style);
+    let pane_areas = [top_cols[0], top_cols[1], bot_cols[0], bot_cols[1]];
+
+    for (idx, &pane_area) in pane_areas.iter().enumerate() {
+        render_single_pane(f, app, idx, pane_area, false);
+    }
 }
 
-fn render_agent_pane(
-    f: &mut Frame,
-    app: &App,
-    agent: &AgentType,
-    name: &str,
-    area: ratatui::layout::Rect,
-    border_style: Style,
-) {
-    let running_task = app.agent_running_task.get(agent);
-    let title = match running_task {
-        Some(tid) => format!(" {} [{}] ", name, tid),
-        None => format!(" {} ", name),
+fn render_single_pane(f: &mut Frame, app: &App, idx: usize, area: Rect, expanded: bool) {
+    let focused = app.focus == FocusArea::Pane(idx);
+    let border_style = if focused || expanded {
+        Style::default().fg(Color::Cyan)
+    } else {
+        Style::default().fg(Color::DarkGray)
     };
 
-    let lines: Vec<Line> = app
+    let label = pane_label(idx);
+
+    // Summary pane (index 3) has special rendering
+    if idx == 3 {
+        render_summary_pane_inner(f, app, label, area, border_style);
+        return;
+    }
+
+    let agent = match pane_agent(idx) {
+        Some(a) => a,
+        None => return,
+    };
+
+    let running_task = app.agent_running_task.get(&agent);
+    let title = match running_task {
+        Some(tid) => format!(" {} [{}] ", label, tid),
+        None => format!(" {} ", label),
+    };
+
+    let all_lines: Vec<&str> = app
         .agent_outputs
-        .get(agent)
-        .map(|buf| buf.iter().map(|l| Line::from(l.as_str())).collect())
+        .get(&agent)
+        .map(|buf| buf.iter().map(|l| l.as_str()).collect())
         .unwrap_or_default();
 
-    // Auto-scroll: only show the last N lines that fit
-    let inner_height = area.height.saturating_sub(2) as usize; // -2 for borders
-    let start = lines.len().saturating_sub(inner_height);
-    let visible: Vec<Line> = lines.into_iter().skip(start).collect();
+    let inner_height = area.height.saturating_sub(2) as usize;
+    let total = all_lines.len();
+    let scroll = app.pane_scroll[idx];
 
-    let paragraph = Paragraph::new(visible).block(
+    // Calculate visible window: show lines [start..end) from the buffer
+    let end = total.saturating_sub(scroll);
+    let start = end.saturating_sub(inner_height);
+
+    let mut visible_lines: Vec<Line> = all_lines[start..end]
+        .iter()
+        .map(|&l| Line::from(l))
+        .collect();
+
+    // Show scroll indicator if not at bottom
+    if scroll > 0 && inner_height > 0 {
+        let indicator = format!("[+{} lines below]", scroll);
+        // Replace last visible line with indicator
+        if !visible_lines.is_empty() {
+            *visible_lines.last_mut().unwrap() = Line::from(Span::styled(
+                indicator,
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+    }
+
+    // Show backoff countdown if agent is rate-limited
+    if let Some(backoff) = app.agent_backoff.get(&agent)
+        && let Some(next_retry) = backoff.next_retry
+    {
+        let now = Instant::now();
+        if now < next_retry {
+            let remaining_secs = (next_retry - now).as_secs();
+            let indicator = format!(
+                "--- Rate limited. Retrying in {}s... (attempt {}/{}) ---",
+                remaining_secs, backoff.attempt, MAX_BACKOFF_ATTEMPTS
+            );
+            visible_lines.push(Line::from(Span::styled(
+                indicator,
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )));
+        }
+    }
+
+    let paragraph = Paragraph::new(visible_lines).block(
         Block::default()
             .borders(Borders::ALL)
             .title(title)
@@ -147,10 +223,11 @@ fn render_agent_pane(
     f.render_widget(paragraph, area);
 }
 
-fn render_summary_pane(
+fn render_summary_pane_inner(
     f: &mut Frame,
     app: &App,
-    area: ratatui::layout::Rect,
+    label: &str,
+    area: Rect,
     border_style: Style,
 ) {
     let running = app.running_task_ids.len();
@@ -167,7 +244,7 @@ fn render_summary_pane(
     let total = app.tasks.len();
     let mode = if app.watch_mode { "Watch" } else { "Auto" };
 
-    let lines = vec![
+    let mut lines = vec![
         Line::from(vec![
             Span::styled("Running: ", Style::default().fg(Color::Yellow)),
             Span::raw(format!("{}/{}", running, app.parallel_limit)),
@@ -191,23 +268,28 @@ fn render_summary_pane(
         ]),
     ];
 
+    // Show agents in backoff
+    let backoff_count = app.agent_backoff.values().filter(|b| b.next_retry.is_some()).count();
+    if backoff_count > 0 {
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("Backoff: ", Style::default().fg(Color::Yellow)),
+            Span::raw(format!("{} agent(s)", backoff_count)),
+        ]));
+    }
+
     let paragraph = Paragraph::new(lines).block(
         Block::default()
             .borders(Borders::ALL)
-            .title(" Summary ")
+            .title(format!(" {} ", label))
             .border_style(border_style),
     );
 
     f.render_widget(paragraph, area);
 }
 
-fn render_event_log(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
-    let focused = app.focus_area == FocusArea::EventLog;
-    let border_style = if focused {
-        Style::default().fg(Color::Cyan)
-    } else {
-        Style::default().fg(Color::DarkGray)
-    };
+fn render_event_log(f: &mut Frame, app: &App, area: Rect) {
+    let border_style = Style::default().fg(Color::DarkGray);
 
     let mut items: Vec<ListItem> = app
         .events
@@ -243,7 +325,6 @@ fn render_event_log(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         ))));
     }
 
-    // Auto-scroll: show only the last items that fit
     let inner_height = area.height.saturating_sub(2) as usize;
     let start = items.len().saturating_sub(inner_height);
     let visible: Vec<ListItem> = items.into_iter().skip(start).collect();
@@ -261,7 +342,7 @@ fn render_event_log(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::task::Task;
+    use crate::core::task::{AgentType, Task};
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
     use std::path::PathBuf;
@@ -287,7 +368,6 @@ mod tests {
         terminal.draw(|f| render(f, &app)).unwrap();
 
         let buffer = terminal.backend().buffer().clone();
-        // Verify the buffer has content (not all spaces)
         let content: String = buffer
             .content()
             .iter()
@@ -310,7 +390,6 @@ mod tests {
         );
 
         terminal.draw(|f| render(f, &app)).unwrap();
-        // Just verifying no panic occurs
     }
 
     #[test]
@@ -342,5 +421,113 @@ mod tests {
             .collect();
         assert!(content.contains("All 2/2 tasks completed"));
         assert!(content.contains("Press q to exit"));
+    }
+
+    #[test]
+    fn test_render_footer_visible() {
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let (app, _rx, _tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+
+        terminal.draw(|f| render(f, &app)).unwrap();
+
+        let buffer = terminal.backend().buffer().clone();
+        let content: String = buffer
+            .content()
+            .iter()
+            .map(|cell| cell.symbol().chars().next().unwrap_or(' '))
+            .collect();
+        assert!(content.contains("q:Quit"));
+        assert!(content.contains("Tab:Focus"));
+    }
+
+    #[test]
+    fn test_render_focused_pane_highlight() {
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let (mut app, _rx, _tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        app.focus = FocusArea::Pane(0);
+
+        terminal.draw(|f| render(f, &app)).unwrap();
+
+        let buffer = terminal.backend().buffer().clone();
+        let content: String = buffer
+            .content()
+            .iter()
+            .map(|cell| cell.symbol().chars().next().unwrap_or(' '))
+            .collect();
+        // Claude pane should be visible
+        assert!(content.contains("Claude"));
+    }
+
+    #[test]
+    fn test_render_expanded_pane() {
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let (mut app, _rx, _tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        app.expanded_pane = Some(0);
+        let buf = app.agent_outputs.get_mut(&AgentType::Claude).unwrap();
+        buf.push_back("expanded line test".to_string());
+
+        terminal.draw(|f| render(f, &app)).unwrap();
+
+        let buffer = terminal.backend().buffer().clone();
+        let content: String = buffer
+            .content()
+            .iter()
+            .map(|cell| cell.symbol().chars().next().unwrap_or(' '))
+            .collect();
+        // Should show expanded pane content but NOT task board
+        assert!(content.contains("expanded line test"));
+        assert!(content.contains("Claude"));
+        // Task Board should not be visible in expanded mode
+        assert!(!content.contains("Task Board"));
+    }
+
+    #[test]
+    fn test_render_scroll_indicator() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let (mut app, _rx, _tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        let buf = app.agent_outputs.get_mut(&AgentType::Claude).unwrap();
+        for i in 0..50 {
+            buf.push_back(format!("line {}", i));
+        }
+        app.pane_scroll[0] = 5;
+        app.pane_pinned[0] = true;
+
+        terminal.draw(|f| render(f, &app)).unwrap();
+
+        let buffer = terminal.backend().buffer().clone();
+        let content: String = buffer
+            .content()
+            .iter()
+            .map(|cell| cell.symbol().chars().next().unwrap_or(' '))
+            .collect();
+        assert!(content.contains("+5 lines below"));
     }
 }

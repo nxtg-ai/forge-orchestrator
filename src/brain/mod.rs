@@ -18,11 +18,13 @@ use crate::core::task::{AgentType, Task};
 /// - GeminiBrain: Gemini API (future)
 /// - LocalBrain: fine-tuned local model (future)
 pub trait ForgeBrain {
-    /// Decompose a specification into tasks
+    /// Decompose a specification into tasks.
+    /// `start_id` is the number for the first task (e.g. 1 → T-001, 14 → T-014).
     fn decompose_plan(
         &self,
         spec: &str,
         available_tools: &[AgentType],
+        start_id: u32,
     ) -> anyhow::Result<Vec<Task>>;
 
     /// Decide which agent should handle a task
