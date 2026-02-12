@@ -21,6 +21,9 @@ pub struct ForgeState {
     /// Per-agent permission mode: "safe" (read-only) or "yolo" (full autonomy)
     #[serde(default)]
     pub agent_permissions: HashMap<String, String>,
+    /// Git integration config
+    #[serde(default)]
+    pub git: GitConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,6 +59,23 @@ pub struct FileLock {
     pub files: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitConfig {
+    /// Enable auto-commit after each task completes. Default: true.
+    pub auto_commit: bool,
+    /// Git strategy: "single" (commit to current branch). Future: "worktree", "branch".
+    pub strategy: String,
+}
+
+impl Default for GitConfig {
+    fn default() -> Self {
+        Self {
+            auto_commit: true,
+            strategy: "single".to_string(),
+        }
+    }
+}
+
 impl Default for ForgeState {
     fn default() -> Self {
         let now = Utc::now();
@@ -73,6 +93,7 @@ impl Default for ForgeState {
             active_locks: HashMap::new(),
             agent_auth: HashMap::new(),
             agent_permissions: HashMap::new(),
+            git: GitConfig::default(),
         }
     }
 }
@@ -216,5 +237,56 @@ impl StateManager {
         state.active_locks.remove(task_id);
         state.updated_at = Utc::now();
         self.save(&state)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_git_config_default() {
+        let cfg = GitConfig::default();
+        assert!(cfg.auto_commit);
+        assert_eq!(cfg.strategy, "single");
+    }
+
+    #[test]
+    fn test_forge_state_default_has_git() {
+        let state = ForgeState::default();
+        assert!(state.git.auto_commit);
+        assert_eq!(state.git.strategy, "single");
+    }
+
+    #[test]
+    fn test_state_without_git_field_deserializes() {
+        // Simulate old state.json without the git field
+        let json = r#"{
+            "version": "0.2.0",
+            "project_name": "test",
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+            "tools": [],
+            "brain": { "provider": "rule-based", "model": null },
+            "task_summary": { "total": 0, "pending": 0, "in_progress": 0, "completed": 0, "failed": 0, "blocked": 0 },
+            "active_locks": {}
+        }"#;
+        let state: ForgeState = serde_json::from_str(json).unwrap();
+        // Should use defaults for missing fields
+        assert!(state.git.auto_commit);
+        assert_eq!(state.git.strategy, "single");
+    }
+
+    #[test]
+    fn test_config_roundtrip_with_git() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = StateManager::new(tmp.path());
+
+        let mut state = ForgeState::default();
+        state.git.auto_commit = false;
+        mgr.save(&state).unwrap();
+
+        let loaded = mgr.load().unwrap();
+        assert!(!loaded.git.auto_commit);
     }
 }

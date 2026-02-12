@@ -97,9 +97,32 @@ pub fn execute(project_root: &Path, key: &str, value: &str) -> anyhow::Result<()
                 }
             }
         }
+        "git.auto_commit" => {
+            match value.to_lowercase().as_str() {
+                "true" | "on" | "yes" => {
+                    state.git.auto_commit = true;
+                    state.updated_at = chrono::Utc::now();
+                    state_mgr.save(&state)?;
+                    println!("✓ git.auto_commit = true");
+                    println!("  → Agents will commit after each task completion");
+                }
+                "false" | "off" | "no" => {
+                    state.git.auto_commit = false;
+                    state.updated_at = chrono::Utc::now();
+                    state_mgr.save(&state)?;
+                    println!("✓ git.auto_commit = false");
+                    println!("  → No automatic commits — you manage git manually");
+                }
+                _ => {
+                    anyhow::bail!(
+                        "Invalid value: {value}. Use: true / false"
+                    );
+                }
+            }
+        }
         _ => {
             anyhow::bail!(
-                "Unknown config key: {key}\n\nAvailable keys:\n  brain              — Brain provider (rule-based, openai)\n  brain.model        — Model name (gpt-4o, gpt-4.1, gpt-5, gpt-5-mini)\n  claude.auth        — Claude auth mode (subscription, api)\n  codex.auth         — Codex auth mode (subscription, api)\n  gemini.auth        — Gemini auth mode (subscription, api)\n  claude.permissions — Claude permission mode (safe, yolo)\n  codex.permissions  — Codex permission mode (safe, yolo)\n  gemini.permissions — Gemini permission mode (safe, yolo)"
+                "Unknown config key: {key}\n\nAvailable keys:\n  brain              — Brain provider (rule-based, openai)\n  brain.model        — Model name (gpt-4o, gpt-4.1, gpt-5, gpt-5-mini)\n  claude.auth        — Claude auth mode (subscription, api)\n  codex.auth         — Codex auth mode (subscription, api)\n  gemini.auth        — Gemini auth mode (subscription, api)\n  claude.permissions — Claude permission mode (safe, yolo)\n  codex.permissions  — Codex permission mode (safe, yolo)\n  gemini.permissions — Gemini permission mode (safe, yolo)\n  git.auto_commit    — Auto-commit after task completion (true, false)"
             );
         }
     }
@@ -167,6 +190,16 @@ pub fn show(project_root: &Path) -> anyhow::Result<()> {
     }
     println!();
 
+    // Git config
+    println!("  Git:");
+    let auto_icon = if state.git.auto_commit { "✓" } else { "✗" };
+    println!(
+        "    auto_commit  = {} {auto_icon}",
+        state.git.auto_commit
+    );
+    println!("    strategy     = {}", state.git.strategy);
+    println!();
+
     // Usage hints (DX-006)
     println!("To change settings:");
     println!("  forge config brain openai          # Switch to OpenAI brain");
@@ -176,6 +209,8 @@ pub fn show(project_root: &Path) -> anyhow::Result<()> {
     println!("  forge config claude.auth subscription  # Use Pro/Max subscription");
     println!("  forge config claude.permissions yolo   # Full autonomy for Claude");
     println!("  forge config claude.permissions safe   # Read-only (default)");
+    println!("  forge config git.auto_commit true      # Commit after each task");
+    println!("  forge config git.auto_commit false     # Disable auto-commit");
 
     Ok(())
 }

@@ -257,6 +257,9 @@ impl App {
                         task_mgr.update_task(&updated).ok();
                         state_mgr.unlock_files(&task_id).ok();
 
+                        // DX-028: Auto-commit after task completion
+                        self.git_auto_commit(&updated, &agent);
+
                         let event_msg = format!(
                             "{} completed by {} (exit {})",
                             task_id, agent, exit_code
@@ -601,6 +604,68 @@ impl App {
         Ok(())
     }
 
+    /// Auto-commit working tree changes after a task completes successfully.
+    fn git_auto_commit(&mut self, task: &Task, agent: &AgentType) {
+        let state_mgr = StateManager::new(&self.forge_dir);
+        let enabled = state_mgr
+            .load()
+            .map(|s| s.git.auto_commit)
+            .unwrap_or(true);
+
+        if !enabled {
+            return;
+        }
+
+        if !self.project_root.join(".git").exists() {
+            return;
+        }
+
+        let commit_type = commit_type_for_task(task.task_type.as_deref());
+        let message = format!("{}({}): {}", commit_type, task.id, task.title);
+
+        // Visual indicator in agent pane
+        if let Some(buffer) = self.agent_outputs.get_mut(agent) {
+            buffer.push_back(format!(
+                "--- Auto-committing: {}({}) ---",
+                commit_type, task.id
+            ));
+        }
+        self.push_event(&format!("{} auto-committed ({})", task.id, commit_type));
+
+        let project_root = self.project_root.clone();
+        let task_id = task.id.clone();
+        tokio::task::spawn_blocking(move || {
+            let add_result = std::process::Command::new("git")
+                .args(["add", "-A"])
+                .current_dir(&project_root)
+                .output();
+
+            if let Err(e) = add_result {
+                eprintln!("git add failed for {}: {}", task_id, e);
+                return;
+            }
+
+            let commit_result = std::process::Command::new("git")
+                .args(["commit", "--no-gpg-sign", "-m", &message])
+                .current_dir(&project_root)
+                .output();
+
+            match commit_result {
+                Ok(output) => {
+                    if !output.status.success() {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        if !stderr.contains("nothing to commit") {
+                            eprintln!("git commit warning for {}: {}", task_id, stderr.trim());
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("git commit failed for {}: {}", task_id, e);
+                }
+            }
+        });
+    }
+
     fn retry_selected_task(&mut self, tx: &mpsc::UnboundedSender<AgentEvent>) {
         if self.selected_index >= self.tasks.len() {
             return;
@@ -809,6 +874,18 @@ impl App {
             self.events.pop_front();
         }
         self.events.push_back(entry);
+    }
+}
+
+/// Map task type to conventional commit type prefix.
+pub fn commit_type_for_task(task_type: Option<&str>) -> &'static str {
+    match task_type {
+        Some("test") => "test",
+        Some("document") => "docs",
+        Some("review") => "refactor",
+        Some("design") => "docs",
+        Some("implement") => "feat",
+        _ => "feat",
     }
 }
 
@@ -1614,5 +1691,99 @@ mod tests {
         app.handle_tick(&tx).unwrap();
 
         assert!(!app.all_complete, "watch mode should not auto-complete");
+    }
+
+    // ── DX-028: Auto-commit per task tests ──────────────────────
+
+    #[test]
+    fn test_commit_type_mapping() {
+        assert_eq!(commit_type_for_task(Some("implement")), "feat");
+        assert_eq!(commit_type_for_task(Some("test")), "test");
+        assert_eq!(commit_type_for_task(Some("document")), "docs");
+        assert_eq!(commit_type_for_task(Some("review")), "refactor");
+        assert_eq!(commit_type_for_task(Some("design")), "docs");
+        assert_eq!(commit_type_for_task(None), "feat");
+        assert_eq!(commit_type_for_task(Some("unknown")), "feat");
+    }
+
+    #[test]
+    fn test_git_auto_commit_skips_when_disabled() {
+        let tmp = tempfile::tempdir().unwrap();
+        let forge_dir = tmp.path().join(".forge");
+        std::fs::create_dir_all(&forge_dir).unwrap();
+
+        // Write state.json with auto_commit = false
+        let mut state = crate::core::state::ForgeState::default();
+        state.git.auto_commit = false;
+        let state_mgr = StateManager::new(&forge_dir);
+        state_mgr.save(&state).unwrap();
+
+        // Create a fake .git dir so the git-repo check passes
+        std::fs::create_dir_all(tmp.path().join(".git")).unwrap();
+
+        let (mut app, _rx, _tx) = App::new(
+            forge_dir,
+            tmp.path().to_path_buf(),
+            3,
+            false,
+        );
+        let task = Task::new("T-001", "Test task", "desc");
+
+        // Should not push any event because auto_commit is false
+        let events_before = app.events.len();
+        app.git_auto_commit(&task, &AgentType::Claude);
+        assert_eq!(app.events.len(), events_before);
+    }
+
+    #[test]
+    fn test_git_auto_commit_skips_when_not_git_repo() {
+        let tmp = tempfile::tempdir().unwrap();
+        let forge_dir = tmp.path().join(".forge");
+        std::fs::create_dir_all(&forge_dir).unwrap();
+
+        // No .git directory — not a git repo
+
+        let (mut app, _rx, _tx) = App::new(
+            forge_dir,
+            tmp.path().to_path_buf(),
+            3,
+            false,
+        );
+        let task = Task::new("T-001", "Test task", "desc");
+
+        let events_before = app.events.len();
+        app.git_auto_commit(&task, &AgentType::Claude);
+        assert_eq!(app.events.len(), events_before);
+    }
+
+    #[tokio::test]
+    async fn test_git_auto_commit_pushes_event_when_enabled() {
+        let tmp = tempfile::tempdir().unwrap();
+        let forge_dir = tmp.path().join(".forge");
+        std::fs::create_dir_all(&forge_dir).unwrap();
+
+        // Default state has auto_commit = true
+        let state = crate::core::state::ForgeState::default();
+        let state_mgr = StateManager::new(&forge_dir);
+        state_mgr.save(&state).unwrap();
+
+        // Create .git so it's recognized as a git repo
+        std::fs::create_dir_all(tmp.path().join(".git")).unwrap();
+
+        let (mut app, _rx, _tx) = App::new(
+            forge_dir,
+            tmp.path().to_path_buf(),
+            3,
+            false,
+        );
+        let mut task = Task::new("T-005", "Add caching layer", "desc");
+        task.task_type = Some("implement".to_string());
+
+        app.git_auto_commit(&task, &AgentType::Codex);
+
+        // Should have pushed an event and added to agent output
+        assert!(app.events.iter().any(|e| e.contains("T-005 auto-committed (feat)")));
+        let codex_buf = app.agent_outputs.get(&AgentType::Codex).unwrap();
+        assert!(codex_buf.iter().any(|l| l.contains("Auto-committing: feat(T-005)")));
     }
 }
