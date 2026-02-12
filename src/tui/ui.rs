@@ -32,12 +32,14 @@ pub fn render(f: &mut Frame, app: &App) {
 }
 
 fn render_footer(f: &mut Frame, app: &App, area: Rect) {
-    let text = if app.all_complete {
-        "q:Quit | \u{2191}\u{2193}:Scroll | Tab:Switch Pane"
+    let text = if app.focus == FocusArea::Pane(3) && app.shell_active {
+        "Esc:Unfocus | Ctrl+D:Close Shell | Type to interact"
+    } else if app.all_complete {
+        "q:Quit | \u{2191}\u{2193}:Scroll | Tab:Switch Pane | s:Shell"
     } else if app.expanded_pane.is_some() {
         "Esc:Back | \u{2191}\u{2193}:Scroll | Home/End:Jump | q:Quit"
     } else {
-        "q:Quit | Tab:Focus | \u{2191}\u{2193}:Navigate | Enter/f:Expand | r:Retry"
+        "q:Quit | Tab:Focus | \u{2191}\u{2193}:Navigate | Enter/f:Expand | r:Retry | s:Shell"
     };
 
     let paragraph = Paragraph::new(Line::from(Span::styled(
@@ -145,9 +147,13 @@ fn render_single_pane(f: &mut Frame, app: &App, idx: usize, area: Rect, expanded
 
     let label = pane_label(idx);
 
-    // Summary pane (index 3) has special rendering
+    // Pane 3: shell (when active) or summary
     if idx == 3 {
-        render_summary_pane_inner(f, app, label, area, border_style);
+        if app.shell_active {
+            render_shell_pane(f, app, area, focused || expanded);
+        } else {
+            render_summary_pane_inner(f, app, label, area, border_style);
+        }
         return;
     }
 
@@ -221,6 +227,41 @@ fn render_single_pane(f: &mut Frame, app: &App, idx: usize, area: Rect, expanded
     );
 
     f.render_widget(paragraph, area);
+}
+
+fn render_shell_pane(f: &mut Frame, app: &App, area: Rect, active: bool) {
+    let border_style = if active {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
+    let title = if active {
+        " Shell (Esc:unfocus | Ctrl+D:close) "
+    } else {
+        " Shell (s:focus) "
+    };
+
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(border_style);
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let visible_height = inner.height as usize;
+    let total = app.shell_output.len();
+    let skip = total.saturating_sub(visible_height);
+    let lines: Vec<Line> = app
+        .shell_output
+        .iter()
+        .skip(skip)
+        .map(|s| Line::from(s.as_str()))
+        .collect();
+
+    let paragraph = Paragraph::new(lines);
+    f.render_widget(paragraph, inner);
 }
 
 fn render_summary_pane_inner(
