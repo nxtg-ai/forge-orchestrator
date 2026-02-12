@@ -54,15 +54,23 @@ pub enum Commands {
         events: usize,
     },
 
-    /// Execute a task headlessly on a specific AI tool
+    /// Execute tasks headlessly. Omit --task/--agent for autonomous parallel mode.
     Run {
-        /// Task ID (e.g., T-001)
+        /// Task ID (e.g., T-001). Omit to run ALL tasks autonomously.
         #[arg(short, long)]
-        task: String,
+        task: Option<String>,
 
-        /// Agent to execute the task (claude, codex, gemini)
+        /// Agent to execute the task (claude, codex, gemini). Omit for auto-assign.
         #[arg(short, long)]
-        agent: String,
+        agent: Option<String>,
+
+        /// Maximum number of parallel agent tasks (autonomous mode)
+        #[arg(short, long, default_value = "3")]
+        parallel: usize,
+
+        /// Show what would run without executing
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// Start autonomous orchestration — run all tasks with auto-claim/complete

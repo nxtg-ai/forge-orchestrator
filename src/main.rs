@@ -6,7 +6,7 @@ mod cli;
 mod core;
 mod detect;
 mod mcp;
-mod tui;
+pub(crate) mod tui;
 
 use clap::Parser;
 use cli::{Cli, Commands};
@@ -39,8 +39,21 @@ async fn main() -> anyhow::Result<()> {
         Commands::Status { events } => {
             cli::status::execute(&project_root, events)?;
         }
-        Commands::Run { task, agent } => {
-            cli::run::execute(&project_root, &task, &agent).await?;
+        Commands::Run {
+            task,
+            agent,
+            parallel,
+            dry_run,
+        } => {
+            if let (Some(task_id), Some(agent_name)) = (&task, &agent) {
+                cli::run::execute(&project_root, task_id, agent_name).await?;
+            } else if task.is_none() && agent.is_none() {
+                cli::run::execute_all(&project_root, parallel, dry_run).await?;
+            } else {
+                anyhow::bail!(
+                    "Specify both --task and --agent for single-task mode, or omit both for autonomous mode."
+                );
+            }
         }
         Commands::Start { agent, r#loop } => {
             if r#loop {
