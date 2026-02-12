@@ -16,9 +16,10 @@ Plan work. Assign it to the right AI. Track progress. Prevent conflicts. Capture
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.93+-orange.svg)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/Tests-58%2F58_passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/Tests-139_passing-brightgreen.svg)](#)
 [![MCP](https://img.shields.io/badge/MCP-9_tools-purple.svg)](#mcp-server)
-[![Binary](https://img.shields.io/badge/Binary-3_MB-lightgrey.svg)](#)
+[![Binary](https://img.shields.io/badge/Binary-3.7_MB-lightgrey.svg)](#)
+[![Version](https://img.shields.io/badge/Version-1.0.0-blue.svg)](#)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/nxtg-ai/forge-orchestrator/pulls)
 
 [Quick Start](#quick-start) | [Why Forge?](#why-forge) | [MCP Server](#mcp-server) | [Architecture](#architecture) | [Contributing](#contributing)
@@ -76,10 +77,15 @@ forge init
 forge plan --generate        # AI decomposes spec into tasks with dependencies
 
 # 4. See the task board
-forge status                 # ASCII dashboard showing all tasks and progress
+forge status                 # Full task table with deps, statuses, agents
 
-# 5. Run ALL tasks autonomously
-forge start                  # Launches all agents in parallel, auto-claims, auto-completes
+# 5. Launch the TUI dashboard (recommended)
+forge dashboard              # Live multi-agent orchestration with real-time output
+
+# Or run headlessly (CI/CD, SSH, scripting)
+forge run                    # Parallel autonomous execution, no TUI
+forge run --dry-run           # Preview execution plan without running
+forge run --parallel 1        # Sequential mode
 
 # Or run a single task manually
 forge run --task T-001 --agent codex
@@ -116,14 +122,17 @@ You write SPEC.md
         │
         ▼
 ┌──────────────────┐     ┌─────────────────┐
-│  forge run       │────▶│  Adapters        │  Claude, Codex, Gemini
-│  --task T-001    │     │  (tool-specific) │  each get their task
+│  forge dashboard │────▶│  Adapters        │  Claude, Codex, Gemini
+│  (TUI) or        │     │  (tool-specific) │  run in parallel with
+│  forge run       │     │                  │  dependency scheduling
+│  (headless)      │     │                  │  + rate limit backoff
 └──────────────────┘     └─────────────────┘
         │
         ▼
 ┌──────────────────┐     ┌─────────────────┐
-│  forge status    │◀───▶│  .forge/         │  File-based state
-│  forge mcp       │     │  state.json      │  MCP live queries
+│  Auto-commit per │◀───▶│  .forge/         │  File-based state
+│  task + status   │     │  state.json      │  MCP live queries
+│  forge mcp       │     │  tasks/ events/  │  Knowledge flywheel
 └──────────────────┘     └─────────────────┘
 ```
 
@@ -133,10 +142,12 @@ You write SPEC.md
 |:--------|:-------------|
 | `forge init` | Scan project, detect AI tools, scaffold `.forge/` |
 | `forge plan --generate` | Decompose SPEC.md into tasks using ForgeBrain |
-| `forge status` | ASCII dashboard with task board and progress |
-| `forge start` | **Autonomous orchestration** — runs all agents in parallel |
-| `forge start --agent codex` | Run only one agent type |
-| `forge run --task T-001 --agent claude` | Execute a single task headlessly |
+| `forge status` | Full task table with deps, blocking status, agents |
+| `forge dashboard` | **TUI dashboard** — live multi-agent orchestration with scrollable panes, shell access, auto-commit |
+| `forge run` | **Headless autonomous mode** — parallel dependency-aware execution for CI/CD |
+| `forge run --dry-run` | Preview execution plan without running |
+| `forge run --task T-001 --agent claude` | Execute a single task |
+| `forge start` | Sequential orchestration with retry logic |
 | `forge sync` | Reconcile state, render CLAUDE.md/AGENTS.md/GEMINI.md |
 | `forge config brain openai` | Switch to OpenAI-powered brain |
 | `forge mcp` | Start MCP server (stdio) for AI tool integration |
@@ -208,7 +219,11 @@ gemini --context GEMINI.md
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  CLI (clap)                                                 │
-│  forge init | plan | start | run | status | sync | mcp      │
+│  init | plan | dashboard | run | start | status | sync | mcp│
+├─────────────────────────────────────────────────────────────┤
+│  TUI Dashboard (ratatui + crossterm)                        │
+│  Task board | Agent panes | Shell panes | Event log         │
+│  Rate limit backoff | Auto-commit | Key legend              │
 ├─────────────────────────────────────────────────────────────┤
 │  ForgeBrain (pluggable)                                     │
 │  RuleBasedBrain (free) | OpenAIBrain (gpt-4.1) | ...        │
@@ -316,9 +331,9 @@ Returns a **health score out of 100** with actionable findings.
 | Metric | Value |
 |:-------|:------|
 | Language | Rust (2024 edition) |
-| Binary size | ~3 MB (includes TLS) |
-| Source lines | ~5,000 |
-| Tests | 58 (37 unit + 9 CLI + 12 MCP) |
+| Binary size | 3.7 MB (includes TLS) |
+| Source lines | ~10,650 |
+| Tests | 139 (117 unit + 10 CLI + 12 MCP) |
 | External runtime deps | Zero (single binary) |
 | MCP tools | 9 |
 | Supported AI tools | Claude Code, Codex CLI, Gemini CLI |
@@ -351,11 +366,16 @@ src/
 ├── cli/                 # Command implementations
 │   ├── init.rs          # Project initialization
 │   ├── plan.rs          # Plan generation (uses ForgeBrain)
-│   ├── start.rs         # Autonomous orchestration (parallel agents)
-│   ├── run.rs           # Headless single-task execution
-│   ├── status.rs        # ASCII dashboard
+│   ├── dashboard.rs     # TUI dashboard launcher
+│   ├── start.rs         # Sequential orchestration with retry
+│   ├── run.rs           # Headless autonomous + single-task execution
+│   ├── status.rs        # Full task table with dependencies
 │   ├── sync.rs          # State reconciliation
 │   └── config.rs        # Brain configuration
+├── tui/                 # Terminal UI (ratatui + crossterm)
+│   ├── app.rs           # Dashboard state, scheduler, key handling
+│   ├── ui.rs            # Layout rendering (task board, agent panes, event log)
+│   └── event.rs         # Terminal event polling
 ├── core/                # Core engine
 │   ├── state.rs         # State management (.forge/state.json)
 │   ├── task.rs          # Task lifecycle, file locking
@@ -396,15 +416,15 @@ Forge is MIT-licensed and contributions are welcome.
 
 **Good first issues:**
 - Add a `ClaudeBrain` implementation (Claude API for plan decomposition)
-- Add `forge worktree` command (git worktree per task for parallel agent work)
-- Add progress bars to `forge status` dashboard
-- ~~Add retry logic to `forge start`~~ (done in v0.1.2)
+- Add `forge worktree` command (git worktree per task for parallel agent isolation)
+- Add `forge uat` command (interactive acceptance testing checklist)
 - Add `forge report` command (session summary from events.jsonl)
+- Embedded interactive agent TUIs (PTY bridge per pane — "Stargate" mode)
 
 **Before submitting a PR:**
 
 ```bash
-cargo test          # All 58 tests must pass
+cargo test          # All 139 tests must pass
 cargo clippy        # No warnings
 cargo fmt --check   # Formatted
 ```

@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-02-11
+
+### The Autonomous Builder
+
+Forge 1.0 is the first release where you can type `forge init && forge plan --generate && forge dashboard` and walk away. The dashboard orchestrates Claude, Codex, and Gemini in parallel, handles rate limits, commits per task, and stays open when done so you can review results.
+
+### Added
+- **DX-018: Rate Limit Backoff** — exponential backoff (10s→30s→60s→120s) with jitter when agents hit API rate limits. Per-agent tracking, max 5 retries, staggered restarts
+- **DX-020: Key Legend** — footer bar shows keyboard shortcuts (`q:Quit | Tab:Focus | ↑↓:Nav | Enter:Detail | r:Retry | s:Shell | ?:Help`)
+- **DX-021: Orphan Task Cleanup** — on startup, resets stale in-progress tasks to pending. On quit, resets all running tasks
+- **DX-022: No Auto-Exit** — dashboard stays open on completion with summary banner. Press `q` to exit
+- **DX-023: Interactive Terminal Panes** — scrollable agent output with `↑↓` when focused, `Tab` to cycle focus, visual border highlight
+- **DX-025: Monotonic Task IDs** — `plan --generate` appends new tasks from highest existing ID. Never overwrites completed tasks. Adds `plan_version` field
+- **DX-026: Priority Key Handling** — key events drain first via `try_recv()` loop before processing agent output. 100ms poll rate (was 250ms). Keys register instantly even under heavy agent output
+- **DX-027: Shell Panes** — press `s` or `+` to spawn a `$SHELL` in the Summary pane. Type commands while agents work. `Ctrl+D` to close
+- **DX-028: Git Auto-Commit** — after each task completes, runs `git add -A && git commit` with conventional format (`feat(T-007): Task title`). Configurable via `forge config git.auto_commit true|false`
+- **DX-010: Full Task Table in Status** — `forge status` shows complete task board with ID, status (Ready/Blocked/Running/Done/Failed), agent, type, and color-coded dependencies
+- **DX-011: Headless Autonomous Mode** — `forge run` (no args) runs all tasks in parallel headlessly. `--parallel N` limits concurrency, `--dry-run` shows execution plan without running. Same dependency-aware scheduling as dashboard
+- **DX-019: Gemini Adapter Fix** — added `-p` flag for headless mode, `--yolo` + `--sandbox=false` in yolo permissions
+
+### Changed
+- 139 tests passing (117 unit + 10 CLI + 12 MCP), up from 71
+- Source lines: ~10,650 (up from ~5,000)
+- Binary size: 3.7 MB
+- `--task` and `--agent` are now optional on `forge run`
+
 ## [0.3.0] - 2026-02-11
 
 ### Added
@@ -127,7 +153,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Animated SVG banner for README
 - 51 tests (30 unit + 9 CLI + 12 MCP integration)
 
-[Unreleased]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.3.0...v1.0.0
 [0.3.0]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.2.0...v0.2.1

@@ -1,6 +1,6 @@
 [package]
 name = "forge-orchestrator"
-version = "0.3.0"
+version = "1.0.0"
 edition = "2024"
 description = "Universal coordination engine for AI-powered development"
 license = "MIT"
