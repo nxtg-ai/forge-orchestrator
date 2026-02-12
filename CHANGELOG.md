@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-02-11
+
+### The Verifier
+
+Forge 1.1 adds a complete verification lifecycle. After BUILD, the dashboard auto-transitions to VERIFY phase, generating verify subtasks for every build task. Failed verifications spawn fix+re-verify pairs (up to 3 retries). Human UAT captures findings interactively, and `forge plan --from-findings` converts them into fix tasks.
+
+### Added
+- **Phase lifecycle**: Build -> Verify -> Complete auto-transition in the TUI dashboard
+- **`forge verify`**: Generate verify subtasks for completed build tasks (V-NNN IDs)
+- **`forge uat`**: Interactive UAT REPL with keyword-based severity classification (Critical/High/Medium/Low/Positive)
+- **`forge plan --from-findings`**: Convert UAT findings into fix tasks with phase=Fix, severity-based priority (P0-P3)
+- **TaskPhase enum**: `Build`, `Verify`, `Fix` — lifecycle phase tracking per task
+- **Task model extensions**: `parent_task`, `phase`, `retry_count` fields with backward-compatible serde
+- **Finding model**: `FindingSeverity`, `FindingType`, `Finding` struct, `FindingManager` with JSON persistence
+- **Verify/fix loop**: Failed verify tasks auto-generate fix + re-verify pairs (max 3 retries)
+- **Dashboard phase indicator**: Title shows `FORGE DASHBOARD — BUILD (12/17)` with phase-specific progress
+- **Hierarchical task display**: Subtasks indented under parents in dashboard and status views
+- **Phase column in status**: `forge status` shows Phase (build/verify/fix) for each task
+
+### Changed
+- 179 tests passing (157 unit + 10 CLI + 12 MCP), up from 139
+- Dashboard completion detection is now phase-aware (only completes after Verify→Complete transition)
+
 ## [1.0.0] - 2026-02-11
 
 ### The Autonomous Builder
@@ -153,7 +176,8 @@ Forge 1.0 is the first release where you can type `forge init && forge plan --ge
 - Animated SVG banner for README
 - 51 tests (30 unit + 9 CLI + 12 MCP integration)
 
-[Unreleased]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.3.0...v1.0.0
 [0.3.0]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.2.1...v0.2.2

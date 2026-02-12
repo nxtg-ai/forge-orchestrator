@@ -33,8 +33,12 @@ async fn main() -> anyhow::Result<()> {
         Commands::Init { name } => {
             cli::init::execute(&project_root, name)?;
         }
-        Commands::Plan { generate, spec } => {
-            cli::plan::execute(&project_root, generate, spec)?;
+        Commands::Plan {
+            generate,
+            spec,
+            from_findings,
+        } => {
+            cli::plan::execute(&project_root, generate, spec, from_findings)?;
         }
         Commands::Status { events } => {
             cli::status::execute(&project_root, events)?;
@@ -61,6 +65,12 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 cli::start::execute(&project_root, agent.as_deref()).await?;
             }
+        }
+        Commands::Verify => {
+            cli::verify::execute(&project_root)?;
+        }
+        Commands::Uat => {
+            cli::uat::execute(&project_root)?;
         }
         Commands::Sync => {
             cli::sync::execute(&project_root)?;

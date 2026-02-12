@@ -7,6 +7,8 @@ pub mod run;
 pub mod start;
 pub mod status;
 pub mod sync;
+pub mod uat;
+pub mod verify;
 
 use clap::{Parser, Subcommand};
 
@@ -45,6 +47,10 @@ pub enum Commands {
         /// Path to spec file (defaults to SPEC.md in project root)
         #[arg(short, long)]
         spec: Option<String>,
+
+        /// Generate fix tasks from UAT findings (.forge/findings/)
+        #[arg(long)]
+        from_findings: bool,
     },
 
     /// Show orchestration status — task board, agent activity, governance
@@ -100,6 +106,12 @@ pub enum Commands {
         #[arg(short, long, default_value = "3")]
         parallel: usize,
     },
+
+    /// Generate verify subtasks for completed build tasks
+    Verify,
+
+    /// Interactive UAT — describe issues naturally, capture findings
+    Uat,
 
     /// Get or set configuration values
     Config {

@@ -1,5 +1,5 @@
-use crate::core::task::TaskStatus;
-use crate::tui::app::{pane_agent, pane_label, App, FocusArea, MAX_BACKOFF_ATTEMPTS};
+use crate::core::task::{Task, TaskPhase, TaskStatus};
+use crate::tui::app::{pane_agent, pane_label, App, DashboardPhase, FocusArea, MAX_BACKOFF_ATTEMPTS};
 use ratatui::layout::{Constraint, Layout, Rect};
 use std::time::Instant;
 use ratatui::style::{Color, Modifier, Style};
@@ -58,6 +58,13 @@ fn render_task_board(f: &mut Frame, app: &App, area: Rect) {
         Style::default().fg(Color::DarkGray)
     };
 
+    // Phase-aware title with progress counts
+    let (phase_done, phase_total) = phase_progress(app);
+    let title = format!(
+        " FORGE DASHBOARD \u{2014} {} ({}/{}) ",
+        app.phase, phase_done, phase_total
+    );
+
     let header = Row::new(vec![
         Cell::from("ID").style(Style::default().add_modifier(Modifier::BOLD)),
         Cell::from("Status").style(Style::default().add_modifier(Modifier::BOLD)),
@@ -65,8 +72,10 @@ fn render_task_board(f: &mut Frame, app: &App, area: Rect) {
         Cell::from("Title").style(Style::default().add_modifier(Modifier::BOLD)),
     ]);
 
-    let rows: Vec<Row> = app
-        .tasks
+    // Sort tasks hierarchically: parents first, then children indented
+    let sorted_tasks = hierarchical_sort(&app.tasks);
+
+    let rows: Vec<Row> = sorted_tasks
         .iter()
         .enumerate()
         .map(|(i, task)| {
@@ -93,8 +102,15 @@ fn render_task_board(f: &mut Frame, app: &App, area: Rect) {
                 Style::default()
             };
 
+            // Indent subtask IDs (tasks with a parent)
+            let id_display = if task.parent_task.is_some() {
+                format!(" {}", task.id)
+            } else {
+                task.id.clone()
+            };
+
             Row::new(vec![
-                Cell::from(task.id.clone()),
+                Cell::from(id_display),
                 Cell::from(status_str).style(Style::default().fg(status_color)),
                 Cell::from(agent_str),
                 Cell::from(task.title.clone()),
@@ -115,7 +131,7 @@ fn render_task_board(f: &mut Frame, app: &App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Task Board ")
+                .title(title)
                 .border_style(border_style),
         );
 
@@ -285,7 +301,20 @@ fn render_summary_pane_inner(
     let total = app.tasks.len();
     let mode = if app.watch_mode { "Watch" } else { "Auto" };
 
+    let phase_color = match app.phase {
+        DashboardPhase::Build => Color::Yellow,
+        DashboardPhase::Verify => Color::Cyan,
+        DashboardPhase::Complete => Color::Green,
+    };
+
     let mut lines = vec![
+        Line::from(vec![
+            Span::styled("Phase: ", Style::default().fg(phase_color)),
+            Span::styled(
+                format!("{}", app.phase),
+                Style::default().fg(phase_color).add_modifier(Modifier::BOLD),
+            ),
+        ]),
         Line::from(vec![
             Span::styled("Running: ", Style::default().fg(Color::Yellow)),
             Span::raw(format!("{}/{}", running, app.parallel_limit)),
@@ -327,6 +356,76 @@ fn render_summary_pane_inner(
     );
 
     f.render_widget(paragraph, area);
+}
+
+/// Compute progress counts for the current dashboard phase.
+fn phase_progress(app: &App) -> (usize, usize) {
+    let phase_tasks: Vec<&Task> = match app.phase {
+        DashboardPhase::Build => app
+            .tasks
+            .iter()
+            .filter(|t| t.phase.is_none() || t.phase == Some(TaskPhase::Build))
+            .collect(),
+        DashboardPhase::Verify => app
+            .tasks
+            .iter()
+            .filter(|t| {
+                t.phase == Some(TaskPhase::Verify) || t.phase == Some(TaskPhase::Fix)
+            })
+            .collect(),
+        DashboardPhase::Complete => app.tasks.iter().collect(),
+    };
+
+    let done = phase_tasks
+        .iter()
+        .filter(|t| t.status == TaskStatus::Completed || t.status == TaskStatus::Failed)
+        .count();
+    (done, phase_tasks.len())
+}
+
+/// Sort tasks hierarchically: parents first, children immediately after their parent.
+/// Children (tasks with parent_task set) are indented under their parent.
+pub fn hierarchical_sort(tasks: &[Task]) -> Vec<Task> {
+    use std::collections::HashMap;
+
+    // Build a map of parent_id -> children
+    let mut children_map: HashMap<&str, Vec<&Task>> = HashMap::new();
+    let mut roots: Vec<&Task> = Vec::new();
+
+    for task in tasks {
+        if let Some(ref parent_id) = task.parent_task {
+            children_map
+                .entry(parent_id.as_str())
+                .or_default()
+                .push(task);
+        } else {
+            roots.push(task);
+        }
+    }
+
+    // Sort children by ID within each group
+    for children in children_map.values_mut() {
+        children.sort_by(|a, b| a.id.cmp(&b.id));
+    }
+
+    let mut result = Vec::with_capacity(tasks.len());
+    for root in &roots {
+        result.push((*root).clone());
+        if let Some(children) = children_map.get(root.id.as_str()) {
+            for child in children {
+                result.push((*child).clone());
+            }
+        }
+    }
+
+    // Add orphan children (whose parent isn't in the task list)
+    for task in tasks {
+        if task.parent_task.is_some() && !result.iter().any(|t| t.id == task.id) {
+            result.push(task.clone());
+        }
+    }
+
+    result
 }
 
 fn render_event_log(f: &mut Frame, app: &App, area: Rect) {
@@ -414,7 +513,7 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol().chars().next().unwrap_or(' '))
             .collect();
-        assert!(content.contains("Task Board"));
+        assert!(content.contains("FORGE DASHBOARD"));
         assert!(content.contains("T-001"));
     }
 
@@ -570,5 +669,66 @@ mod tests {
             .map(|cell| cell.symbol().chars().next().unwrap_or(' '))
             .collect();
         assert!(content.contains("+5 lines below"));
+    }
+
+    #[test]
+    fn test_render_phase_in_title() {
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let (app, _rx, _tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+
+        terminal.draw(|f| render(f, &app)).unwrap();
+
+        let buffer = terminal.backend().buffer().clone();
+        let content: String = buffer
+            .content()
+            .iter()
+            .map(|cell| cell.symbol().chars().next().unwrap_or(' '))
+            .collect();
+        assert!(content.contains("BUILD"));
+        assert!(content.contains("FORGE DASHBOARD"));
+    }
+
+    #[test]
+    fn test_hierarchical_sort_parents_before_children() {
+        use crate::core::task::TaskPhase;
+
+        let mut parent = Task::new("T-001", "Parent task", "desc");
+        parent.phase = None;
+
+        let mut child = Task::new("V-001", "Verify: Parent task", "desc");
+        child.parent_task = Some("T-001".to_string());
+        child.phase = Some(TaskPhase::Verify);
+
+        let mut other = Task::new("T-002", "Other task", "desc");
+        other.phase = None;
+
+        // Input order: child, other, parent (scrambled)
+        let tasks = vec![child.clone(), other.clone(), parent.clone()];
+        let sorted = hierarchical_sort(&tasks);
+
+        assert_eq!(sorted.len(), 3);
+        // T-001 should come before V-001 (parent before child)
+        let parent_pos = sorted.iter().position(|t| t.id == "T-001").unwrap();
+        let child_pos = sorted.iter().position(|t| t.id == "V-001").unwrap();
+        assert!(parent_pos < child_pos, "parent should come before child");
+    }
+
+    #[test]
+    fn test_hierarchical_sort_preserves_all_tasks() {
+        let t1 = Task::new("T-001", "Task 1", "desc");
+        let t2 = Task::new("T-002", "Task 2", "desc");
+        let mut v1 = Task::new("V-001", "Verify 1", "desc");
+        v1.parent_task = Some("T-001".to_string());
+
+        let tasks = vec![t1, t2, v1];
+        let sorted = hierarchical_sort(&tasks);
+        assert_eq!(sorted.len(), 3);
     }
 }

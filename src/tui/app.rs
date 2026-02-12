@@ -4,7 +4,7 @@ use crate::adapters::gemini::GeminiAdapter;
 use crate::adapters::ToolAdapter;
 use crate::core::event::{EventLogger, EventType, ForgeEvent};
 use crate::core::state::StateManager;
-use crate::core::task::{AgentType, Task, TaskManager, TaskStatus};
+use crate::core::task::{AgentType, Task, TaskManager, TaskPhase, TaskStatus};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -38,6 +38,23 @@ pub struct BackoffState {
     pub attempt: u32,
     pub next_retry: Option<Instant>,
     pub task_id: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DashboardPhase {
+    Build,
+    Verify,
+    Complete,
+}
+
+impl std::fmt::Display for DashboardPhase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DashboardPhase::Build => write!(f, "BUILD"),
+            DashboardPhase::Verify => write!(f, "VERIFY"),
+            DashboardPhase::Complete => write!(f, "COMPLETE"),
+        }
+    }
 }
 
 pub enum AgentEvent {
@@ -104,6 +121,8 @@ pub struct App {
     pub watch_mode: bool,
     pub should_quit: bool,
     pub all_complete: bool,
+    /// Current dashboard lifecycle phase (Build → Verify → Complete).
+    pub phase: DashboardPhase,
     pub completed_at: Option<Instant>,
     pub started_at: Instant,
     /// Per-pane scroll offset (lines from bottom; 0 = latest output visible).
@@ -153,6 +172,7 @@ impl App {
             watch_mode,
             should_quit: false,
             all_complete: false,
+            phase: DashboardPhase::Build,
             completed_at: None,
             started_at: Instant::now(),
             pane_scroll: [0; PANE_COUNT],
@@ -377,13 +397,16 @@ impl App {
                         }
                     } else {
                         // Normal failure (not rate limited)
-                        if let Ok(task) = task_mgr.get_task(&task_id) {
+                        let failed_task = if let Ok(task) = task_mgr.get_task(&task_id) {
                             let mut updated = task;
                             updated.status = TaskStatus::Failed;
                             updated.updated_at = chrono::Utc::now();
                             task_mgr.update_task(&updated).ok();
                             state_mgr.unlock_files(&task_id).ok();
-                        }
+                            Some(updated)
+                        } else {
+                            None
+                        };
 
                         let event_msg = format!(
                             "{} failed by {} (exit {})",
@@ -397,10 +420,16 @@ impl App {
                                     .with_agent(agent),
                             )
                             .ok();
+
+                        // Test/fix loop: generate fix + re-verify for failed verify tasks
+                        if let Some(failed) = &failed_task {
+                            self.handle_verify_failure(failed);
+                        }
                     }
                 }
 
                 self.reload_tasks()?;
+                self.check_phase_transition();
                 self.schedule_unblocked_tasks(tx);
             }
             AgentEvent::Error {
@@ -426,6 +455,7 @@ impl App {
                 self.push_event(&event_msg);
 
                 self.reload_tasks()?;
+                self.check_phase_transition();
                 self.schedule_unblocked_tasks(tx);
             }
         }
@@ -668,16 +698,28 @@ impl App {
         if self.last_task_reload.elapsed() > std::time::Duration::from_secs(2) {
             self.reload_tasks()?;
             self.last_task_reload = Instant::now();
+            // Check phase transitions on each reload
+            self.check_phase_transition();
         }
         self.check_backoff_timers(agent_tx);
         if !self.watch_mode
             && !self.all_complete
-            && self.is_all_done()
             && self.running_task_ids.is_empty()
             && !self.tasks.is_empty()
         {
-            self.all_complete = true;
-            self.completed_at = Some(Instant::now());
+            // Phase-aware completion: only mark complete when dashboard phase is Complete
+            // or all tasks are done in the current phase
+            if self.phase == DashboardPhase::Complete && self.is_all_done() {
+                self.all_complete = true;
+                self.completed_at = Some(Instant::now());
+            } else if self.is_all_done() {
+                // All tasks done but phase hasn't transitioned yet — trigger it
+                self.check_phase_transition();
+                if self.phase == DashboardPhase::Complete {
+                    self.all_complete = true;
+                    self.completed_at = Some(Instant::now());
+                }
+            }
         }
         Ok(())
     }
@@ -880,6 +922,159 @@ impl App {
         self.tasks.iter().all(|t| {
             t.status == TaskStatus::Completed || t.status == TaskStatus::Failed
         })
+    }
+
+    /// Check if all build-phase tasks are done and transition to Verify phase.
+    /// Returns true if a phase transition occurred.
+    fn check_phase_transition(&mut self) -> bool {
+        match self.phase {
+            DashboardPhase::Build => {
+                // Build tasks: phase is None or Build
+                let build_tasks: Vec<&Task> = self
+                    .tasks
+                    .iter()
+                    .filter(|t| {
+                        t.phase.is_none() || t.phase == Some(TaskPhase::Build)
+                    })
+                    .collect();
+
+                if build_tasks.is_empty() {
+                    return false;
+                }
+
+                let all_build_done = build_tasks.iter().all(|t| {
+                    t.status == TaskStatus::Completed || t.status == TaskStatus::Failed
+                });
+
+                if all_build_done {
+                    self.phase = DashboardPhase::Verify;
+                    self.push_event("Phase 1 (BUILD) complete — transitioning to VERIFY");
+
+                    // Generate verify subtasks
+                    let task_mgr = TaskManager::new(&self.forge_dir);
+                    match task_mgr.generate_verify_subtasks() {
+                        Ok(generated) => {
+                            if generated.is_empty() {
+                                self.push_event("No verify subtasks needed");
+                            } else {
+                                self.push_event(&format!(
+                                    "Generated {} verify subtask(s)",
+                                    generated.len()
+                                ));
+                            }
+                        }
+                        Err(e) => {
+                            self.push_event(&format!("Failed to generate verify subtasks: {}", e));
+                        }
+                    }
+                    // Reload to include newly generated tasks
+                    self.reload_tasks().ok();
+                    return true;
+                }
+                false
+            }
+            DashboardPhase::Verify => {
+                // Verify/fix tasks: phase is Verify or Fix
+                let verify_fix_tasks: Vec<&Task> = self
+                    .tasks
+                    .iter()
+                    .filter(|t| {
+                        t.phase == Some(TaskPhase::Verify) || t.phase == Some(TaskPhase::Fix)
+                    })
+                    .collect();
+
+                if verify_fix_tasks.is_empty() {
+                    // No verify tasks were generated — go straight to Complete
+                    self.phase = DashboardPhase::Complete;
+                    self.push_event("Phase 2 (VERIFY) complete — no verify tasks found");
+                    return true;
+                }
+
+                let all_verify_done = verify_fix_tasks.iter().all(|t| {
+                    t.status == TaskStatus::Completed || t.status == TaskStatus::Failed
+                });
+
+                if all_verify_done {
+                    self.phase = DashboardPhase::Complete;
+                    self.push_event("Phase 2 (VERIFY) complete — all verification done");
+                    return true;
+                }
+                false
+            }
+            DashboardPhase::Complete => false,
+        }
+    }
+
+    /// When a verify task fails, generate fix + re-verify pair (up to 3 retries).
+    fn handle_verify_failure(&mut self, task: &Task) {
+        if task.phase != Some(TaskPhase::Verify) {
+            return;
+        }
+
+        if task.retry_count >= 3 {
+            self.push_event(&format!(
+                "{} failed after 3 retries — needs human attention",
+                task.id
+            ));
+            return;
+        }
+
+        let task_mgr = TaskManager::new(&self.forge_dir);
+
+        // Generate a fix subtask
+        let fix_num = match task_mgr.next_task_number() {
+            Ok(n) => n,
+            Err(_) => return,
+        };
+        let fix_id = format!("T-{fix_num:03}");
+        let mut fix_task = Task::new(
+            &fix_id,
+            format!("Fix: {} (retry {})", task.title.trim_start_matches("Verify: "), task.retry_count + 1),
+            format!(
+                "Fix failures from verify task {}.\nRetry attempt {}/3.\nOriginal verify: {}",
+                task.id,
+                task.retry_count + 1,
+                task.description
+            ),
+        );
+        fix_task.phase = Some(TaskPhase::Fix);
+        fix_task.task_type = Some("implement".to_string());
+        fix_task.parent_task = task.parent_task.clone();
+        fix_task.depends_on = vec![task.id.clone()];
+        fix_task.assigned_to = Some(AgentType::Claude);
+        fix_task.locked_files = task.locked_files.clone();
+
+        // Generate a re-verify subtask
+        let verify_num = match task_mgr.next_verify_number() {
+            Ok(n) => n,
+            Err(_) => return,
+        };
+        let re_verify_id = format!("V-{verify_num:03}");
+        let mut re_verify = Task::new(
+            &re_verify_id,
+            format!("Re-verify: {}", task.title.trim_start_matches("Verify: ").trim_start_matches("Re-verify: ")),
+            format!(
+                "Re-run verification after fix {}.\nRetry attempt {}/3.",
+                fix_id,
+                task.retry_count + 1
+            ),
+        );
+        re_verify.phase = Some(TaskPhase::Verify);
+        re_verify.task_type = Some("review".to_string());
+        re_verify.parent_task = task.parent_task.clone();
+        re_verify.depends_on = vec![fix_id.clone()];
+        re_verify.assigned_to = task.assigned_to.clone();
+        re_verify.locked_files = task.locked_files.clone();
+        re_verify.retry_count = task.retry_count + 1;
+
+        if task_mgr.create_task(&fix_task).is_ok()
+            && task_mgr.create_task(&re_verify).is_ok()
+        {
+            self.push_event(&format!(
+                "Auto-generated {} + {} to fix failures (retry {}/3)",
+                fix_id, re_verify_id, task.retry_count + 1
+            ));
+        }
     }
 
     fn spawn_task(&mut self, task: &Task, tx: &mpsc::UnboundedSender<AgentEvent>) {
@@ -1140,6 +1335,9 @@ mod tests {
             updated_at: chrono::Utc::now(),
             completed_at: None,
             plan_version: None,
+            parent_task: None,
+            phase: None,
+            retry_count: 0,
         }
     }
 
@@ -1814,10 +2012,11 @@ mod tests {
         let tasks_dir = forge_dir.join("tasks");
         std::fs::create_dir_all(&tasks_dir).unwrap();
 
-        // Create a completed task on disk
+        // Create a completed task on disk (document type — skipped by verify generation)
         let mut task = Task::new("T-001", "Done task", "It's done");
         task.status = TaskStatus::Completed;
         task.assigned_to = Some(AgentType::Claude);
+        task.task_type = Some("document".to_string());
         let json = serde_json::to_string_pretty(&task).unwrap();
         std::fs::write(tasks_dir.join("T-001.json"), json).unwrap();
 
@@ -1831,9 +2030,11 @@ mod tests {
         assert!(!app.all_complete);
 
         // Force reload so handle_tick updates
+        // With phase-aware completion: Build→Verify (no verify tasks)→Complete
         app.last_task_reload = Instant::now() - std::time::Duration::from_secs(3);
         app.handle_tick(&tx).unwrap();
 
+        assert_eq!(app.phase, DashboardPhase::Complete);
         assert!(app.all_complete);
         assert!(app.completed_at.is_some());
     }
@@ -1848,6 +2049,7 @@ mod tests {
         let mut task = Task::new("T-001", "Done task", "It's done");
         task.status = TaskStatus::Completed;
         task.assigned_to = Some(AgentType::Claude);
+        task.task_type = Some("document".to_string());
         let json = serde_json::to_string_pretty(&task).unwrap();
         std::fs::write(tasks_dir.join("T-001.json"), json).unwrap();
 
@@ -2078,5 +2280,180 @@ mod tests {
         // Calling spawn_shell would just return early due to shell_active check
         // so test that the output buffer is NOT cleared
         assert_eq!(app.shell_output.len(), 1);
+    }
+
+    // ── Part 2: Dashboard phase tests ────────────────────────────
+
+    #[test]
+    fn test_phase_starts_as_build() {
+        let (app, _rx, _tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        assert_eq!(app.phase, DashboardPhase::Build);
+    }
+
+    #[test]
+    fn test_phase_transitions_build_to_verify() {
+        let (mut app, _rx, _tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        // All build tasks completed → should transition to Verify
+        let mut t1 = make_task("T-001", TaskStatus::Completed, vec![]);
+        t1.phase = None; // build phase (None = build)
+        let mut t2 = make_task("T-002", TaskStatus::Completed, vec![]);
+        t2.phase = None;
+        app.tasks = vec![t1, t2];
+
+        assert!(app.check_phase_transition());
+        assert_eq!(app.phase, DashboardPhase::Verify);
+        assert!(app.events.iter().any(|e| e.contains("BUILD")));
+    }
+
+    #[test]
+    fn test_phase_does_not_transition_with_pending() {
+        let (mut app, _rx, _tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        let mut t1 = make_task("T-001", TaskStatus::Completed, vec![]);
+        t1.phase = None;
+        let mut t2 = make_task("T-002", TaskStatus::Pending, vec![]);
+        t2.phase = None;
+        app.tasks = vec![t1, t2];
+
+        assert!(!app.check_phase_transition());
+        assert_eq!(app.phase, DashboardPhase::Build);
+    }
+
+    #[test]
+    fn test_phase_transitions_verify_to_complete() {
+        let (mut app, _rx, _tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        app.phase = DashboardPhase::Verify;
+
+        let mut v1 = make_task("V-001", TaskStatus::Completed, vec![]);
+        v1.phase = Some(TaskPhase::Verify);
+        let mut v2 = make_task("V-002", TaskStatus::Completed, vec![]);
+        v2.phase = Some(TaskPhase::Verify);
+        // Include a build task (already done) — it shouldn't block verify completion
+        let t1 = make_task("T-001", TaskStatus::Completed, vec![]);
+        app.tasks = vec![t1, v1, v2];
+
+        assert!(app.check_phase_transition());
+        assert_eq!(app.phase, DashboardPhase::Complete);
+        assert!(app.events.iter().any(|e| e.contains("VERIFY")));
+    }
+
+    #[test]
+    fn test_verify_to_complete_with_no_verify_tasks() {
+        let (mut app, _rx, _tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        app.phase = DashboardPhase::Verify;
+        // No verify or fix tasks → should go straight to Complete
+        let t1 = make_task("T-001", TaskStatus::Completed, vec![]);
+        app.tasks = vec![t1];
+
+        assert!(app.check_phase_transition());
+        assert_eq!(app.phase, DashboardPhase::Complete);
+    }
+
+    #[test]
+    fn test_handle_verify_failure_generates_fix_pair() {
+        let tmp = tempfile::tempdir().unwrap();
+        let forge_dir = tmp.path().join(".forge");
+        let tasks_dir = forge_dir.join("tasks");
+        std::fs::create_dir_all(&tasks_dir).unwrap();
+
+        // Create a parent task
+        let mut parent = Task::new("T-001", "Auth module", "Implement auth");
+        parent.status = TaskStatus::Completed;
+        parent.task_type = Some("implement".to_string());
+        let json = serde_json::to_string_pretty(&parent).unwrap();
+        std::fs::write(tasks_dir.join("T-001.json"), &json).unwrap();
+        std::fs::write(tasks_dir.join("T-001.md"), "# T-001").unwrap();
+
+        // Create a failed verify task
+        let mut verify = Task::new("V-001", "Verify: Auth module", "Run tests");
+        verify.phase = Some(TaskPhase::Verify);
+        verify.parent_task = Some("T-001".to_string());
+        verify.retry_count = 0;
+        verify.status = TaskStatus::Failed;
+        verify.assigned_to = Some(AgentType::Codex);
+        let json = serde_json::to_string_pretty(&verify).unwrap();
+        std::fs::write(tasks_dir.join("V-001.json"), &json).unwrap();
+        std::fs::write(tasks_dir.join("V-001.md"), "# V-001").unwrap();
+
+        let (mut app, _rx, _tx) = App::new(
+            forge_dir.clone(),
+            tmp.path().to_path_buf(),
+            3,
+            false,
+        );
+        app.phase = DashboardPhase::Verify;
+
+        app.handle_verify_failure(&verify);
+
+        // Should have generated a fix task and a re-verify task
+        let task_mgr = TaskManager::new(&forge_dir);
+        let tasks = task_mgr.list_tasks().unwrap();
+
+        // Should have T-001, V-001, T-002 (fix), V-002 (re-verify)
+        assert_eq!(tasks.len(), 4);
+
+        let fix = tasks.iter().find(|t| t.id == "T-002").unwrap();
+        assert_eq!(fix.phase, Some(TaskPhase::Fix));
+        assert!(fix.title.contains("Fix:"));
+
+        let re_verify = tasks.iter().find(|t| t.id == "V-002").unwrap();
+        assert_eq!(re_verify.phase, Some(TaskPhase::Verify));
+        assert_eq!(re_verify.retry_count, 1);
+        assert_eq!(re_verify.depends_on, vec!["T-002".to_string()]);
+
+        assert!(app.events.iter().any(|e| e.contains("retry 1/3")));
+    }
+
+    #[test]
+    fn test_verify_failure_stops_after_3_retries() {
+        let (mut app, _rx, _tx) = App::new(
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp"),
+            3,
+            false,
+        );
+        app.phase = DashboardPhase::Verify;
+
+        let mut verify = Task::new("V-001", "Verify: Auth", "Run tests");
+        verify.phase = Some(TaskPhase::Verify);
+        verify.retry_count = 3; // Already at max
+        verify.status = TaskStatus::Failed;
+
+        app.handle_verify_failure(&verify);
+
+        assert!(app.events.iter().any(|e| e.contains("needs human attention")));
+        // No fix task should be generated — we can't easily test TaskManager
+        // without a real forge_dir, but the event message confirms the path
+    }
+
+    #[test]
+    fn test_dashboard_phase_display() {
+        assert_eq!(DashboardPhase::Build.to_string(), "BUILD");
+        assert_eq!(DashboardPhase::Verify.to_string(), "VERIFY");
+        assert_eq!(DashboardPhase::Complete.to_string(), "COMPLETE");
     }
 }

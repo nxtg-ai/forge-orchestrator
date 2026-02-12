@@ -105,15 +105,16 @@ pub fn execute(project_root: &Path, event_count: usize) -> anyhow::Result<()> {
         println!("    {} No tasks found. Run {} to create tasks.", "!".yellow(), "forge plan --generate".cyan());
     } else {
         println!(
-            "    {:<8} {:<12} {:<10} {:<10} {:<34} {}",
+            "    {:<8} {:<8} {:<12} {:<10} {:<10} {:<32} {}",
             "ID".dimmed(),
+            "Phase".dimmed(),
             "Status".dimmed(),
             "Agent".dimmed(),
             "Type".dimmed(),
             "Title".dimmed(),
             "Deps".dimmed(),
         );
-        println!("    {}", "─".repeat(90));
+        println!("    {}", "─".repeat(96));
 
         for task in &tasks {
             let status_str = match task.status {
@@ -138,7 +139,13 @@ pub fn execute(project_root: &Path, event_count: usize) -> anyhow::Result<()> {
 
             let type_str = task.task_type.as_deref().unwrap_or("-");
 
-            let title = truncate_title(&task.title, 32);
+            let title = truncate_title(&task.title, 30);
+
+            let phase_str = task
+                .phase
+                .as_ref()
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| "build".into());
 
             let deps = if task.depends_on.is_empty() {
                 "-".to_string()
@@ -156,9 +163,17 @@ pub fn execute(project_root: &Path, event_count: usize) -> anyhow::Result<()> {
                     .join(", ")
             };
 
+            // Indent subtasks (V-xxx, fix tasks with parent)
+            let id_display = if task.parent_task.is_some() {
+                format!(" {}", task.id).cyan().to_string()
+            } else {
+                task.id.cyan().to_string()
+            };
+
             println!(
-                "    {:<8} {:<12} {:<10} {:<10} {:<34} {}",
-                task.id.cyan(),
+                "    {:<8} {:<8} {:<12} {:<10} {:<10} {:<32} {}",
+                id_display,
+                phase_str.dimmed(),
                 status_str,
                 agent_str,
                 type_str.dimmed(),
@@ -272,6 +287,9 @@ mod tests {
             updated_at: now,
             completed_at: None,
             plan_version: None,
+            parent_task: None,
+            phase: None,
+            retry_count: 0,
         }
     }
 

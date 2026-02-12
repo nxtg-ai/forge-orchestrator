@@ -612,6 +612,9 @@ mod tests {
             updated_at: chrono::Utc::now(),
             completed_at: None,
             plan_version: None,
+            parent_task: None,
+            phase: None,
+            retry_count: 0,
         }
     }
 }

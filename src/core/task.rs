@@ -4,6 +4,24 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
+pub enum TaskPhase {
+    Build,
+    Verify,
+    Fix,
+}
+
+impl std::fmt::Display for TaskPhase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TaskPhase::Build => write!(f, "build"),
+            TaskPhase::Verify => write!(f, "verify"),
+            TaskPhase::Fix => write!(f, "fix"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
     Pending,
     Assigned,
@@ -65,6 +83,15 @@ pub struct Task {
     /// Which plan generation pass created this task.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan_version: Option<u32>,
+    /// Parent task ID for subtasks (e.g., V-002's parent is T-002)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_task: Option<String>,
+    /// Lifecycle phase: build, verify, fix
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<TaskPhase>,
+    /// Retry count for verify/fix loops (max 3 before flagging for human)
+    #[serde(default)]
+    pub retry_count: u32,
 }
 
 impl Task {
@@ -88,6 +115,9 @@ impl Task {
             updated_at: now,
             completed_at: None,
             plan_version: None,
+            parent_task: None,
+            phase: None,
+            retry_count: 0,
         }
     }
 
@@ -107,6 +137,8 @@ impl Task {
              **Status:** {status:?}\n\
              **Assigned to:** {agent}\n\
              **Type:** {task_type}\n\
+             **Phase:** {phase}\n\
+             **Parent:** {parent}\n\
              **Created:** {created}\n\
              **Updated:** {updated}\n\n\
              ## Description\n\n{description}\n\n\
@@ -122,6 +154,12 @@ impl Task {
                 .map(|a| a.to_string())
                 .unwrap_or_else(|| "unassigned".into()),
             task_type = self.task_type.as_deref().unwrap_or("—"),
+            phase = self
+                .phase
+                .as_ref()
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| "—".into()),
+            parent = self.parent_task.as_deref().unwrap_or("—"),
             created = self.created_at.format("%Y-%m-%d %H:%M UTC"),
             updated = self.updated_at.format("%Y-%m-%d %H:%M UTC"),
             description = self.description,
@@ -258,6 +296,85 @@ impl TaskManager {
         Ok(max_id + 1)
     }
 
+    /// Find the highest existing verify task ID number (V-NNN) and return the next one.
+    pub fn next_verify_number(&self) -> anyhow::Result<u32> {
+        let tasks_dir = self.forge_dir.join("tasks");
+        if !tasks_dir.exists() {
+            return Ok(1);
+        }
+        let mut max_id: u32 = 0;
+        for entry in std::fs::read_dir(&tasks_dir)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            if let Some(num_str) = name
+                .strip_prefix("V-")
+                .and_then(|s| s.strip_suffix(".json"))
+                && let Ok(num) = num_str.parse::<u32>()
+            {
+                max_id = max_id.max(num);
+            }
+        }
+        Ok(max_id + 1)
+    }
+
+    /// Generate verify subtasks for each completed implement/test task that lacks one.
+    pub fn generate_verify_subtasks(&self) -> anyhow::Result<Vec<Task>> {
+        let tasks = self.list_tasks()?;
+        let mut next_v = self.next_verify_number()?;
+        let mut generated = Vec::new();
+
+        for task in &tasks {
+            if task.status != TaskStatus::Completed {
+                continue;
+            }
+            let task_type = task.task_type.as_deref().unwrap_or("");
+            if !matches!(task_type, "implement" | "test" | "") {
+                continue;
+            }
+
+            // Skip if already has a verify subtask
+            let has_verify = tasks.iter().any(|t| {
+                t.parent_task.as_deref() == Some(&task.id)
+                    && t.phase == Some(TaskPhase::Verify)
+            });
+            if has_verify {
+                continue;
+            }
+
+            let verify_id = format!("V-{next_v:03}");
+            let mut verify_task = Task::new(
+                &verify_id,
+                format!("Verify: {}", task.title),
+                format!(
+                    "Run automated tests for task {}.\nReview changes and verify acceptance criteria.\nOriginal: {}\nCriteria:\n{}",
+                    task.id,
+                    task.description,
+                    task.acceptance_criteria
+                        .iter()
+                        .map(|c| format!("- {c}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                ),
+            );
+            verify_task.parent_task = Some(task.id.clone());
+            verify_task.phase = Some(TaskPhase::Verify);
+            verify_task.task_type = Some("review".to_string());
+            verify_task.depends_on = vec![task.id.clone()];
+            verify_task.locked_files = task.locked_files.clone();
+            verify_task.acceptance_criteria = task.acceptance_criteria.clone();
+            verify_task.assigned_to = Some(match task_type {
+                "document" => AgentType::Gemini,
+                "design" => AgentType::Claude,
+                _ => AgentType::Codex,
+            });
+
+            self.create_task(&verify_task)?;
+            generated.push(verify_task);
+            next_v += 1;
+        }
+        Ok(generated)
+    }
+
     pub fn get_next_available(&self) -> anyhow::Result<Option<Task>> {
         let completed = self.get_completed_task_ids()?;
         Ok(self
@@ -360,5 +477,123 @@ mod tests {
         // Verify T-002 exists with version 2
         let loaded_t2 = mgr.get_task("T-002").unwrap();
         assert_eq!(loaded_t2.plan_version, Some(2));
+    }
+
+    #[test]
+    fn test_task_phase_serialization_roundtrip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        let mut task = Task::new("V-001", "Verify auth", "desc");
+        task.phase = Some(TaskPhase::Verify);
+        task.parent_task = Some("T-001".to_string());
+        task.retry_count = 2;
+        mgr.create_task(&task).unwrap();
+
+        let loaded = mgr.get_task("V-001").unwrap();
+        assert_eq!(loaded.phase, Some(TaskPhase::Verify));
+        assert_eq!(loaded.parent_task, Some("T-001".to_string()));
+        assert_eq!(loaded.retry_count, 2);
+    }
+
+    #[test]
+    fn test_task_phase_display() {
+        assert_eq!(TaskPhase::Build.to_string(), "build");
+        assert_eq!(TaskPhase::Verify.to_string(), "verify");
+        assert_eq!(TaskPhase::Fix.to_string(), "fix");
+    }
+
+    #[test]
+    fn test_retry_count_defaults_to_zero() {
+        let task = Task::new("T-001", "Test", "desc");
+        assert_eq!(task.retry_count, 0);
+        assert!(task.parent_task.is_none());
+        assert!(task.phase.is_none());
+    }
+
+    #[test]
+    fn test_next_verify_number_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+        assert_eq!(mgr.next_verify_number().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_next_verify_number_with_existing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+        for i in [1, 3] {
+            let mut task = Task::new(format!("V-{i:03}"), "Verify", "desc");
+            task.phase = Some(TaskPhase::Verify);
+            mgr.create_task(&task).unwrap();
+        }
+        assert_eq!(mgr.next_verify_number().unwrap(), 4);
+    }
+
+    #[test]
+    fn test_generate_verify_subtasks_for_completed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        let mut task = Task::new("T-001", "Auth module", "Implement auth");
+        task.task_type = Some("implement".to_string());
+        task.status = TaskStatus::Completed;
+        mgr.create_task(&task).unwrap();
+
+        let generated = mgr.generate_verify_subtasks().unwrap();
+        assert_eq!(generated.len(), 1);
+        assert_eq!(generated[0].id, "V-001");
+        assert_eq!(generated[0].parent_task, Some("T-001".to_string()));
+        assert_eq!(generated[0].phase, Some(TaskPhase::Verify));
+        assert_eq!(generated[0].assigned_to, Some(AgentType::Codex));
+    }
+
+    #[test]
+    fn test_generate_verify_subtasks_idempotent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        let mut task = Task::new("T-001", "Auth module", "Implement auth");
+        task.task_type = Some("implement".to_string());
+        task.status = TaskStatus::Completed;
+        mgr.create_task(&task).unwrap();
+
+        // First call generates
+        let gen1 = mgr.generate_verify_subtasks().unwrap();
+        assert_eq!(gen1.len(), 1);
+
+        // Second call is idempotent
+        let gen2 = mgr.generate_verify_subtasks().unwrap();
+        assert_eq!(gen2.len(), 0);
+    }
+
+    #[test]
+    fn test_generate_verify_skips_non_implement() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        let mut task = Task::new("T-001", "Write docs", "docs");
+        task.task_type = Some("document".to_string());
+        task.status = TaskStatus::Completed;
+        mgr.create_task(&task).unwrap();
+
+        // "document" tasks should NOT get verify subtasks
+        let generated = mgr.generate_verify_subtasks().unwrap();
+        assert_eq!(generated.len(), 0);
+    }
+
+    #[test]
+    fn test_generate_verify_agent_assignment() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        // Default type → Codex
+        let mut t1 = Task::new("T-001", "Default task", "desc");
+        t1.task_type = Some("implement".to_string());
+        t1.status = TaskStatus::Completed;
+        mgr.create_task(&t1).unwrap();
+
+        let generated = mgr.generate_verify_subtasks().unwrap();
+        assert_eq!(generated[0].assigned_to, Some(AgentType::Codex));
     }
 }
