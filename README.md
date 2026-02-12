@@ -115,25 +115,25 @@ Restart Claude Code. Now Claude can call `forge_get_tasks()`, `forge_claim_task(
 You write SPEC.md
         │
         ▼
-┌──────────────────┐     ┌─────────────────┐
-│  forge plan      │────▶│  ForgeBrain      │  GPT-4.1 decomposes spec
-│  --generate      │     │  (pluggable LLM) │  into tasks with deps
-└──────────────────┘     └─────────────────┘
+┌──────────────────┐      ┌─────────────────┐
+│  forge plan      │────▶│  ForgeBrain     │  GPT-4.1 decomposes spec
+│  --generate      │      │ (pluggable LLM) │  into tasks with deps
+└──────────────────┘      └─────────────────┘
         │
         ▼
-┌──────────────────┐     ┌─────────────────┐
-│  forge dashboard │────▶│  Adapters        │  Claude, Codex, Gemini
-│  (TUI) or        │     │  (tool-specific) │  run in parallel with
-│  forge run       │     │                  │  dependency scheduling
-│  (headless)      │     │                  │  + rate limit backoff
-└──────────────────┘     └─────────────────┘
+┌──────────────────┐      ┌─────────────────┐
+│  forge dashboard │────▶│  Adapters       │  Claude, Codex, Gemini
+│  (TUI) or        │      │ (tool-specific) │  run in parallel with
+│  forge run       │      │                 │  dependency scheduling
+│  (headless)      │      │                 │  + rate limit backoff
+└──────────────────┘      └─────────────────┘
         │
         ▼
-┌──────────────────┐     ┌─────────────────┐
-│  Auto-commit per │◀───▶│  .forge/         │  File-based state
-│  task + status   │     │  state.json      │  MCP live queries
-│  forge mcp       │     │  tasks/ events/  │  Knowledge flywheel
-└──────────────────┘     └─────────────────┘
+┌──────────────────┐      ┌─────────────────┐
+│  Auto-commit per │◀───▶│  .forge/        │  File-based state
+│  task + status   │      │  state.json     │  MCP live queries
+│  forge mcp       │      │  tasks/ events/ │  Knowledge flywheel
+└──────────────────┘      └─────────────────┘
 ```
 
 ## CLI Commands
@@ -442,3 +442,4 @@ Built by [NXTG](https://github.com/nxtg-ai) with Claude Opus 4.6
 **Star this repo if your AI tools deserve a tech lead.**
 
 </div>
+
