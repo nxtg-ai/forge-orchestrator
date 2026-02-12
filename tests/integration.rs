@@ -79,7 +79,7 @@ fn test_status_after_init_shows_dashboard() {
         .success()
         .stdout(predicate::str::contains("FORGE ORCHESTRATOR STATUS"))
         .stdout(predicate::str::contains("StatusTest"))
-        .stdout(predicate::str::contains("Total: 0"));
+        .stdout(predicate::str::contains("0 total"));
 }
 
 #[test]
@@ -272,8 +272,8 @@ fn test_full_loop_init_plan_sync_status() {
         .args(["--project", dir.path().to_str().unwrap(), "status"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Total: 2"))
-        .stdout(predicate::str::contains("Pending: 2"));
+        .stdout(predicate::str::contains("2 total"))
+        .stdout(predicate::str::contains("2 ready"));
 
     // Step 6: Verify plan is readable
     forge_cmd()

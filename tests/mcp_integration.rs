@@ -190,7 +190,7 @@ fn test_mcp_claim_and_complete_flow() {
         .args(["--project", dir.path().to_str().unwrap(), "status"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Done: 1"));
+        .stdout(predicate::str::contains("1 done"));
 }
 
 #[test]
