@@ -135,6 +135,8 @@ pub struct App {
     pub agent_backoff: HashMap<AgentType, BackoffState>,
     /// Throttle: last time we reloaded task JSONs from disk.
     pub last_task_reload: Instant,
+    /// Project name from .forge/state.json for display in header.
+    pub project_name: String,
     /// User shell process active (replaces Summary pane when true).
     pub shell_active: bool,
     /// Output buffer for the user shell.
@@ -156,6 +158,14 @@ impl App {
         agent_outputs.insert(AgentType::Claude, VecDeque::new());
         agent_outputs.insert(AgentType::Codex, VecDeque::new());
         agent_outputs.insert(AgentType::Gemini, VecDeque::new());
+
+        let project_name = {
+            let state_mgr = StateManager::new(&forge_dir);
+            state_mgr
+                .load()
+                .map(|s| s.project_name.clone())
+                .unwrap_or_default()
+        };
 
         let app = Self {
             forge_dir,
@@ -180,6 +190,7 @@ impl App {
             expanded_pane: None,
             agent_backoff: HashMap::new(),
             last_task_reload: Instant::now(),
+            project_name,
             shell_active: false,
             shell_output: VecDeque::new(),
             shell_input_tx: None,
@@ -1129,7 +1140,15 @@ impl App {
                     let tx_out = tx.clone();
                     let tid = task_id.clone();
                     let ag = agent.clone();
-                    tokio::spawn(stream_lines(stdout, tid, ag, tx_out));
+                    // Use JSON parser for Claude (stream-json output), plain lines for others
+                    match agent {
+                        AgentType::Claude | AgentType::Any => {
+                            tokio::spawn(stream_claude_json(stdout, tid, ag, tx_out));
+                        }
+                        _ => {
+                            tokio::spawn(stream_lines(stdout, tid, ag, tx_out));
+                        }
+                    }
                 }
 
                 if let Some(stderr) = child.stderr.take() {
@@ -1313,6 +1332,154 @@ async fn stream_lines(
         {
             break;
         }
+    }
+}
+
+/// Parse Claude's stream-json NDJSON output into human-readable lines for TUI display.
+async fn stream_claude_json(
+    reader: impl tokio::io::AsyncRead + Unpin,
+    task_id: String,
+    agent: AgentType,
+    tx: mpsc::UnboundedSender<AgentEvent>,
+) {
+    let mut lines = tokio::io::BufReader::new(reader).lines();
+    while let Ok(Some(line)) = lines.next_line().await {
+        let display_lines = parse_stream_json_line(&line);
+        for display_line in display_lines {
+            if tx
+                .send(AgentEvent::Output {
+                    task_id: task_id.clone(),
+                    agent: agent.clone(),
+                    line: display_line,
+                })
+                .is_err()
+            {
+                return;
+            }
+        }
+    }
+}
+
+/// Parse a single NDJSON line from Claude's stream-json output.
+/// Returns zero or more human-readable display lines.
+fn parse_stream_json_line(line: &str) -> Vec<String> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+        // Not valid JSON — show raw line as fallback
+        return if line.trim().is_empty() {
+            vec![]
+        } else {
+            vec![line.to_string()]
+        };
+    };
+
+    let event_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+    match event_type {
+        "init" => {
+            vec!["[session started]".to_string()]
+        }
+        "message" => {
+            let mut result = Vec::new();
+            if let Some(content) = value.get("content").and_then(|c| c.as_array()) {
+                for item in content {
+                    let item_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                    match item_type {
+                        "text" => {
+                            if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
+                                for text_line in text.lines() {
+                                    let trimmed = text_line.trim();
+                                    if !trimmed.is_empty() {
+                                        result.push(trimmed.to_string());
+                                    }
+                                }
+                            }
+                        }
+                        "tool_use" => {
+                            let name =
+                                item.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+                            let input_summary =
+                                summarize_tool_input(name, item.get("input"));
+                            result.push(format!("[{}] {}", name, input_summary));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            result
+        }
+        "result" => {
+            let status = value
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let duration = value.get("duration_ms").and_then(|v| v.as_u64());
+            match duration {
+                Some(ms) => vec![format!("[done] {} in {:.1}s", status, ms as f64 / 1000.0)],
+                None => vec![format!("[done] {}", status)],
+            }
+        }
+        // Skip tool_result (too verbose) and unknown types
+        _ => vec![],
+    }
+}
+
+/// Extract a short summary from tool input for display.
+fn summarize_tool_input(tool_name: &str, input: Option<&serde_json::Value>) -> String {
+    let Some(input) = input else {
+        return String::new();
+    };
+
+    match tool_name {
+        "Read" | "Edit" | "Write" => input
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        "Bash" => {
+            let cmd = input
+                .get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            truncate_str(cmd, 60)
+        }
+        "Glob" => input
+            .get("pattern")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        "Grep" => {
+            let pattern = input
+                .get("pattern")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            truncate_str(pattern, 40)
+        }
+        "Task" => {
+            let desc = input
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("subagent");
+            truncate_str(desc, 50)
+        }
+        _ => {
+            // Generic: show first string value found
+            if let Some(obj) = input.as_object() {
+                for (_key, val) in obj.iter().take(1) {
+                    if let Some(s) = val.as_str() {
+                        return truncate_str(s, 50);
+                    }
+                }
+            }
+            String::new()
+        }
+    }
+}
+
+fn truncate_str(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max.saturating_sub(3)])
     }
 }
 
@@ -2455,5 +2622,89 @@ mod tests {
         assert_eq!(DashboardPhase::Build.to_string(), "BUILD");
         assert_eq!(DashboardPhase::Verify.to_string(), "VERIFY");
         assert_eq!(DashboardPhase::Complete.to_string(), "COMPLETE");
+    }
+
+    // ── DX-029: Stream-JSON parser tests ─────────────────────────
+
+    #[test]
+    fn test_parse_stream_json_init() {
+        let lines = parse_stream_json_line(r#"{"type":"init","session_id":"abc"}"#);
+        assert_eq!(lines, vec!["[session started]"]);
+    }
+
+    #[test]
+    fn test_parse_stream_json_text_message() {
+        let lines = parse_stream_json_line(
+            r#"{"type":"message","role":"assistant","content":[{"type":"text","text":"Hello world"}]}"#,
+        );
+        assert_eq!(lines, vec!["Hello world"]);
+    }
+
+    #[test]
+    fn test_parse_stream_json_tool_use() {
+        let lines = parse_stream_json_line(
+            r#"{"type":"message","content":[{"type":"tool_use","name":"Read","input":{"file_path":"src/main.rs"}}]}"#,
+        );
+        assert_eq!(lines, vec!["[Read] src/main.rs"]);
+    }
+
+    #[test]
+    fn test_parse_stream_json_tool_use_bash() {
+        let lines = parse_stream_json_line(
+            r#"{"type":"message","content":[{"type":"tool_use","name":"Bash","input":{"command":"npm test"}}]}"#,
+        );
+        assert_eq!(lines, vec!["[Bash] npm test"]);
+    }
+
+    #[test]
+    fn test_parse_stream_json_result() {
+        let lines = parse_stream_json_line(
+            r#"{"type":"result","status":"success","duration_ms":45000}"#,
+        );
+        assert_eq!(lines, vec!["[done] success in 45.0s"]);
+    }
+
+    #[test]
+    fn test_parse_stream_json_tool_result_skipped() {
+        let lines =
+            parse_stream_json_line(r#"{"type":"tool_result","output":"lots of stuff"}"#);
+        assert!(lines.is_empty());
+    }
+
+    #[test]
+    fn test_parse_stream_json_invalid_json_fallback() {
+        let lines = parse_stream_json_line("not json at all");
+        assert_eq!(lines, vec!["not json at all"]);
+    }
+
+    #[test]
+    fn test_parse_stream_json_empty_line() {
+        let lines = parse_stream_json_line("");
+        assert!(lines.is_empty());
+    }
+
+    #[test]
+    fn test_summarize_tool_input_read() {
+        let input: serde_json::Value = serde_json::json!({"file_path": "src/main.rs"});
+        assert_eq!(summarize_tool_input("Read", Some(&input)), "src/main.rs");
+    }
+
+    #[test]
+    fn test_summarize_tool_input_bash_truncate() {
+        let long_cmd = "a".repeat(100);
+        let input: serde_json::Value = serde_json::json!({"command": long_cmd});
+        let result = summarize_tool_input("Bash", Some(&input));
+        assert!(result.len() <= 63); // 60 + "..."
+        assert!(result.ends_with("..."));
+    }
+
+    #[test]
+    fn test_truncate_str_short() {
+        assert_eq!(truncate_str("hello", 10), "hello");
+    }
+
+    #[test]
+    fn test_truncate_str_long() {
+        assert_eq!(truncate_str("hello world this is long", 10), "hello w...");
     }
 }

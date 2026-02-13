@@ -60,10 +60,17 @@ fn render_task_board(f: &mut Frame, app: &App, area: Rect) {
 
     // Phase-aware title with progress counts
     let (phase_done, phase_total) = phase_progress(app);
-    let title = format!(
-        " FORGE DASHBOARD \u{2014} {} ({}/{}) ",
-        app.phase, phase_done, phase_total
-    );
+    let title = if app.project_name.is_empty() {
+        format!(
+            " FORGE DASHBOARD \u{2014} {} ({}/{}) ",
+            app.phase, phase_done, phase_total
+        )
+    } else {
+        format!(
+            " FORGE DASHBOARD \u{2014} {} \u{2014} {} ({}/{}) ",
+            app.project_name, app.phase, phase_done, phase_total
+        )
+    };
 
     let header = Row::new(vec![
         Cell::from("ID").style(Style::default().add_modifier(Modifier::BOLD)),
