@@ -2,7 +2,15 @@
 
 > From live dogfood sessions on voice-jib-jab project (2026-02-10/11).
 
-## Open Items (2 remaining — vision/future)
+## Open Items (3 remaining)
+
+### DX-032: Standalone UAT TUI
+- **Priority:** HIGH (v1.x)
+- **Where:** New `src/tui/uat_app.rs` + `src/tui/uat_ui.rs`
+- **Problem:** `forge uat` dumps ALL acceptance criteria from ALL completed tasks (including V-xxx duplicates) as an unreadable wall, then shows a bare `>` prompt. Unusable on real projects (100+ criteria on voice-jib-jab).
+- **Solution:** Replace CLI REPL with a ratatui-based TUI: task selector (filters out V-xxx), focused criteria view per task, finding capture with auto-classification, pass/fail marking. Plus inline mode: `forge uat "description"` for quick one-shot capture.
+- **Status:** Assignment written (NEXT-ASSIGNMENT.md), ready for Claudio.
+- **Vision:** Near-term CLI/TUI capture. Medium-term: forge-ui command center becomes the UAT surface for web apps (split-pane testing). Long-term: forge-extension (browser co-pilot with visual evidence capture).
 
 ### DX-024: Forge Stargate — Embedded Interactive Agent TUIs
 - **Priority:** VISION (v2.0)
@@ -22,7 +30,7 @@
   - **Tier 3:** `forge config git.strategy single|worktree|branch` — user picks strategy
 - **See full spec in git history (DX-028 original description)**
 
-## Completed Items (29 of 31)
+## Completed Items (32 of 35)
 
 | DX | Description | Version |
 |----|-------------|---------|
@@ -46,6 +54,9 @@
 | DX-026 | Priority key handling (no lag under load) | v1.0.0 |
 | DX-027 | User-spawnable shell panes | v1.0.0 |
 | DX-028 | Git auto-commit per task (Tier 1) | v1.0.0 |
+| DX-029 | Live agent streaming (stream-json + NDJSON parser) | v1.1.0 |
+| DX-030 | Project name in dashboard header | v1.1.0 |
+| DX-031 | Freeze completion timer on `all_complete` | v1.1.0 |
 
 ## Config Features (Already Shipped)
 

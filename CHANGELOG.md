@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-02-13
+
+### The UAT Commander
+
+Forge 1.2 replaces the bare-bones `forge uat` REPL with a full ratatui TUI for human acceptance testing, adds live agent streaming to the dashboard, and fixes a UTF-8 crash.
+
+### Added
+- **DX-032: Standalone UAT TUI** — `forge uat` now launches a dedicated ratatui interface with task selector (filters out V-xxx verify subtasks), focused acceptance criteria view per task, finding capture with auto-classification, and pass/fail marking via keyboard shortcuts
+- **DX-032: Inline UAT capture** — `forge uat "description"` one-shot mode captures a finding without opening the TUI
+- **DX-029: Live agent streaming** — Claude adapter switched from `--output-format text` (buffered) to `stream-json` (real-time NDJSON). Dashboard agent panes now show live activity: `[Read] src/main.rs`, `[Bash] npm test`, `[Edit] src/foo.ts`
+- **DX-030: Project name in dashboard header** — title now shows `FORGE DASHBOARD — voice-jib-jab — BUILD (12/17)` instead of generic header
+- **DX-031: Freeze completion timer** — elapsed time stops counting when all tasks complete (was ticking forever)
+
+### Fixed
+- **UTF-8 truncation panic** — all 3 `truncate` functions (status.rs, plan.rs, app.rs) crashed on multi-byte characters like em dash. Fixed with `.chars().count()` + `.chars().take(n)` instead of byte slicing
+
+### Changed
+- 200 tests passing (178 unit + 10 CLI + 12 MCP), up from 179
+- New files: `src/tui/uat_app.rs`, `src/tui/uat_ui.rs`
+
 ## [1.1.0] - 2026-02-11
 
 ### The Verifier
@@ -176,7 +196,8 @@ Forge 1.0 is the first release where you can type `forge init && forge plan --ge
 - Animated SVG banner for README
 - 51 tests (30 unit + 9 CLI + 12 MCP integration)
 
-[Unreleased]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.3.0...v1.0.0
 [0.3.0]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.2.2...v0.3.0

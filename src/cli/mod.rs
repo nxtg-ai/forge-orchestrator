@@ -111,7 +111,11 @@ pub enum Commands {
     Verify,
 
     /// Interactive UAT — describe issues naturally, capture findings
-    Uat,
+    Uat {
+        /// Quick capture: describe a finding inline without opening TUI
+        #[arg()]
+        finding: Option<String>,
+    },
 
     /// Get or set configuration values
     Config {

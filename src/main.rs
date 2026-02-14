@@ -69,8 +69,8 @@ async fn main() -> anyhow::Result<()> {
         Commands::Verify => {
             cli::verify::execute(&project_root)?;
         }
-        Commands::Uat => {
-            cli::uat::execute(&project_root)?;
+        Commands::Uat { finding } => {
+            cli::uat::execute(&project_root, finding)?;
         }
         Commands::Sync => {
             cli::sync::execute(&project_root)?;
