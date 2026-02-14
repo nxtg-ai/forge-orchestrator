@@ -256,10 +256,13 @@ pub fn execute(project_root: &Path, event_count: usize) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Truncate a title to fit in the task board column (max 32 chars).
+/// Truncate a title to fit in the task board column (max chars).
+/// Uses char boundaries to avoid panicking on multi-byte UTF-8 (e.g. em dash '—').
 fn truncate_title(title: &str, max_len: usize) -> String {
-    if title.len() > max_len {
-        format!("{}...", &title[..max_len.saturating_sub(3)])
+    let char_count: usize = title.chars().count();
+    if char_count > max_len {
+        let truncated: String = title.chars().take(max_len.saturating_sub(3)).collect();
+        format!("{truncated}...")
     } else {
         title.to_string()
     }

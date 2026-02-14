@@ -591,10 +591,11 @@ fn find_spec_by_glob(project_root: &Path) -> Option<std::path::PathBuf> {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
+    if s.chars().count() <= max {
         s.to_string()
     } else {
-        format!("{}...", &s[..max - 3])
+        let truncated: String = s.chars().take(max.saturating_sub(3)).collect();
+        format!("{truncated}...")
     }
 }
 

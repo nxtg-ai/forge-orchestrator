@@ -1476,10 +1476,11 @@ fn summarize_tool_input(tool_name: &str, input: Option<&serde_json::Value>) -> S
 }
 
 fn truncate_str(s: &str, max: usize) -> String {
-    if s.len() <= max {
+    if s.chars().count() <= max {
         s.to_string()
     } else {
-        format!("{}...", &s[..max.saturating_sub(3)])
+        let truncated: String = s.chars().take(max.saturating_sub(3)).collect();
+        format!("{truncated}...")
     }
 }
 
