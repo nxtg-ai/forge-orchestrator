@@ -1,24 +1,26 @@
 use crate::core::event::EventLogger;
 use crate::tui::app::App;
-use crate::tui::event::{spawn_event_listener, TuiEvent};
+use crate::tui::event::{TuiEvent, spawn_event_listener};
 use crate::tui::ui;
 use crossterm::event::KeyEventKind;
 use crossterm::execute;
 use crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
 use std::io::stdout;
 use std::path::Path;
 
-pub async fn execute(project_root: &Path, parallel_limit: usize, watch_mode: bool) -> anyhow::Result<()> {
+pub async fn execute(
+    project_root: &Path,
+    parallel_limit: usize,
+    watch_mode: bool,
+) -> anyhow::Result<()> {
     let forge_dir = project_root.join(".forge");
 
     if !forge_dir.exists() {
-        anyhow::bail!(
-            "Forge is not initialized. Run `forge init` first."
-        );
+        anyhow::bail!("Forge is not initialized. Run `forge init` first.");
     }
 
     // Install a panic hook that restores the terminal before printing the panic

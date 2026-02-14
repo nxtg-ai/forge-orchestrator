@@ -1,7 +1,7 @@
 use crate::adapters::claude::ClaudeAdapter;
 use crate::adapters::codex::CodexAdapter;
 use crate::adapters::gemini::GeminiAdapter;
-use crate::adapters::{execute_command_async, ToolAdapter};
+use crate::adapters::{ToolAdapter, execute_command_async};
 use crate::core::event::{EventLogger, EventType, ForgeEvent};
 use crate::core::state::StateManager;
 use crate::core::task::{AgentType, Task, TaskManager, TaskStatus};
@@ -191,10 +191,7 @@ fn build_adapter_command(
 /// Run git auto-commit for a completed task (headless mode).
 fn git_auto_commit_headless(forge_dir: &Path, project_root: &Path, task: &Task, agent: &AgentType) {
     let state_mgr = StateManager::new(forge_dir);
-    let enabled = state_mgr
-        .load()
-        .map(|s| s.git.auto_commit)
-        .unwrap_or(true);
+    let enabled = state_mgr.load().map(|s| s.git.auto_commit).unwrap_or(true);
 
     if !enabled || !project_root.join(".git").exists() {
         return;
@@ -447,12 +444,7 @@ pub async fn execute_all(
                                 );
                             } else {
                                 updated.status = TaskStatus::Failed;
-                                println!(
-                                    "  {} {} failed (exit {})",
-                                    "✗".red(),
-                                    tid,
-                                    exit_code
-                                );
+                                println!("  {} {} failed (exit {})", "✗".red(), tid, exit_code);
                             }
                             updated.updated_at = chrono::Utc::now();
                             task_mgr.update_task(&updated).ok();
@@ -540,7 +532,10 @@ mod tests {
             "safe",
         );
         let prog = cmd.get_program().to_str().unwrap_or("");
-        assert!(prog.contains("claude"), "expected claude in program: {prog}");
+        assert!(
+            prog.contains("claude"),
+            "expected claude in program: {prog}"
+        );
     }
 
     #[test]
@@ -569,13 +564,7 @@ mod tests {
     #[test]
     fn test_build_adapter_command_codex() {
         let task = make_test_task("T-001");
-        let cmd = build_adapter_command(
-            &task,
-            Path::new("/tmp"),
-            &AgentType::Codex,
-            "api",
-            "yolo",
-        );
+        let cmd = build_adapter_command(&task, Path::new("/tmp"), &AgentType::Codex, "api", "yolo");
         let prog = cmd.get_program().to_str().unwrap_or("");
         assert!(prog.contains("codex"), "expected codex in program: {prog}");
     }

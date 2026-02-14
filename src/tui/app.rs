@@ -1,7 +1,7 @@
+use crate::adapters::ToolAdapter;
 use crate::adapters::claude::ClaudeAdapter;
 use crate::adapters::codex::CodexAdapter;
 use crate::adapters::gemini::GeminiAdapter;
-use crate::adapters::ToolAdapter;
 use crate::core::event::{EventLogger, EventType, ForgeEvent};
 use crate::core::state::StateManager;
 use crate::core::task::{AgentType, Task, TaskManager, TaskPhase, TaskStatus};
@@ -151,7 +151,11 @@ impl App {
         project_root: PathBuf,
         parallel_limit: usize,
         watch_mode: bool,
-    ) -> (Self, mpsc::UnboundedReceiver<AgentEvent>, mpsc::UnboundedSender<AgentEvent>) {
+    ) -> (
+        Self,
+        mpsc::UnboundedReceiver<AgentEvent>,
+        mpsc::UnboundedSender<AgentEvent>,
+    ) {
         let (tx, rx) = mpsc::unbounded_channel();
 
         let mut agent_outputs = HashMap::new();
@@ -211,7 +215,9 @@ impl App {
             return;
         }
 
-        let slots = self.parallel_limit.saturating_sub(self.running_task_ids.len());
+        let slots = self
+            .parallel_limit
+            .saturating_sub(self.running_task_ids.len());
         if slots == 0 {
             return;
         }
@@ -260,13 +266,8 @@ impl App {
                 }
                 return Ok(());
             }
-            AgentEvent::Output {
-                agent, line, ..
-            } => {
-                let buf = self
-                    .agent_outputs
-                    .entry(agent.clone())
-                    .or_default();
+            AgentEvent::Output { agent, line, .. } => {
+                let buf = self.agent_outputs.entry(agent.clone()).or_default();
                 if buf.len() >= OUTPUT_BUFFER_CAP {
                     buf.pop_front();
                 }
@@ -283,9 +284,7 @@ impl App {
                     self.pane_scroll[idx] = self.pane_scroll[idx].saturating_sub(1);
                 }
             }
-            AgentEvent::Completed {
-                ref task_id, ..
-            } if task_id == "__shell__" => {
+            AgentEvent::Completed { ref task_id, .. } if task_id == "__shell__" => {
                 self.shell_active = false;
                 self.shell_input_tx = None;
                 self.push_event("User shell closed");
@@ -319,10 +318,8 @@ impl App {
                         // DX-028: Auto-commit after task completion
                         self.git_auto_commit(&updated, &agent);
 
-                        let event_msg = format!(
-                            "{} completed by {} (exit {})",
-                            task_id, agent, exit_code
-                        );
+                        let event_msg =
+                            format!("{} completed by {} (exit {})", task_id, agent, exit_code);
                         self.push_event(&event_msg);
                         event_logger
                             .log(
@@ -334,21 +331,18 @@ impl App {
                     }
                 } else {
                     // Check if failure is due to rate limiting
-                    let rate_limited = self
-                        .agent_outputs
-                        .get(&agent)
-                        .is_some_and(is_rate_limited);
+                    let rate_limited = self.agent_outputs.get(&agent).is_some_and(is_rate_limited);
 
                     if rate_limited {
                         let attempt = {
-                            let backoff = self
-                                .agent_backoff
-                                .entry(agent.clone())
-                                .or_insert(BackoffState {
-                                    attempt: 0,
-                                    next_retry: None,
-                                    task_id: String::new(),
-                                });
+                            let backoff =
+                                self.agent_backoff
+                                    .entry(agent.clone())
+                                    .or_insert(BackoffState {
+                                        attempt: 0,
+                                        next_retry: None,
+                                        task_id: String::new(),
+                                    });
                             backoff.attempt += 1;
                             backoff.attempt
                         };
@@ -419,10 +413,8 @@ impl App {
                             None
                         };
 
-                        let event_msg = format!(
-                            "{} failed by {} (exit {})",
-                            task_id, agent, exit_code
-                        );
+                        let event_msg =
+                            format!("{} failed by {} (exit {})", task_id, agent, exit_code);
                         self.push_event(&event_msg);
                         event_logger
                             .log(
@@ -619,7 +611,9 @@ impl App {
                 }
             }
             KeyCode::Char('s') | KeyCode::Char('+') => {
-                if self.focus == FocusArea::TaskBoard || matches!(self.focus, FocusArea::Pane(0..=2)) {
+                if self.focus == FocusArea::TaskBoard
+                    || matches!(self.focus, FocusArea::Pane(0..=2))
+                {
                     if !self.shell_active {
                         self.spawn_shell(tx);
                     }
@@ -663,11 +657,7 @@ impl App {
     /// Get the number of lines in a pane's buffer.
     pub fn pane_buffer_len(&self, idx: usize) -> usize {
         match pane_agent(idx) {
-            Some(agent) => self
-                .agent_outputs
-                .get(&agent)
-                .map(|b| b.len())
-                .unwrap_or(0),
+            Some(agent) => self.agent_outputs.get(&agent).map(|b| b.len()).unwrap_or(0),
             None => 0, // Summary pane has no scrollable buffer
         }
     }
@@ -705,7 +695,10 @@ impl App {
     }
 
     /// Handle a tick event: throttled task reload, backoff checks, completion detection.
-    pub fn handle_tick(&mut self, agent_tx: &mpsc::UnboundedSender<AgentEvent>) -> anyhow::Result<()> {
+    pub fn handle_tick(
+        &mut self,
+        agent_tx: &mpsc::UnboundedSender<AgentEvent>,
+    ) -> anyhow::Result<()> {
         if self.last_task_reload.elapsed() > std::time::Duration::from_secs(2) {
             self.reload_tasks()?;
             self.last_task_reload = Instant::now();
@@ -769,8 +762,7 @@ impl App {
                 if let Some(stdout) = child.stdout.take() {
                     let tx_out = tx.clone();
                     tokio::spawn(async move {
-                        let mut lines =
-                            tokio::io::BufReader::new(stdout).lines();
+                        let mut lines = tokio::io::BufReader::new(stdout).lines();
                         while let Ok(Some(line)) = lines.next_line().await {
                             if tx_out
                                 .send(AgentEvent::Output {
@@ -789,8 +781,7 @@ impl App {
                 if let Some(stderr) = child.stderr.take() {
                     let tx_err = tx.clone();
                     tokio::spawn(async move {
-                        let mut lines =
-                            tokio::io::BufReader::new(stderr).lines();
+                        let mut lines = tokio::io::BufReader::new(stderr).lines();
                         while let Ok(Some(line)) = lines.next_line().await {
                             if tx_err
                                 .send(AgentEvent::Output {
@@ -831,10 +822,7 @@ impl App {
     /// Auto-commit working tree changes after a task completes successfully.
     fn git_auto_commit(&mut self, task: &Task, agent: &AgentType) {
         let state_mgr = StateManager::new(&self.forge_dir);
-        let enabled = state_mgr
-            .load()
-            .map(|s| s.git.auto_commit)
-            .unwrap_or(true);
+        let enabled = state_mgr.load().map(|s| s.git.auto_commit).unwrap_or(true);
 
         if !enabled {
             return;
@@ -930,9 +918,9 @@ impl App {
     }
 
     pub fn is_all_done(&self) -> bool {
-        self.tasks.iter().all(|t| {
-            t.status == TaskStatus::Completed || t.status == TaskStatus::Failed
-        })
+        self.tasks
+            .iter()
+            .all(|t| t.status == TaskStatus::Completed || t.status == TaskStatus::Failed)
     }
 
     /// Check if all build-phase tasks are done and transition to Verify phase.
@@ -944,18 +932,16 @@ impl App {
                 let build_tasks: Vec<&Task> = self
                     .tasks
                     .iter()
-                    .filter(|t| {
-                        t.phase.is_none() || t.phase == Some(TaskPhase::Build)
-                    })
+                    .filter(|t| t.phase.is_none() || t.phase == Some(TaskPhase::Build))
                     .collect();
 
                 if build_tasks.is_empty() {
                     return false;
                 }
 
-                let all_build_done = build_tasks.iter().all(|t| {
-                    t.status == TaskStatus::Completed || t.status == TaskStatus::Failed
-                });
+                let all_build_done = build_tasks
+                    .iter()
+                    .all(|t| t.status == TaskStatus::Completed || t.status == TaskStatus::Failed);
 
                 if all_build_done {
                     self.phase = DashboardPhase::Verify;
@@ -1001,9 +987,9 @@ impl App {
                     return true;
                 }
 
-                let all_verify_done = verify_fix_tasks.iter().all(|t| {
-                    t.status == TaskStatus::Completed || t.status == TaskStatus::Failed
-                });
+                let all_verify_done = verify_fix_tasks
+                    .iter()
+                    .all(|t| t.status == TaskStatus::Completed || t.status == TaskStatus::Failed);
 
                 if all_verify_done {
                     self.phase = DashboardPhase::Complete;
@@ -1040,7 +1026,11 @@ impl App {
         let fix_id = format!("T-{fix_num:03}");
         let mut fix_task = Task::new(
             &fix_id,
-            format!("Fix: {} (retry {})", task.title.trim_start_matches("Verify: "), task.retry_count + 1),
+            format!(
+                "Fix: {} (retry {})",
+                task.title.trim_start_matches("Verify: "),
+                task.retry_count + 1
+            ),
             format!(
                 "Fix failures from verify task {}.\nRetry attempt {}/3.\nOriginal verify: {}",
                 task.id,
@@ -1063,7 +1053,12 @@ impl App {
         let re_verify_id = format!("V-{verify_num:03}");
         let mut re_verify = Task::new(
             &re_verify_id,
-            format!("Re-verify: {}", task.title.trim_start_matches("Verify: ").trim_start_matches("Re-verify: ")),
+            format!(
+                "Re-verify: {}",
+                task.title
+                    .trim_start_matches("Verify: ")
+                    .trim_start_matches("Re-verify: ")
+            ),
             format!(
                 "Re-run verification after fix {}.\nRetry attempt {}/3.",
                 fix_id,
@@ -1078,21 +1073,18 @@ impl App {
         re_verify.locked_files = task.locked_files.clone();
         re_verify.retry_count = task.retry_count + 1;
 
-        if task_mgr.create_task(&fix_task).is_ok()
-            && task_mgr.create_task(&re_verify).is_ok()
-        {
+        if task_mgr.create_task(&fix_task).is_ok() && task_mgr.create_task(&re_verify).is_ok() {
             self.push_event(&format!(
                 "Auto-generated {} + {} to fix failures (retry {}/3)",
-                fix_id, re_verify_id, task.retry_count + 1
+                fix_id,
+                re_verify_id,
+                task.retry_count + 1
             ));
         }
     }
 
     fn spawn_task(&mut self, task: &Task, tx: &mpsc::UnboundedSender<AgentEvent>) {
-        let agent = task
-            .assigned_to
-            .clone()
-            .unwrap_or(AgentType::Claude);
+        let agent = task.assigned_to.clone().unwrap_or(AgentType::Claude);
 
         let agent = if agent == AgentType::Any {
             AgentType::Claude
@@ -1191,7 +1183,8 @@ impl App {
                 }
 
                 self.running_task_ids.insert(task.id.clone());
-                self.agent_running_task.insert(agent.clone(), task.id.clone());
+                self.agent_running_task
+                    .insert(agent.clone(), task.id.clone());
                 self.push_event(&format!("Started {} on {}", task.id, agent));
             }
             Err(e) => {
@@ -1395,10 +1388,8 @@ fn parse_stream_json_line(line: &str) -> Vec<String> {
                             }
                         }
                         "tool_use" => {
-                            let name =
-                                item.get("name").and_then(|v| v.as_str()).unwrap_or("?");
-                            let input_summary =
-                                summarize_tool_input(name, item.get("input"));
+                            let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+                            let input_summary = summarize_tool_input(name, item.get("input"));
                             result.push(format!("[{}] {}", name, input_summary));
                         }
                         _ => {}
@@ -1436,10 +1427,7 @@ fn summarize_tool_input(tool_name: &str, input: Option<&serde_json::Value>) -> S
             .unwrap_or("")
             .to_string(),
         "Bash" => {
-            let cmd = input
-                .get("command")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let cmd = input.get("command").and_then(|v| v.as_str()).unwrap_or("");
             truncate_str(cmd, 60)
         }
         "Glob" => input
@@ -1448,10 +1436,7 @@ fn summarize_tool_input(tool_name: &str, input: Option<&serde_json::Value>) -> S
             .unwrap_or("")
             .to_string(),
         "Grep" => {
-            let pattern = input
-                .get("pattern")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let pattern = input.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
             truncate_str(pattern, 40)
         }
         "Task" => {
@@ -1511,23 +1496,14 @@ mod tests {
 
     #[test]
     fn test_is_all_done_empty() {
-        let (app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (app, _rx, _tx) = App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         assert!(app.is_all_done());
     }
 
     #[test]
     fn test_is_all_done_with_completed_tasks() {
-        let (mut app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.tasks = vec![
             make_task("T-001", TaskStatus::Completed, vec![]),
             make_task("T-002", TaskStatus::Failed, vec![]),
@@ -1537,12 +1513,8 @@ mod tests {
 
     #[test]
     fn test_is_all_done_with_pending() {
-        let (mut app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.tasks = vec![
             make_task("T-001", TaskStatus::Completed, vec![]),
             make_task("T-002", TaskStatus::Pending, vec![]),
@@ -1552,12 +1524,8 @@ mod tests {
 
     #[test]
     fn test_schedule_respects_parallel_limit() {
-        let (mut app, _rx, tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            2,
-            false,
-        );
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 2, false);
         app.running_task_ids.insert("T-001".to_string());
         app.running_task_ids.insert("T-002".to_string());
         app.tasks = vec![make_task("T-003", TaskStatus::Pending, vec![])];
@@ -1567,12 +1535,8 @@ mod tests {
 
     #[test]
     fn test_blocked_tasks_not_scheduled() {
-        let (mut app, _rx, tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.tasks = vec![make_task(
             "T-002",
             TaskStatus::Pending,
@@ -1585,12 +1549,8 @@ mod tests {
 
     #[test]
     fn test_watch_mode_no_schedule() {
-        let (mut app, _rx, tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            true,
-        );
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, true);
         app.tasks = vec![make_task("T-001", TaskStatus::Pending, vec![])];
         app.schedule_unblocked_tasks(&tx);
         assert!(!app.running_task_ids.contains("T-001"));
@@ -1598,24 +1558,16 @@ mod tests {
 
     #[test]
     fn test_handle_key_quit() {
-        let (mut app, _rx, tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.handle_key(KeyEvent::from(KeyCode::Char('q')), &tx);
         assert!(app.should_quit);
     }
 
     #[test]
     fn test_tab_cycles_through_panes_and_back() {
-        let (mut app, _rx, tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         assert_eq!(app.focus, FocusArea::TaskBoard);
 
         app.handle_key(KeyEvent::from(KeyCode::Tab), &tx);
@@ -1636,12 +1588,8 @@ mod tests {
 
     #[test]
     fn test_backtab_reverse_cycles() {
-        let (mut app, _rx, tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         assert_eq!(app.focus, FocusArea::TaskBoard);
 
         app.handle_key(KeyEvent::from(KeyCode::BackTab), &tx);
@@ -1653,12 +1601,8 @@ mod tests {
 
     #[test]
     fn test_task_board_navigation() {
-        let (mut app, _rx, tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.tasks = vec![
             make_task("T-001", TaskStatus::Pending, vec![]),
             make_task("T-002", TaskStatus::Pending, vec![]),
@@ -1679,12 +1623,8 @@ mod tests {
 
     #[test]
     fn test_pane_scroll_up_down() {
-        let (mut app, _rx, tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         // Fill Claude pane (index 0) with 20 lines
         let buf = app.agent_outputs.get_mut(&AgentType::Claude).unwrap();
         for i in 0..20 {
@@ -1714,12 +1654,8 @@ mod tests {
 
     #[test]
     fn test_pane_home_end() {
-        let (mut app, _rx, tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         let buf = app.agent_outputs.get_mut(&AgentType::Claude).unwrap();
         for i in 0..50 {
             buf.push_back(format!("line {}", i));
@@ -1740,12 +1676,8 @@ mod tests {
 
     #[test]
     fn test_enter_expands_pane() {
-        let (mut app, _rx, tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
 
         app.focus = FocusArea::Pane(2);
         app.handle_key(KeyEvent::from(KeyCode::Enter), &tx);
@@ -1758,12 +1690,8 @@ mod tests {
 
     #[test]
     fn test_expanded_pane_blocks_other_keys() {
-        let (mut app, _rx, tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.expanded_pane = Some(0);
 
         // Tab should not change focus while expanded
@@ -1773,12 +1701,8 @@ mod tests {
 
     #[test]
     fn test_esc_from_pane_returns_to_board() {
-        let (mut app, _rx, tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.focus = FocusArea::Pane(1);
         app.handle_key(KeyEvent::from(KeyCode::Esc), &tx);
         assert_eq!(app.focus, FocusArea::TaskBoard);
@@ -1787,24 +1711,16 @@ mod tests {
 
     #[test]
     fn test_esc_from_board_quits() {
-        let (mut app, _rx, tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.handle_key(KeyEvent::from(KeyCode::Esc), &tx);
         assert!(app.should_quit);
     }
 
     #[test]
     fn test_push_event_caps_at_limit() {
-        let (mut app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         for i in 0..60 {
             app.push_event(&format!("event {}", i));
         }
@@ -1834,24 +1750,15 @@ mod tests {
 
     #[test]
     fn test_all_complete_defaults_false() {
-        let (app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (app, _rx, _tx) = App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         assert!(!app.all_complete);
         assert!(app.completed_at.is_none());
     }
 
     #[test]
     fn test_retry_key_on_non_retryable_status_is_noop() {
-        let (mut app, _rx, tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.tasks = vec![make_task("T-001", TaskStatus::Pending, vec![])];
         app.selected_index = 0;
         let events_before = app.events.len();
@@ -1861,12 +1768,8 @@ mod tests {
 
     #[test]
     fn test_r_key_ignored_when_pane_focused() {
-        let (mut app, _rx, tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.tasks = vec![make_task("T-001", TaskStatus::Failed, vec![])];
         app.focus = FocusArea::Pane(0);
         let events_before = app.events.len();
@@ -1889,12 +1792,7 @@ mod tests {
         std::fs::write(tasks_dir.join("T-099.json"), &json).unwrap();
         std::fs::write(tasks_dir.join("T-099.md"), "# T-099").unwrap();
 
-        let (mut app, _rx, _tx) = App::new(
-            forge_dir.clone(),
-            tmp.path().to_path_buf(),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) = App::new(forge_dir.clone(), tmp.path().to_path_buf(), 3, false);
 
         app.reset_orphaned_tasks().unwrap();
 
@@ -1918,12 +1816,7 @@ mod tests {
         std::fs::write(tasks_dir.join("T-050.json"), json).unwrap();
         std::fs::write(tasks_dir.join("T-050.md"), "# T-050").unwrap();
 
-        let (mut app, _rx, tx) = App::new(
-            forge_dir.clone(),
-            tmp.path().to_path_buf(),
-            3,
-            true,
-        );
+        let (mut app, _rx, tx) = App::new(forge_dir.clone(), tmp.path().to_path_buf(), 3, true);
         app.reload_tasks().unwrap();
         app.selected_index = 0;
 
@@ -1937,12 +1830,8 @@ mod tests {
 
     #[test]
     fn test_f_key_expands_pane() {
-        let (mut app, _rx, tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.focus = FocusArea::Pane(1);
         app.handle_key(KeyEvent::from(KeyCode::Char('f')), &tx);
         assert_eq!(app.expanded_pane, Some(1));
@@ -1950,12 +1839,8 @@ mod tests {
 
     #[test]
     fn test_scroll_in_expanded_mode() {
-        let (mut app, _rx, tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         let buf = app.agent_outputs.get_mut(&AgentType::Claude).unwrap();
         for i in 0..30 {
             buf.push_back(format!("line {}", i));
@@ -2036,12 +1921,8 @@ mod tests {
 
     #[test]
     fn test_is_agent_in_backoff_true() {
-        let (mut app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.agent_backoff.insert(
             AgentType::Gemini,
             BackoffState {
@@ -2056,12 +1937,8 @@ mod tests {
 
     #[test]
     fn test_is_agent_in_backoff_false_when_expired() {
-        let (mut app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         // Set next_retry in the past
         app.agent_backoff.insert(
             AgentType::Gemini,
@@ -2076,12 +1953,8 @@ mod tests {
 
     #[test]
     fn test_schedule_skips_agent_in_backoff() {
-        let (mut app, _rx, tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.tasks = vec![make_task("T-001", TaskStatus::Pending, vec![])];
         // Claude is in backoff (T-001 is assigned to Claude via make_task)
         app.agent_backoff.insert(
@@ -2099,12 +1972,8 @@ mod tests {
 
     #[test]
     fn test_check_backoff_timers_clears_expired() {
-        let (mut app, _rx, tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         // Set Gemini backoff that's already expired
         app.agent_backoff.insert(
             AgentType::Gemini,
@@ -2116,21 +1985,26 @@ mod tests {
         );
         app.check_backoff_timers(&tx);
         // next_retry should be cleared
-        assert!(app.agent_backoff.get(&AgentType::Gemini).unwrap().next_retry.is_none());
+        assert!(
+            app.agent_backoff
+                .get(&AgentType::Gemini)
+                .unwrap()
+                .next_retry
+                .is_none()
+        );
         // attempt should be preserved (for escalation if it fails again)
-        assert_eq!(app.agent_backoff.get(&AgentType::Gemini).unwrap().attempt, 2);
+        assert_eq!(
+            app.agent_backoff.get(&AgentType::Gemini).unwrap().attempt,
+            2
+        );
         // Event should be logged
         assert!(app.events.iter().any(|e| e.contains("Backoff expired")));
     }
 
     #[test]
     fn test_backoff_reset_on_success_tracking() {
-        let (mut app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.agent_backoff.insert(
             AgentType::Claude,
             BackoffState {
@@ -2153,12 +2027,7 @@ mod tests {
         let forge_dir = tmp.path().join(".forge");
         std::fs::create_dir_all(forge_dir.join("tasks")).unwrap();
 
-        let (mut app, _rx, tx) = App::new(
-            forge_dir,
-            tmp.path().to_path_buf(),
-            3,
-            false,
-        );
+        let (mut app, _rx, tx) = App::new(forge_dir, tmp.path().to_path_buf(), 3, false);
 
         // First handle_tick should reload (last_task_reload was just set)
         // But since < 2s have elapsed, reload should be skipped
@@ -2170,7 +2039,10 @@ mod tests {
         app.last_task_reload = Instant::now() - std::time::Duration::from_secs(3);
         let before = app.last_task_reload;
         app.handle_tick(&tx).unwrap();
-        assert_ne!(app.last_task_reload, before, "should reload after 2s elapsed");
+        assert_ne!(
+            app.last_task_reload, before,
+            "should reload after 2s elapsed"
+        );
     }
 
     #[test]
@@ -2188,12 +2060,7 @@ mod tests {
         let json = serde_json::to_string_pretty(&task).unwrap();
         std::fs::write(tasks_dir.join("T-001.json"), json).unwrap();
 
-        let (mut app, _rx, tx) = App::new(
-            forge_dir,
-            tmp.path().to_path_buf(),
-            3,
-            false,
-        );
+        let (mut app, _rx, tx) = App::new(forge_dir, tmp.path().to_path_buf(), 3, false);
         app.reload_tasks().unwrap();
         assert!(!app.all_complete);
 
@@ -2262,12 +2129,7 @@ mod tests {
         // Create a fake .git dir so the git-repo check passes
         std::fs::create_dir_all(tmp.path().join(".git")).unwrap();
 
-        let (mut app, _rx, _tx) = App::new(
-            forge_dir,
-            tmp.path().to_path_buf(),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) = App::new(forge_dir, tmp.path().to_path_buf(), 3, false);
         let task = Task::new("T-001", "Test task", "desc");
 
         // Should not push any event because auto_commit is false
@@ -2284,12 +2146,7 @@ mod tests {
 
         // No .git directory — not a git repo
 
-        let (mut app, _rx, _tx) = App::new(
-            forge_dir,
-            tmp.path().to_path_buf(),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) = App::new(forge_dir, tmp.path().to_path_buf(), 3, false);
         let task = Task::new("T-001", "Test task", "desc");
 
         let events_before = app.events.len();
@@ -2311,33 +2168,31 @@ mod tests {
         // Create .git so it's recognized as a git repo
         std::fs::create_dir_all(tmp.path().join(".git")).unwrap();
 
-        let (mut app, _rx, _tx) = App::new(
-            forge_dir,
-            tmp.path().to_path_buf(),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) = App::new(forge_dir, tmp.path().to_path_buf(), 3, false);
         let mut task = Task::new("T-005", "Add caching layer", "desc");
         task.task_type = Some("implement".to_string());
 
         app.git_auto_commit(&task, &AgentType::Codex);
 
         // Should have pushed an event and added to agent output
-        assert!(app.events.iter().any(|e| e.contains("T-005 auto-committed (feat)")));
+        assert!(
+            app.events
+                .iter()
+                .any(|e| e.contains("T-005 auto-committed (feat)"))
+        );
         let codex_buf = app.agent_outputs.get(&AgentType::Codex).unwrap();
-        assert!(codex_buf.iter().any(|l| l.contains("Auto-committing: feat(T-005)")));
+        assert!(
+            codex_buf
+                .iter()
+                .any(|l| l.contains("Auto-committing: feat(T-005)"))
+        );
     }
 
     // ── DX-027: User-spawnable shell pane tests ─────────────────
 
     #[test]
     fn test_shell_defaults_inactive() {
-        let (app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (app, _rx, _tx) = App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         assert!(!app.shell_active);
         assert!(app.shell_output.is_empty());
         assert!(app.shell_input_tx.is_none());
@@ -2345,12 +2200,8 @@ mod tests {
 
     #[test]
     fn test_shell_output_routes_to_shell_buffer() {
-        let (mut app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.shell_active = true;
 
         // Simulate shell output via handle_agent_event
@@ -2366,18 +2217,16 @@ mod tests {
         assert_eq!(app.shell_output.len(), 1);
         assert_eq!(app.shell_output[0], "hello world");
         // Should NOT be in agent_outputs
-        assert!(app.agent_outputs.get(&AgentType::Any).is_none()
-            || app.agent_outputs.get(&AgentType::Any).unwrap().is_empty());
+        assert!(
+            app.agent_outputs.get(&AgentType::Any).is_none()
+                || app.agent_outputs.get(&AgentType::Any).unwrap().is_empty()
+        );
     }
 
     #[test]
     fn test_shell_completion_resets_state() {
-        let (mut app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.shell_active = true;
         app.shell_input_tx = Some(mpsc::unbounded_channel().0);
 
@@ -2397,12 +2246,8 @@ mod tests {
 
     #[test]
     fn test_esc_in_shell_pane_returns_to_taskboard() {
-        let (mut app, _rx, tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.shell_active = true;
         app.shell_input_tx = Some(mpsc::unbounded_channel().0);
         app.focus = FocusArea::Pane(3);
@@ -2415,12 +2260,8 @@ mod tests {
 
     #[test]
     fn test_s_key_focuses_shell_pane() {
-        let (mut app, _rx, tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         // Manually set shell_active to simulate it was already spawned
         // (can't actually spawn_shell without tokio runtime)
         app.shell_active = true;
@@ -2432,12 +2273,8 @@ mod tests {
 
     #[test]
     fn test_shell_not_double_spawnable() {
-        let (mut app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.shell_active = true;
         app.shell_output.push_back("existing output".to_string());
 
@@ -2454,23 +2291,14 @@ mod tests {
 
     #[test]
     fn test_phase_starts_as_build() {
-        let (app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (app, _rx, _tx) = App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         assert_eq!(app.phase, DashboardPhase::Build);
     }
 
     #[test]
     fn test_phase_transitions_build_to_verify() {
-        let (mut app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         // All build tasks completed → should transition to Verify
         let mut t1 = make_task("T-001", TaskStatus::Completed, vec![]);
         t1.phase = None; // build phase (None = build)
@@ -2485,12 +2313,8 @@ mod tests {
 
     #[test]
     fn test_phase_does_not_transition_with_pending() {
-        let (mut app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         let mut t1 = make_task("T-001", TaskStatus::Completed, vec![]);
         t1.phase = None;
         let mut t2 = make_task("T-002", TaskStatus::Pending, vec![]);
@@ -2503,12 +2327,8 @@ mod tests {
 
     #[test]
     fn test_phase_transitions_verify_to_complete() {
-        let (mut app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.phase = DashboardPhase::Verify;
 
         let mut v1 = make_task("V-001", TaskStatus::Completed, vec![]);
@@ -2526,12 +2346,8 @@ mod tests {
 
     #[test]
     fn test_verify_to_complete_with_no_verify_tasks() {
-        let (mut app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.phase = DashboardPhase::Verify;
         // No verify or fix tasks → should go straight to Complete
         let t1 = make_task("T-001", TaskStatus::Completed, vec![]);
@@ -2567,12 +2383,7 @@ mod tests {
         std::fs::write(tasks_dir.join("V-001.json"), &json).unwrap();
         std::fs::write(tasks_dir.join("V-001.md"), "# V-001").unwrap();
 
-        let (mut app, _rx, _tx) = App::new(
-            forge_dir.clone(),
-            tmp.path().to_path_buf(),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) = App::new(forge_dir.clone(), tmp.path().to_path_buf(), 3, false);
         app.phase = DashboardPhase::Verify;
 
         app.handle_verify_failure(&verify);
@@ -2598,12 +2409,8 @@ mod tests {
 
     #[test]
     fn test_verify_failure_stops_after_3_retries() {
-        let (mut app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.phase = DashboardPhase::Verify;
 
         let mut verify = Task::new("V-001", "Verify: Auth", "Run tests");
@@ -2613,7 +2420,11 @@ mod tests {
 
         app.handle_verify_failure(&verify);
 
-        assert!(app.events.iter().any(|e| e.contains("needs human attention")));
+        assert!(
+            app.events
+                .iter()
+                .any(|e| e.contains("needs human attention"))
+        );
         // No fix task should be generated — we can't easily test TaskManager
         // without a real forge_dir, but the event message confirms the path
     }
@@ -2659,16 +2470,14 @@ mod tests {
 
     #[test]
     fn test_parse_stream_json_result() {
-        let lines = parse_stream_json_line(
-            r#"{"type":"result","status":"success","duration_ms":45000}"#,
-        );
+        let lines =
+            parse_stream_json_line(r#"{"type":"result","status":"success","duration_ms":45000}"#);
         assert_eq!(lines, vec!["[done] success in 45.0s"]);
     }
 
     #[test]
     fn test_parse_stream_json_tool_result_skipped() {
-        let lines =
-            parse_stream_json_line(r#"{"type":"tool_result","output":"lots of stuff"}"#);
+        let lines = parse_stream_json_line(r#"{"type":"tool_result","output":"lots of stuff"}"#);
         assert!(lines.is_empty());
     }
 

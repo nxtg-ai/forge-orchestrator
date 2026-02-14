@@ -166,7 +166,9 @@ fn build_prompt(task: &Task, task_type: &str) -> String {
              and how this fits into the broader system. Produce clear, actionable \
              design documents or code structures.\n\n\
              When done, summarize your design decisions and rationale.",
-            id = task.id, title = task.title, desc = task.description,
+            id = task.id,
+            title = task.title,
+            desc = task.description,
         ),
         "review" => format!(
             "You are working on task {id}: {title}\n\n\
@@ -176,7 +178,9 @@ fn build_prompt(task: &Task, task_type: &str) -> String {
              Read the relevant code, identify issues, and provide a clear \
              assessment. Do NOT modify files — this is a read-only review.\n\n\
              When done, summarize your findings.",
-            id = task.id, title = task.title, desc = task.description,
+            id = task.id,
+            title = task.title,
+            desc = task.description,
         ),
         "test" => format!(
             "You are working on task {id}: {title}\n\n\
@@ -186,7 +190,9 @@ fn build_prompt(task: &Task, task_type: &str) -> String {
              Write thorough tests with edge cases. Run existing tests to verify \
              nothing breaks.\n\n\
              When done, summarize what tests you added and their results.",
-            id = task.id, title = task.title, desc = task.description,
+            id = task.id,
+            title = task.title,
+            desc = task.description,
         ),
         "document" => format!(
             "You are working on task {id}: {title}\n\n\
@@ -195,14 +201,18 @@ fn build_prompt(task: &Task, task_type: &str) -> String {
              {criteria}{files}\
              Write clear, accurate documentation. Include examples where helpful.\n\n\
              When done, summarize what you documented.",
-            id = task.id, title = task.title, desc = task.description,
+            id = task.id,
+            title = task.title,
+            desc = task.description,
         ),
         _ => format!(
             "You are working on task {id}: {title}\n\n\
              Description: {desc}\n\n\
              {criteria}{files}\
              Complete this task. When done, summarize what you did.",
-            id = task.id, title = task.title, desc = task.description,
+            id = task.id,
+            title = task.title,
+            desc = task.description,
         ),
     }
 }

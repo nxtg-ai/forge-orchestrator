@@ -93,27 +93,36 @@ fn generate_plan(
     // ── Phase 1: Load spec ──────────────────────────────────────
     let sp = new_spinner("Loading spec...");
     let (spec_content, source_label) = resolve_plan_input(project_root, spec_path)?;
-    finish_spinner(sp, &format!(
-        "{} Spec loaded ({} lines) from {}",
-        "✓".green(),
-        spec_content.lines().count(),
-        source_label
-    ));
+    finish_spinner(
+        sp,
+        &format!(
+            "{} Spec loaded ({} lines) from {}",
+            "✓".green(),
+            spec_content.lines().count(),
+            source_label
+        ),
+    );
 
     // ── Phase 2: Scan codebase ──────────────────────────────────
     let sp = new_spinner("Scanning codebase...");
     let (inventory, file_count) = scan_codebase(project_root);
     if file_count > 0 {
-        finish_spinner(sp, &format!(
-            "{} Codebase scanned ({} source files)",
-            "✓".green(),
-            file_count
-        ));
+        finish_spinner(
+            sp,
+            &format!(
+                "{} Codebase scanned ({} source files)",
+                "✓".green(),
+                file_count
+            ),
+        );
     } else {
-        finish_spinner(sp, &format!(
-            "{} No source files found (greenfield project)",
-            "—".dimmed()
-        ));
+        finish_spinner(
+            sp,
+            &format!(
+                "{} No source files found (greenfield project)",
+                "—".dimmed()
+            ),
+        );
     }
 
     // Combine spec + inventory for the brain
@@ -186,11 +195,10 @@ fn generate_plan(
 
     let sp = new_spinner("Decomposing spec into tasks...");
     let mut tasks = brain.decompose_plan(&brain_input, &tools_for_brain, start_id)?;
-    finish_spinner(sp, &format!(
-        "{} Generated {} tasks",
-        "✓".green(),
-        tasks.len()
-    ));
+    finish_spinner(
+        sp,
+        &format!("{} Generated {} tasks", "✓".green(), tasks.len()),
+    );
 
     // ── Phase 4: Assign agents ──────────────────────────────────
     let sp = new_spinner("Assigning agents to tasks...");
@@ -271,7 +279,10 @@ fn generate_plan(
         ..Default::default()
     };
     state_mgr.update_task_summary(summary)?;
-    finish_spinner(sp, &format!("{} Plan written to .forge/plan.md", "✓".green()));
+    finish_spinner(
+        sp,
+        &format!("{} Plan written to .forge/plan.md", "✓".green()),
+    );
 
     println!();
     println!(
@@ -544,8 +555,7 @@ fn gather_project_context(project_root: &Path) -> anyhow::Result<String> {
             if let Ok(content) = std::fs::read_to_string(entry.path())
                 && !content.trim().is_empty()
             {
-                let truncated: String =
-                    content.lines().take(100).collect::<Vec<_>>().join("\n");
+                let truncated: String = content.lines().take(100).collect::<Vec<_>>().join("\n");
                 sections.push(format!("# {name}\n\n{truncated}"));
             }
         }
@@ -567,8 +577,7 @@ fn gather_project_context(project_root: &Path) -> anyhow::Result<String> {
             if let Ok(content) = std::fs::read_to_string(entry.path())
                 && !content.trim().is_empty()
             {
-                let truncated: String =
-                    content.lines().take(80).collect::<Vec<_>>().join("\n");
+                let truncated: String = content.lines().take(80).collect::<Vec<_>>().join("\n");
                 sections.push(format!("# docs/{name}\n\n{truncated}"));
             }
         }
@@ -620,8 +629,8 @@ const IGNORE_DIRS: &[&str] = &[
 
 /// Source file extensions to include.
 const SOURCE_EXTENSIONS: &[&str] = &[
-    "ts", "tsx", "js", "jsx", "rs", "py", "go", "java", "kt", "swift", "rb", "cs", "cpp", "c",
-    "h", "hpp",
+    "ts", "tsx", "js", "jsx", "rs", "py", "go", "java", "kt", "swift", "rb", "cs", "cpp", "c", "h",
+    "hpp",
 ];
 
 /// Test file patterns.

@@ -112,33 +112,31 @@ impl FindingManager {
 pub fn classify_finding(description: &str) -> (FindingSeverity, FindingType) {
     let lower = description.to_lowercase();
 
-    let severity = if lower.contains("crash")
-        || lower.contains("data loss")
-        || lower.contains("security")
-    {
-        FindingSeverity::Critical
-    } else if lower.contains("broken")
-        || lower.contains("doesn't work")
-        || lower.contains("fail")
-        || lower.contains("error")
-    {
-        FindingSeverity::High
-    } else if lower.contains("slow")
-        || lower.contains("confusing")
-        || lower.contains("unclear")
-        || lower.contains("should")
-    {
-        FindingSeverity::Medium
-    } else if lower.contains("love")
-        || lower.contains("great")
-        || lower.contains("fast")
-        || lower.contains("nice")
-        || lower.contains("excellent")
-    {
-        FindingSeverity::Positive
-    } else {
-        FindingSeverity::Low
-    };
+    let severity =
+        if lower.contains("crash") || lower.contains("data loss") || lower.contains("security") {
+            FindingSeverity::Critical
+        } else if lower.contains("broken")
+            || lower.contains("doesn't work")
+            || lower.contains("fail")
+            || lower.contains("error")
+        {
+            FindingSeverity::High
+        } else if lower.contains("slow")
+            || lower.contains("confusing")
+            || lower.contains("unclear")
+            || lower.contains("should")
+        {
+            FindingSeverity::Medium
+        } else if lower.contains("love")
+            || lower.contains("great")
+            || lower.contains("fast")
+            || lower.contains("nice")
+            || lower.contains("excellent")
+        {
+            FindingSeverity::Positive
+        } else {
+            FindingSeverity::Low
+        };
 
     let finding_type = if matches!(severity, FindingSeverity::Positive) {
         FindingType::Positive
@@ -148,8 +146,7 @@ pub fn classify_finding(description: &str) -> (FindingSeverity, FindingType) {
         || lower.contains("add")
     {
         FindingType::Missing
-    } else if lower.contains("improve") || lower.contains("better") || lower.contains("enhance")
-    {
+    } else if lower.contains("improve") || lower.contains("better") || lower.contains("enhance") {
         FindingType::Enhancement
     } else {
         FindingType::Bug
@@ -264,9 +261,7 @@ mod tests {
 
     #[test]
     fn test_find_related_tasks_no_match() {
-        let tasks = vec![
-            Task::new("T-001", "Auth module", "desc"),
-        ];
+        let tasks = vec![Task::new("T-001", "Auth module", "desc")];
         let related = find_related_tasks("xyz qqq", &tasks);
         assert!(related.is_empty());
     }

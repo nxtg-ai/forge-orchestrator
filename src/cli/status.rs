@@ -102,7 +102,11 @@ pub fn execute(project_root: &Path, event_count: usize) -> anyhow::Result<()> {
     // Task Board table
     println!("  {}", "Task Board:".bold());
     if tasks.is_empty() {
-        println!("    {} No tasks found. Run {} to create tasks.", "!".yellow(), "forge plan --generate".cyan());
+        println!(
+            "    {} No tasks found. Run {} to create tasks.",
+            "!".yellow(),
+            "forge plan --generate".cyan()
+        );
     } else {
         println!(
             "    {:<8} {:<8} {:<12} {:<10} {:<10} {:<32} {}",
@@ -194,10 +198,7 @@ pub fn execute(project_root: &Path, event_count: usize) -> anyhow::Result<()> {
         .count();
     let ready_count = tasks
         .iter()
-        .filter(|t| {
-            matches!(t.status, TaskStatus::Pending)
-                && !t.is_blocked(&completed_ids)
-        })
+        .filter(|t| matches!(t.status, TaskStatus::Pending) && !t.is_blocked(&completed_ids))
         .count();
 
     println!(
@@ -319,9 +320,9 @@ mod tests {
     fn test_ready_vs_blocked_counting() {
         let tasks = vec![
             make_task("T-001", TaskStatus::Completed, vec![]),
-            make_task("T-002", TaskStatus::Pending, vec!["T-001".into()]),  // ready (T-001 done)
-            make_task("T-003", TaskStatus::Pending, vec!["T-002".into()]),  // blocked (T-002 not done)
-            make_task("T-004", TaskStatus::Pending, vec![]),                 // ready (no deps)
+            make_task("T-002", TaskStatus::Pending, vec!["T-001".into()]), // ready (T-001 done)
+            make_task("T-003", TaskStatus::Pending, vec!["T-002".into()]), // blocked (T-002 not done)
+            make_task("T-004", TaskStatus::Pending, vec![]),               // ready (no deps)
         ];
 
         let completed_ids: Vec<String> = tasks
@@ -332,9 +333,7 @@ mod tests {
 
         let ready_count = tasks
             .iter()
-            .filter(|t| {
-                matches!(t.status, TaskStatus::Pending) && !t.is_blocked(&completed_ids)
-            })
+            .filter(|t| matches!(t.status, TaskStatus::Pending) && !t.is_blocked(&completed_ids))
             .count();
 
         let blocked_count = tasks
@@ -345,7 +344,7 @@ mod tests {
             })
             .count();
 
-        assert_eq!(ready_count, 2);   // T-002 and T-004
+        assert_eq!(ready_count, 2); // T-002 and T-004
         assert_eq!(blocked_count, 1); // T-003
     }
 
@@ -366,9 +365,7 @@ mod tests {
 
         let ready_count = tasks
             .iter()
-            .filter(|t| {
-                matches!(t.status, TaskStatus::Pending) && !t.is_blocked(&completed_ids)
-            })
+            .filter(|t| matches!(t.status, TaskStatus::Pending) && !t.is_blocked(&completed_ids))
             .count();
 
         let blocked_count = tasks

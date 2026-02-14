@@ -334,8 +334,7 @@ impl TaskManager {
 
             // Skip if already has a verify subtask
             let has_verify = tasks.iter().any(|t| {
-                t.parent_task.as_deref() == Some(&task.id)
-                    && t.phase == Some(TaskPhase::Verify)
+                t.parent_task.as_deref() == Some(&task.id) && t.phase == Some(TaskPhase::Verify)
             });
             if has_verify {
                 continue;

@@ -1,14 +1,14 @@
 use crate::tui::uat_app::{UatApp, UatStatus};
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
-use ratatui::Frame;
 
 pub fn render(f: &mut Frame, app: &UatApp) {
     let chunks = Layout::vertical([
         Constraint::Length(3), // Header
-        Constraint::Fill(1),  // Main content (task list + criteria)
+        Constraint::Fill(1),   // Main content (task list + criteria)
         Constraint::Length(3), // Input area
         Constraint::Length(1), // Footer
     ])
@@ -64,9 +64,7 @@ fn render_task_list(f: &mut Frame, app: &UatApp, area: Rect) {
         .enumerate()
         .map(|(i, t)| {
             let status_icon = match t.uat_status {
-                UatStatus::Passed => {
-                    Span::styled("  \u{2713} ", Style::default().fg(Color::Green))
-                }
+                UatStatus::Passed => Span::styled("  \u{2713} ", Style::default().fg(Color::Green)),
                 UatStatus::HasFindings => {
                     Span::styled("  \u{2717} ", Style::default().fg(Color::Red))
                 }
@@ -147,9 +145,7 @@ fn render_criteria(f: &mut Frame, app: &UatApp, area: Rect) {
             lines.push(Line::raw(""));
             lines.push(Line::styled(
                 format!(" Findings ({}):", task_findings.len()),
-                Style::default()
-                    .fg(Color::Red)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
             ));
             lines.push(Line::raw(""));
 
@@ -214,10 +210,7 @@ fn render_footer(f: &mut Frame, app: &UatApp, area: Rect) {
     let (total, passed, with_findings, untested) = app.stats();
 
     let footer = Line::from(vec![
-        Span::styled(
-            " \u{2191}\u{2193} ",
-            Style::default().fg(Color::Yellow),
-        ),
+        Span::styled(" \u{2191}\u{2193} ", Style::default().fg(Color::Yellow)),
         Span::raw("navigate "),
         Span::styled(" Enter/f ", Style::default().fg(Color::Yellow)),
         Span::raw("capture "),
@@ -228,15 +221,9 @@ fn render_footer(f: &mut Frame, app: &UatApp, area: Rect) {
         Span::raw(" | "),
         Span::styled(format!("{passed}"), Style::default().fg(Color::Green)),
         Span::raw(" pass "),
-        Span::styled(
-            format!("{with_findings}"),
-            Style::default().fg(Color::Red),
-        ),
+        Span::styled(format!("{with_findings}"), Style::default().fg(Color::Red)),
         Span::raw(" issues "),
-        Span::styled(
-            format!("{untested}"),
-            Style::default().fg(Color::DarkGray),
-        ),
+        Span::styled(format!("{untested}"), Style::default().fg(Color::DarkGray)),
         Span::raw(format!(" untested / {total}")),
     ]);
 

@@ -1,17 +1,18 @@
 use crate::core::task::{Task, TaskPhase, TaskStatus};
-use crate::tui::app::{pane_agent, pane_label, App, DashboardPhase, FocusArea, MAX_BACKOFF_ATTEMPTS};
+use crate::tui::app::{
+    App, DashboardPhase, FocusArea, MAX_BACKOFF_ATTEMPTS, pane_agent, pane_label,
+};
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use std::time::Instant;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table};
-use ratatui::Frame;
+use std::time::Instant;
 
 pub fn render(f: &mut Frame, app: &App) {
     // If a pane is expanded, render only that pane full-screen + footer
     if let Some(idx) = app.expanded_pane {
-        let chunks = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)])
-            .split(f.area());
+        let chunks = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).split(f.area());
         render_single_pane(f, app, idx, chunks[0], true);
         render_footer(f, app, chunks[1]);
         return;
@@ -146,8 +147,8 @@ fn render_task_board(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_agent_panes(f: &mut Frame, app: &App, area: Rect) {
-    let rows = Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(area);
+    let rows =
+        Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).split(area);
     let top_cols =
         Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(rows[0]);
     let bot_cols =
@@ -319,7 +320,9 @@ fn render_summary_pane_inner(
             Span::styled("Phase: ", Style::default().fg(phase_color)),
             Span::styled(
                 format!("{}", app.phase),
-                Style::default().fg(phase_color).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(phase_color)
+                    .add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(vec![
@@ -346,7 +349,11 @@ fn render_summary_pane_inner(
     ];
 
     // Show agents in backoff
-    let backoff_count = app.agent_backoff.values().filter(|b| b.next_retry.is_some()).count();
+    let backoff_count = app
+        .agent_backoff
+        .values()
+        .filter(|b| b.next_retry.is_some())
+        .count();
     if backoff_count > 0 {
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
@@ -376,9 +383,7 @@ fn phase_progress(app: &App) -> (usize, usize) {
         DashboardPhase::Verify => app
             .tasks
             .iter()
-            .filter(|t| {
-                t.phase == Some(TaskPhase::Verify) || t.phase == Some(TaskPhase::Fix)
-            })
+            .filter(|t| t.phase == Some(TaskPhase::Verify) || t.phase == Some(TaskPhase::Fix))
             .collect(),
         DashboardPhase::Complete => app.tasks.iter().collect(),
     };
@@ -490,8 +495,8 @@ fn render_event_log(f: &mut Frame, app: &App, area: Rect) {
 mod tests {
     use super::*;
     use crate::core::task::{AgentType, Task};
-    use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
     use std::path::PathBuf;
 
     #[test]
@@ -499,12 +504,8 @@ mod tests {
         let backend = TestBackend::new(120, 40);
         let mut terminal = Terminal::new(backend).unwrap();
 
-        let (mut app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
 
         app.tasks = vec![
             Task::new("T-001", "Design API", "Design the REST API"),
@@ -529,12 +530,7 @@ mod tests {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
 
-        let (app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            true,
-        );
+        let (app, _rx, _tx) = App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, true);
 
         terminal.draw(|f| render(f, &app)).unwrap();
     }
@@ -544,12 +540,8 @@ mod tests {
         let backend = TestBackend::new(120, 40);
         let mut terminal = Terminal::new(backend).unwrap();
 
-        let (mut app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
 
         let mut t1 = Task::new("T-001", "Task one", "done");
         t1.status = TaskStatus::Completed;
@@ -575,12 +567,7 @@ mod tests {
         let backend = TestBackend::new(120, 40);
         let mut terminal = Terminal::new(backend).unwrap();
 
-        let (app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (app, _rx, _tx) = App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
 
         terminal.draw(|f| render(f, &app)).unwrap();
 
@@ -599,12 +586,8 @@ mod tests {
         let backend = TestBackend::new(120, 40);
         let mut terminal = Terminal::new(backend).unwrap();
 
-        let (mut app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.focus = FocusArea::Pane(0);
 
         terminal.draw(|f| render(f, &app)).unwrap();
@@ -624,12 +607,8 @@ mod tests {
         let backend = TestBackend::new(120, 40);
         let mut terminal = Terminal::new(backend).unwrap();
 
-        let (mut app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         app.expanded_pane = Some(0);
         let buf = app.agent_outputs.get_mut(&AgentType::Claude).unwrap();
         buf.push_back("expanded line test".to_string());
@@ -654,12 +633,8 @@ mod tests {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
 
-        let (mut app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         let buf = app.agent_outputs.get_mut(&AgentType::Claude).unwrap();
         for i in 0..50 {
             buf.push_back(format!("line {}", i));
@@ -683,12 +658,7 @@ mod tests {
         let backend = TestBackend::new(120, 40);
         let mut terminal = Terminal::new(backend).unwrap();
 
-        let (app, _rx, _tx) = App::new(
-            PathBuf::from("/tmp/test"),
-            PathBuf::from("/tmp"),
-            3,
-            false,
-        );
+        let (app, _rx, _tx) = App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
 
         terminal.draw(|f| render(f, &app)).unwrap();
 

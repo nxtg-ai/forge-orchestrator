@@ -1,4 +1,4 @@
-use crate::core::finding::{classify_finding, find_related_tasks, Finding, FindingManager};
+use crate::core::finding::{Finding, FindingManager, classify_finding, find_related_tasks};
 use crate::core::task::{Task, TaskManager, TaskPhase, TaskStatus};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use std::path::PathBuf;
@@ -45,8 +45,7 @@ impl UatApp {
         let uat_tasks: Vec<UatTask> = all_tasks
             .into_iter()
             .filter(|t| {
-                t.status == TaskStatus::Completed
-                    && !matches!(t.phase, Some(TaskPhase::Verify))
+                t.status == TaskStatus::Completed && !matches!(t.phase, Some(TaskPhase::Verify))
             })
             .map(|t| {
                 let finding_count = findings
@@ -115,8 +114,7 @@ impl UatApp {
                 // Mark selected task as passed
                 if let Some(task) = self.tasks.get_mut(self.selected_task) {
                     task.uat_status = UatStatus::Passed;
-                    self.status_message =
-                        Some(format!("{} marked as UAT passed", task.task.id));
+                    self.status_message = Some(format!("{} marked as UAT passed", task.task.id));
                 }
             }
             KeyCode::Char('f') | KeyCode::Enter => {
@@ -181,10 +179,7 @@ impl UatApp {
         };
 
         if self.finding_mgr.save_finding(&finding).is_ok() {
-            self.status_message = Some(format!(
-                "Captured {} (severity: {})",
-                finding.id, severity
-            ));
+            self.status_message = Some(format!("Captured {} (severity: {})", finding.id, severity));
 
             // Update the selected task's status
             if let Some(task) = self.tasks.get_mut(self.selected_task) {

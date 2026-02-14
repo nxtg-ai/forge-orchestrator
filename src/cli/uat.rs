@@ -1,4 +1,4 @@
-use crate::core::finding::{classify_finding, find_related_tasks, Finding, FindingManager};
+use crate::core::finding::{Finding, FindingManager, classify_finding, find_related_tasks};
 use crate::core::task::TaskManager;
 use colored::Colorize;
 use std::path::Path;

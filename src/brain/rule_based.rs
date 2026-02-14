@@ -89,9 +89,9 @@ impl ForgeBrain for RuleBasedBrain {
                         let f_lower = f.to_lowercase();
                         // Check if any source file name matches the heading
                         f_lower.contains(&title_lower)
-                            || title_lower.split('_').any(|word| {
-                                word.len() > 3 && f_lower.contains(word)
-                            })
+                            || title_lower
+                                .split('_')
+                                .any(|word| word.len() > 3 && f_lower.contains(word))
                     });
                     if already_exists {
                         // Create a review task instead of implement
@@ -355,7 +355,9 @@ mod tests {
         let brain = RuleBasedBrain;
         // No ## headers → single fallback task
         let spec = "Just a plain spec with no headers.";
-        let tasks = brain.decompose_plan(spec, &[AgentType::Claude], 10).unwrap();
+        let tasks = brain
+            .decompose_plan(spec, &[AgentType::Claude], 10)
+            .unwrap();
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].id, "T-010");
     }

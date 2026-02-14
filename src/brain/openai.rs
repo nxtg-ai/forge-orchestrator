@@ -261,7 +261,9 @@ impl ForgeBrain for OpenAIBrain {
             let task_type = item["task_type"]
                 .as_str()
                 .map(|s| s.to_lowercase())
-                .filter(|s| ["design", "implement", "review", "test", "document"].contains(&s.as_str()));
+                .filter(|s| {
+                    ["design", "implement", "review", "test", "document"].contains(&s.as_str())
+                });
 
             let mut task = Task::new(&id, &title, &description);
             task.assigned_to = Some(agent);

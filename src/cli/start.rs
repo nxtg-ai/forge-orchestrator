@@ -1,15 +1,15 @@
 use crate::adapters::claude::ClaudeAdapter;
 use crate::adapters::codex::CodexAdapter;
 use crate::adapters::gemini::GeminiAdapter;
-use crate::adapters::{execute_command_async, ToolAdapter};
+use crate::adapters::{ToolAdapter, execute_command_async};
 use crate::core::event::{EventLogger, EventType, ForgeEvent};
 use crate::core::state::StateManager;
 use crate::core::task::{AgentType, Task, TaskManager, TaskStatus};
 use crate::detect;
 use colored::Colorize;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 /// Max retries for transient failures (rate limits, timeouts).
@@ -427,9 +427,7 @@ async fn run_parallel(
             let lock = Arc::clone(&lock);
             let stats = Arc::clone(stats);
 
-            tokio::spawn(async move {
-                run_agent_loop(&pr, &fd, &agent, &lock, &stats).await
-            })
+            tokio::spawn(async move { run_agent_loop(&pr, &fd, &agent, &lock, &stats).await })
         })
         .collect();
 
@@ -799,9 +797,7 @@ async fn execute_task(
         AgentType::Gemini => {
             GeminiAdapter.build_command(task, project_root, &auth_mode, &permissions)
         }
-        AgentType::Any => {
-            ClaudeAdapter.build_command(task, project_root, &auth_mode, &permissions)
-        }
+        AgentType::Any => ClaudeAdapter.build_command(task, project_root, &auth_mode, &permissions),
     };
 
     execute_command_async(cmd).await
