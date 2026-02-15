@@ -87,7 +87,7 @@ impl ToolAdapter for ClaudeAdapter {
         let prompt = build_prompt(task, task_type);
 
         let mut cmd = Command::new("claude");
-        cmd.args(["-p", &prompt, "--output-format", "stream-json"])
+        cmd.args(["-p", &prompt, "--output-format", "stream-json", "--verbose"])
             .current_dir(project_root);
 
         // Smart permissions: scoped --allowedTools instead of blunt --dangerously-skip-permissions
