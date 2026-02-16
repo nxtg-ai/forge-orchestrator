@@ -1,147 +1,317 @@
-# Assignment: RESEARCH-001 — CLI Subscription Gating: Exhaustive Risk Analysis
+# Assignment: DX-037 + DX-038 — Quota Monitoring + Subscription Risk Warning
 
-> **Scope:** RESEARCH ONLY. No code changes. Produce a comprehensive research document.
-> **Output:** `docs/research/cli-subscription-gating-analysis.md`
-> **Priority:** CRITICAL — This research gates whether forge-orca can safely orchestrate subscription-based CLI tools at all.
+> **Scope:** CODE CHANGES. Implement both DX items in forge-orchestrator.
+> **Priority:** CRITICAL — v1.3.0 "The Safe Operator"
+> **Tests:** Must add tests for all new functionality. Target: 210+ total tests (currently 200).
+> **Build:** Must compile clean (`cargo build --release`), clippy clean, `cargo fmt` applied.
 
 ## Context
 
-Forge-orca orchestrates AI coding agents (Claude Code, OpenAI Codex CLI, Google Gemini CLI) by spawning headless CLI processes with `-p` (prompt) flags. During SynApps dogfood (Feb 15, 2026), we discovered that **automated/headless CLI usage is rate-limited differently than interactive TUI usage**:
+RESEARCH-001 (see `docs/research/cli-subscription-gating-analysis.md`) confirmed:
+- Anthropic ACTIVELY BLOCKS subscription-credential CLI orchestration (Jan 2026 crackdown, account bans)
+- API-key mode is safe and blessed by ALL providers
+- Users need visibility into quota consumption and risk warnings
 
-- **Codex CLI:** Hit `usage_limit_reached` after 24 tasks in ~2 hours. Error payload: `plan_type: "team"`, includes `resets_at` timestamp. Interactive TUI usage at similar volume does NOT trigger this.
-- **Gemini CLI:** Hit `429 No capacity available for model gemini-2.5-pro` after only 2 tasks. This appears to be server capacity, not per-user quota.
-- **Claude Code:** No rate limit hit (completed 3/4 tasks). But Anthropic's usage policy for Max subscription is unclear on automated/scripted usage.
+## DX-037: Quota Monitoring
 
-**The founder's position:** "If I fuck over my users with bans.. I'm going to be very very very upset.. so it will not happen. TOO DANGEROUS."
+### What to build
 
-**Current status:** Subscription-based orchestration is TABLED until this research is complete and validated.
+Track per-provider task dispatch count and display in dashboard footer + `forge status`.
 
-## Research Questions (Answer ALL of these exhaustively)
+### Data Model
 
-### 1. Terms of Service Analysis
-For each provider (Anthropic/Claude, OpenAI/Codex, Google/Gemini):
-- What do the ToS/AUP say about automated/scripted usage of CLI tools?
-- Is there an explicit prohibition on headless/non-interactive usage?
-- Is there a distinction between "using the CLI" and "orchestrating the CLI programmatically"?
-- What are the stated consequences for ToS violations? (warning, throttle, temp ban, permanent ban, account termination?)
-- Are there any safe harbors for developer tools that wrap CLIs?
+Add to `App` struct in `src/tui/app.rs`:
 
-### 2. Rate Limit Architecture
-For each provider:
-- What are the exact rate limits for subscription tiers? (messages/hour, messages/5h, RPM, TPM)
-- How are rate limits different between interactive and headless modes?
-- Are rate limits per-user, per-API-key, per-IP, per-device, or per-session?
-- What HTTP headers or error payloads expose rate limit state? (`X-RateLimit-*`, `Retry-After`, etc.)
-- Is there a "shadow ban" or "soft throttle" that degrades quality before hard-blocking?
-- Do rate limits reset on a rolling window or fixed window?
-
-### 3. Subscription Tiers
-For each provider:
-- What subscription tiers exist? (Free, Pro, Team, Max, Enterprise, etc.)
-- What are the exact quotas per tier?
-- Which tiers explicitly support or allow API/automation access?
-- Is there an "enterprise" or "business" tier that removes automation restrictions?
-- What is the price delta between subscription and API-key usage for equivalent volume?
-
-### 4. Detection Mechanisms
-For each provider:
-- How does the provider detect automated vs interactive usage? (timing patterns, User-Agent, process tree, PTY detection, stdin/stdout pipe detection?)
-- Does the CLI phone home with usage telemetry that could flag automation?
-- Are there known fingerprinting techniques? (e.g., checking if stdin is a TTY)
-- What does the CLI binary actually send to the server? (inspect network traffic if possible)
-
-### 5. Prior Art & Community Research
-- Search arXiv for papers on: API rate limiting, LLM access gating, automated tool orchestration, fair-use detection
-- Search GitHub for: other orchestrators that wrap Claude/Codex/Gemini CLIs, rate limit discussions, ban reports
-- Search forums/Reddit/HN for: user reports of bans, throttling, or account actions from automated CLI usage
-- Search provider developer forums for: official guidance on CLI automation
-- Document any open-source projects that do what we're doing and their approach to rate limits
-
-### 6. Safe Path Analysis
-- Is there a provider-blessed way to orchestrate CLI tools at scale? (MCP? API? Enterprise agreements?)
-- What would an "API-only" mode cost per month for typical forge usage? (estimate 50-200 tasks/day across 3 providers)
-- Is the MCP (Model Context Protocol) server approach a viable alternative to CLI spawning?
-- Could we use official SDKs/APIs instead of CLI wrappers? What capabilities would we lose?
-- What is the business case for each provider to allow vs block CLI orchestration?
-
-### 7. Risk Matrix
-Create a risk matrix for each provider:
-- **Probability of detection** (how likely is it that automated usage is detected?)
-- **Probability of action** (if detected, how likely is enforcement?)
-- **Severity of action** (warning vs throttle vs temp ban vs permanent ban vs legal)
-- **Reversibility** (can the user recover from the action?)
-- **User impact** (what happens to the user's workflow if their account is actioned?)
-
-### 8. Recommendations
-Based on ALL of the above:
-- Should forge-orca support subscription-mode orchestration AT ALL?
-- If yes, under what conditions? (max tasks/hour, pacing, provider restrictions)
-- If no, what alternative architecture should we pursue?
-- What disclaimers/warnings should we show users?
-- What is our legal exposure if a user gets banned while using forge?
-
-## Source Requirements
-
-- **arXiv papers:** At minimum 3-5 relevant papers on API rate limiting, LLM orchestration, or fair-use detection
-- **Official documentation:** Direct links to each provider's ToS, AUP, rate limit docs, pricing pages
-- **GitHub issues/discussions:** Direct links to relevant threads about CLI automation limits
-- **Forum posts:** Direct links to user reports of bans or throttling
-- **Code analysis:** If you can inspect CLI binary behavior (network calls, telemetry), document findings
-- **Every claim must have a source URL or citation**
-
-## Output Format
-
-```markdown
-# CLI Subscription Gating: Exhaustive Risk Analysis
-
-## Executive Summary
-[2-3 paragraph summary with clear GO/NO-GO recommendation]
-
-## 1. Terms of Service Analysis
-### 1.1 Anthropic (Claude Code)
-### 1.2 OpenAI (Codex CLI)
-### 1.3 Google (Gemini CLI)
-
-## 2. Rate Limit Architecture
-[...]
-
-## 3. Subscription Tiers
-[...]
-
-## 4. Detection Mechanisms
-[...]
-
-## 5. Prior Art & Community Research
-### 5.1 Academic Papers
-### 5.2 Open Source Projects
-### 5.3 Community Reports
-
-## 6. Safe Path Analysis
-[...]
-
-## 7. Risk Matrix
-[Table format per provider]
-
-## 8. Recommendations
-### 8.1 GO/NO-GO Decision
-### 8.2 If GO: Safety Requirements
-### 8.3 If NO-GO: Alternative Architecture
-### 8.4 Legal Considerations
-
-## Sources
-[Numbered reference list with URLs]
+```rust
+/// Per-provider task dispatch count for quota monitoring (DX-037).
+/// Key: AgentType, Value: (dispatched_count, window_start)
+pub provider_quota: HashMap<AgentType, (u32, Instant)>,
 ```
 
-## IMPORTANT NOTES
+Initialize in `App::new()`:
+```rust
+provider_quota: HashMap::new(),
+```
 
-- This is RESEARCH ONLY. Do NOT write any code.
-- Do NOT make assumptions — cite sources for every claim.
-- If information is unavailable or unclear, say so explicitly rather than guessing.
-- Be pessimistic in risk assessment — we'd rather over-estimate risk than under-estimate.
-- The founder will read this personally and make a go/no-go decision based on it.
-- Create the output file at `docs/research/cli-subscription-gating-analysis.md`
-- Create the `docs/research/` directory if it doesn't exist.
+### Quota Tracking
+
+In `spawn_task()`, after successful spawn (inside `Ok(mut child)` arm), increment the quota counter:
+
+```rust
+// DX-037: Track quota usage
+let quota = self.provider_quota
+    .entry(agent.clone())
+    .or_insert((0, Instant::now()));
+// Reset counter if 5-hour window has elapsed
+if quota.1.elapsed() > std::time::Duration::from_secs(5 * 3600) {
+    *quota = (0, Instant::now());
+}
+quota.0 += 1;
+```
+
+### Dashboard Footer
+
+Modify `render_footer()` in `src/tui/ui.rs` to show quota info in a **second footer line**. Change the layout from `Constraint::Length(1)` to `Constraint::Length(2)` for the footer.
+
+The quota footer line format:
+```
+Claude: 3/50 (5h) │ Codex: 8/60 (5h) │ Gemini: 45/1000 (RPD)
+```
+
+Where the denominator is:
+- Claude subscription: 50 (conservative estimate for Max 5x)
+- Claude API: show "API" instead of a number
+- Codex subscription: 60 (max cloud tasks/5h for Team)
+- Codex API: show "API"
+- Gemini subscription: 1000 (RPD for Google Account)
+- Gemini API: show "API"
+
+Color coding:
+- Green: < 50% of quota
+- Yellow: 50-80% of quota
+- Red: > 80% of quota
+- Cyan: API mode (no quota concern)
+
+Implementation in `render_footer()`:
+
+```rust
+fn render_footer(f: &mut Frame, app: &App, area: Rect) {
+    // Split footer into 2 lines: keys + quota
+    let footer_chunks = Layout::vertical([
+        Constraint::Length(1), // Key legend
+        Constraint::Length(1), // Quota line
+    ]).split(area);
+
+    // Line 1: Key legend (existing code)
+    // ... existing text logic ...
+    f.render_widget(key_paragraph, footer_chunks[0]);
+
+    // Line 2: Quota monitoring
+    let quota_spans = build_quota_spans(app);
+    let quota_line = Paragraph::new(Line::from(quota_spans));
+    f.render_widget(quota_line, footer_chunks[1]);
+}
+```
+
+Add helper function to `ui.rs`:
+
+```rust
+fn build_quota_spans(app: &App) -> Vec<Span<'static>> {
+    let state_mgr = StateManager::new(&app.forge_dir);
+
+    let mut spans = Vec::new();
+    for (idx, agent_type) in [AgentType::Claude, AgentType::Codex, AgentType::Gemini].iter().enumerate() {
+        let agent_name = agent_type.to_string().to_lowercase();
+        let auth_mode = state_mgr
+            .get_agent_auth(&agent_name)
+            .unwrap_or_else(|_| "subscription".to_string());
+
+        let (count, _) = app.provider_quota
+            .get(agent_type)
+            .copied()
+            .unwrap_or((0, Instant::now()));
+
+        if auth_mode == "api" {
+            spans.push(Span::styled(
+                format!("{}: {} (API)", agent_type, count),
+                Style::default().fg(Color::Cyan),
+            ));
+        } else {
+            let max = match agent_type {
+                AgentType::Claude => 50,
+                AgentType::Codex => 60,
+                AgentType::Gemini => 1000,
+                _ => 100,
+            };
+            let ratio = count as f32 / max as f32;
+            let color = if ratio > 0.8 { Color::Red }
+                       else if ratio > 0.5 { Color::Yellow }
+                       else { Color::Green };
+            spans.push(Span::styled(
+                format!("{}: {}/{} (5h)", agent_type, count, max),
+                Style::default().fg(color),
+            ));
+        }
+
+        if idx < 2 {
+            spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+        }
+    }
+    spans
+}
+```
+
+### `forge status` Integration
+
+In `src/cli/status.rs`, add a "Quota" section after the "Agent Configuration" section:
+
+```rust
+// Quota info (DX-037)
+println!("  {}", "Provider Quota (this session):".bold());
+println!("    ⚠ Quota tracking is only active during dashboard sessions");
+println!("    Use `forge dashboard` or `forge start` for live quota monitoring");
+```
+
+(Full quota tracking only works in dashboard mode since it requires a running process. `forge status` just explains this.)
+
+### Tests
+
+Add to `src/tui/app.rs` tests:
+
+1. `test_quota_counter_increments` — verify quota counter increases after spawn simulation
+2. `test_quota_window_resets_after_5h` — verify counter resets when window expires
+3. `test_quota_separate_per_agent` — verify each agent has independent counter
+
+Add to `src/tui/ui.rs` or create inline test for `build_quota_spans`:
+
+4. `test_quota_spans_api_mode` — verify API mode shows cyan "(API)" label
+5. `test_quota_spans_subscription_colors` — verify green/yellow/red color coding
 
 ---
 
-**CHECKPOINT: The document must be comprehensive (3000+ words minimum), cite real sources, and provide a clear recommendation.**
+## DX-038: Subscription Risk Warning
+
+### What to build
+
+1. Warning when setting `claude.auth subscription` via config
+2. Warning banner in dashboard header when ANY provider uses subscription mode
+3. Requirement for `--i-accept-subscription-risk` flag in `forge dashboard` and `forge start`
+
+### Config Warning (`src/cli/config.rs`)
+
+When `claude.auth subscription` is set, show the research-backed warning:
+
+In the `"claude.auth" | "codex.auth" | "gemini.auth"` match arm, when value is "subscription", add after the existing println:
+
+```rust
+"subscription" => {
+    println!("  → Will use CLI subscription (API keys stripped from subprocess)");
+
+    // DX-038: Risk warning based on RESEARCH-001
+    if agent == "claude" {
+        println!();
+        println!("  ⚠⚠⚠  WARNING: SUBSCRIPTION RISK  ⚠⚠⚠");
+        println!("  Anthropic ACTIVELY BLOCKS subscription-based CLI orchestration.");
+        println!("  In January 2026, accounts were banned for using third-party");
+        println!("  tools with subscription OAuth tokens (ToS Section D.4).");
+        println!("  → STRONGLY RECOMMENDED: Use `forge config claude.auth api` instead.");
+        println!("  → See: docs/research/cli-subscription-gating-analysis.md");
+        println!();
+        println!("  To use subscription mode in dashboard/start, you must pass:");
+        println!("  `forge dashboard --i-accept-subscription-risk`");
+    } else if agent == "codex" {
+        println!();
+        println!("  ⚠ CAUTION: Codex subscription has 10-60 cloud task/5h limits.");
+        println!("  Consider API key mode for heavier workloads.");
+    }
+}
+```
+
+### Dashboard Header Warning (`src/tui/ui.rs`)
+
+In `render_task_board()`, if any provider uses subscription auth, show a warning line in the title:
+
+```rust
+// Check for subscription risk (DX-038)
+let state_mgr_warn = StateManager::new(&app.forge_dir);
+let has_sub_risk = ["claude", "codex", "gemini"].iter().any(|agent| {
+    state_mgr_warn
+        .get_agent_auth(agent)
+        .unwrap_or_else(|_| "subscription".to_string())
+        == "subscription"
+});
+```
+
+If `has_sub_risk` is true, change the border color to Yellow and append "⚠ SUB" to the title string.
+
+### CLI Flag Gate (`src/cli/dashboard.rs` + `src/cli/start.rs`)
+
+Add `--i-accept-subscription-risk` flag to the dashboard and start commands.
+
+In `src/cli/dashboard.rs`, before launching the TUI, check if any provider uses subscription mode:
+
+```rust
+// DX-038: Check for subscription risk
+let state_mgr = StateManager::new(&forge_dir);
+let state = state_mgr.load()?;
+let has_claude_sub = state.agent_auth.get("claude")
+    .map(|v| v == "subscription")
+    .unwrap_or(true); // default is subscription
+
+if has_claude_sub && !accept_subscription_risk {
+    println!();
+    println!("  ⚠⚠⚠  SUBSCRIPTION RISK DETECTED  ⚠⚠⚠");
+    println!();
+    println!("  Claude is configured to use subscription auth.");
+    println!("  Anthropic ACTIVELY BLOCKS third-party CLI orchestration");
+    println!("  and has BANNED accounts for this pattern.");
+    println!();
+    println!("  Options:");
+    println!("    1. Switch to API mode (RECOMMENDED):");
+    println!("       forge config claude.auth api");
+    println!();
+    println!("    2. Accept the risk:");
+    println!("       forge dashboard --i-accept-subscription-risk");
+    println!();
+    println!("  See: docs/research/cli-subscription-gating-analysis.md");
+    return Ok(());
+}
+```
+
+The `accept_subscription_risk` parameter must be added to the CLI args. In `src/main.rs`, find the Dashboard subcommand and add:
+
+```rust
+/// Accept subscription risk for providers that may ban automated usage
+#[arg(long = "i-accept-subscription-risk", default_value_t = false)]
+accept_subscription_risk: bool,
+```
+
+Same for the `Start` subcommand.
+
+### Tests
+
+Add tests:
+
+6. `test_subscription_risk_detected_claude` — verify Claude subscription auth is flagged as risky
+7. `test_no_risk_with_api_mode` — verify API mode does not trigger warning
+8. `test_subscription_risk_codex_no_block` — verify Codex subscription shows caution but doesn't block
+9. `test_config_warning_claude_subscription` — verify config command shows warning text
+
+---
+
+## File Summary
+
+| File | Changes |
+|------|---------|
+| `src/tui/app.rs` | Add `provider_quota` field, increment in `spawn_task`, add quota tests |
+| `src/tui/ui.rs` | Add `build_quota_spans`, modify `render_footer` to 2 lines, add sub warning to header, add `StateManager` import |
+| `src/cli/config.rs` | Add DX-038 subscription risk warnings in config set |
+| `src/cli/dashboard.rs` | Add `--i-accept-subscription-risk` flag check |
+| `src/cli/start.rs` | Add `--i-accept-subscription-risk` flag check |
+| `src/main.rs` | Add `accept_subscription_risk` to Dashboard and Start CLI args |
+| `src/cli/status.rs` | Add quota info note |
+
+## Build & Test
+
+```bash
+cargo fmt
+cargo clippy -- -W clippy::all
+cargo test
+cargo build --release
+```
+
+All 210+ tests must pass. Zero clippy warnings. Binary deploys to `~/.local/bin/forge-orca`.
+
+## IMPORTANT NOTES
+
+- Do NOT change any existing behavior — only ADD new features
+- Do NOT modify adapter behavior (Claude/Codex/Gemini adapters stay the same)
+- The footer layout change from Length(1) to Length(2) affects ALL footer rendering paths
+- Import `StateManager` in `ui.rs` if not already imported
+- The `Instant` type is already imported in `ui.rs` (check and add if needed)
+- Use `use crate::core::task::AgentType;` in `ui.rs` if not already imported
+- `cargo fmt` MUST be the last step before build
+
+---
+
+**CHECKPOINT: 210+ tests, clippy clean, cargo fmt applied, binary deployed.**
