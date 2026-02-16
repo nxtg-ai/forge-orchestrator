@@ -6,6 +6,7 @@ use crate::core::event::{EventLogger, EventType, ForgeEvent};
 use crate::core::state::StateManager;
 use crate::core::task::{AgentType, Task, TaskManager, TaskPhase, TaskStatus};
 use crossterm::event::{KeyCode, KeyEvent};
+use rand::Rng;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::time::Instant;
@@ -22,8 +23,13 @@ pub const PANE_COUNT: usize = 4;
 /// Maximum rate-limit backoff attempts before marking task as permanently failed.
 pub const MAX_BACKOFF_ATTEMPTS: u32 = 5;
 
-/// Rate limit patterns to detect in agent output.
+/// Rate limit patterns to detect in agent output (provider-specific + generic).
 const RATE_LIMIT_PATTERNS: &[&str] = &[
+    // Provider-specific (DX-034)
+    "usage_limit_reached",
+    "no capacity available",
+    "rate_limit_error",
+    // Generic patterns
     "rate limit",
     "rate_limit",
     "429",
@@ -137,6 +143,8 @@ pub struct App {
     pub last_task_reload: Instant,
     /// Project name from .forge/state.json for display in header.
     pub project_name: String,
+    /// Per-agent pacing: earliest time the next task can be dispatched (subscription mode only).
+    pub agent_pacing: HashMap<AgentType, Instant>,
     /// User shell process active (replaces Summary pane when true).
     pub shell_active: bool,
     /// Output buffer for the user shell.
@@ -193,6 +201,7 @@ impl App {
             pane_pinned: [false; PANE_COUNT],
             expanded_pane: None,
             agent_backoff: HashMap::new(),
+            agent_pacing: HashMap::new(),
             last_task_reload: Instant::now(),
             project_name,
             shell_active: false,
@@ -222,6 +231,12 @@ impl App {
             return;
         }
 
+        // Load scheduler config for pacing
+        let state_mgr = StateManager::new(&self.forge_dir);
+        let scheduler = state_mgr.load().map(|s| s.scheduler).unwrap_or_default();
+
+        let now = Instant::now();
+
         let candidates: Vec<Task> = self
             .tasks
             .iter()
@@ -240,11 +255,59 @@ impl App {
                 };
                 !self.is_agent_in_backoff(&agent)
             })
+            .filter(|t| {
+                // DX-033: Skip tasks whose agent is in subscription pacing cooldown
+                let agent = t.assigned_to.clone().unwrap_or(AgentType::Claude);
+                let agent = if agent == AgentType::Any {
+                    AgentType::Claude
+                } else {
+                    agent
+                };
+                let agent_name = agent.to_string().to_lowercase();
+                let auth_mode = state_mgr
+                    .get_agent_auth(&agent_name)
+                    .unwrap_or_else(|_| "subscription".to_string());
+                if auth_mode == "api" {
+                    return true; // API mode = no pacing
+                }
+                // Check if agent is still in pacing cooldown
+                if let Some(ready_at) = self.agent_pacing.get(&agent) {
+                    if now < *ready_at {
+                        return false; // Still cooling down
+                    }
+                }
+                true
+            })
             .take(slots)
             .cloned()
             .collect();
 
         for task in candidates {
+            let agent = task.assigned_to.clone().unwrap_or(AgentType::Claude);
+            let agent = if agent == AgentType::Any {
+                AgentType::Claude
+            } else {
+                agent
+            };
+
+            // DX-033: Set pacing cooldown for subscription-mode agents
+            let agent_name = agent.to_string().to_lowercase();
+            let auth_mode = state_mgr
+                .get_agent_auth(&agent_name)
+                .unwrap_or_else(|_| "subscription".to_string());
+            if auth_mode == "subscription" {
+                let delay_secs =
+                    rand::rng().random_range(scheduler.pacing_min_secs..=scheduler.pacing_max_secs);
+                self.agent_pacing.insert(
+                    agent.clone(),
+                    Instant::now() + std::time::Duration::from_secs(delay_secs),
+                );
+                self.push_event(&format!(
+                    "Pacing {}: next task in {}s (subscription mode)",
+                    agent, delay_secs
+                ));
+            }
+
             self.spawn_task(&task, tx);
         }
     }
@@ -1092,24 +1155,24 @@ impl App {
             agent
         };
 
-        let auth_mode = "subscription";
-        let permissions = {
-            let state_mgr = StateManager::new(&self.forge_dir);
-            let agent_name = agent.to_string().to_lowercase();
-            state_mgr
-                .get_agent_permissions(&agent_name)
-                .unwrap_or_else(|_| "safe".to_string())
-        };
+        let state_mgr = StateManager::new(&self.forge_dir);
+        let agent_name = agent.to_string().to_lowercase();
+        let auth_mode = state_mgr
+            .get_agent_auth(&agent_name)
+            .unwrap_or_else(|_| "subscription".to_string());
+        let permissions = state_mgr
+            .get_agent_permissions(&agent_name)
+            .unwrap_or_else(|_| "safe".to_string());
 
         let std_cmd = match agent {
             AgentType::Claude | AgentType::Any => {
-                ClaudeAdapter.build_command(task, &self.project_root, auth_mode, &permissions)
+                ClaudeAdapter.build_command(task, &self.project_root, &auth_mode, &permissions)
             }
             AgentType::Codex => {
-                CodexAdapter.build_command(task, &self.project_root, auth_mode, &permissions)
+                CodexAdapter.build_command(task, &self.project_root, &auth_mode, &permissions)
             }
             AgentType::Gemini => {
-                GeminiAdapter.build_command(task, &self.project_root, auth_mode, &permissions)
+                GeminiAdapter.build_command(task, &self.project_root, &auth_mode, &permissions)
             }
         };
 
@@ -1276,25 +1339,16 @@ fn is_rate_limited(output: &VecDeque<String>) -> bool {
 }
 
 /// Compute exponential backoff delay with jitter for a given attempt.
+/// Matches DX-035 spec: 60s → 120s → 240s → 480s → 600s (max 10 min).
 fn compute_backoff_delay(attempt: u32) -> std::time::Duration {
     let base_secs: u64 = match attempt {
-        1 => 10,
-        2 => 30,
-        3 => 60,
-        _ => 120,
+        1 => 60,
+        2 => 120,
+        3 => 240,
+        4 => 480,
+        _ => 600,
     };
-    let jitter_max: u64 = match attempt {
-        1 => 5,
-        2 => 10,
-        3 => 15,
-        _ => 30,
-    };
-    // Simple jitter using system time nanoseconds (no rand dependency needed)
-    let jitter = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos() as u64
-        % (jitter_max + 1);
+    let jitter = rand::rng().random_range(0..=30u64);
     std::time::Duration::from_secs(base_secs + jitter)
 }
 
@@ -1901,22 +1955,22 @@ mod tests {
     #[test]
     fn test_backoff_delay_attempt_1() {
         let delay = compute_backoff_delay(1);
-        // Attempt 1: 10s base + 0-5s jitter = 10-15s
-        assert!(delay.as_secs() >= 10 && delay.as_secs() <= 15);
+        // Attempt 1: 60s base + 0-30s jitter = 60-90s
+        assert!(delay.as_secs() >= 60 && delay.as_secs() <= 90);
     }
 
     #[test]
     fn test_backoff_delay_attempt_2() {
         let delay = compute_backoff_delay(2);
-        // Attempt 2: 30s base + 0-10s jitter = 30-40s
-        assert!(delay.as_secs() >= 30 && delay.as_secs() <= 40);
+        // Attempt 2: 120s base + 0-30s jitter = 120-150s
+        assert!(delay.as_secs() >= 120 && delay.as_secs() <= 150);
     }
 
     #[test]
     fn test_backoff_delay_attempt_4() {
         let delay = compute_backoff_delay(4);
-        // Attempt 4: 120s base + 0-30s jitter = 120-150s
-        assert!(delay.as_secs() >= 120 && delay.as_secs() <= 150);
+        // Attempt 4: 480s base + 0-30s jitter = 480-510s
+        assert!(delay.as_secs() >= 480 && delay.as_secs() <= 510);
     }
 
     #[test]
