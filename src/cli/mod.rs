@@ -88,6 +88,10 @@ pub enum Commands {
         /// CEO Mode: loop until all tasks complete (re-runs after each pass)
         #[arg(short, long, alias = "ceo")]
         r#loop: bool,
+
+        /// Accept subscription risk for providers that may ban automated usage
+        #[arg(long = "i-accept-subscription-risk", default_value_t = false)]
+        accept_subscription_risk: bool,
     },
 
     /// Reconcile state — update summaries, render adapter configs, check governance
@@ -105,6 +109,10 @@ pub enum Commands {
         /// Maximum number of parallel agent tasks
         #[arg(short, long, default_value = "3")]
         parallel: usize,
+
+        /// Accept subscription risk for providers that may ban automated usage
+        #[arg(long = "i-accept-subscription-risk", default_value_t = false)]
+        accept_subscription_risk: bool,
     },
 
     /// Generate verify subtasks for completed build tasks

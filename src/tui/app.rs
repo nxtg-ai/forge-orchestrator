@@ -151,6 +151,9 @@ pub struct App {
     pub shell_output: VecDeque<String>,
     /// Channel to send keystrokes to the shell's stdin.
     pub shell_input_tx: Option<mpsc::UnboundedSender<String>>,
+    /// Per-provider task dispatch count for quota monitoring (DX-037).
+    /// Key: AgentType, Value: (dispatched_count, window_start)
+    pub provider_quota: HashMap<AgentType, (u32, Instant)>,
 }
 
 impl App {
@@ -207,6 +210,7 @@ impl App {
             shell_active: false,
             shell_output: VecDeque::new(),
             shell_input_tx: None,
+            provider_quota: HashMap::new(),
         };
 
         (app, rx, tx)
@@ -271,10 +275,10 @@ impl App {
                     return true; // API mode = no pacing
                 }
                 // Check if agent is still in pacing cooldown
-                if let Some(ready_at) = self.agent_pacing.get(&agent) {
-                    if now < *ready_at {
-                        return false; // Still cooling down
-                    }
+                if let Some(ready_at) = self.agent_pacing.get(&agent)
+                    && now < *ready_at
+                {
+                    return false; // Still cooling down
                 }
                 true
             })
@@ -1248,6 +1252,18 @@ impl App {
                 self.running_task_ids.insert(task.id.clone());
                 self.agent_running_task
                     .insert(agent.clone(), task.id.clone());
+
+                // DX-037: Track quota usage
+                let quota = self
+                    .provider_quota
+                    .entry(agent.clone())
+                    .or_insert((0, Instant::now()));
+                // Reset counter if 5-hour window has elapsed
+                if quota.1.elapsed() > std::time::Duration::from_secs(5 * 3600) {
+                    *quota = (0, Instant::now());
+                }
+                quota.0 += 1;
+
                 self.push_event(&format!("Started {} on {}", task.id, agent));
             }
             Err(e) => {
@@ -2570,5 +2586,64 @@ mod tests {
     #[test]
     fn test_truncate_str_long() {
         assert_eq!(truncate_str("hello world this is long", 10), "hello w...");
+    }
+
+    // ── DX-037: Quota monitoring tests ──────────────────────────────
+
+    #[test]
+    fn test_quota_counter_increments() {
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
+
+        // Simulate quota increments
+        let quota = app
+            .provider_quota
+            .entry(AgentType::Claude)
+            .or_insert((0, Instant::now()));
+        quota.0 += 1;
+        assert_eq!(app.provider_quota[&AgentType::Claude].0, 1);
+
+        app.provider_quota.get_mut(&AgentType::Claude).unwrap().0 += 1;
+        assert_eq!(app.provider_quota[&AgentType::Claude].0, 2);
+    }
+
+    #[test]
+    fn test_quota_window_resets_after_5h() {
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
+
+        // Insert a quota entry with a stale window (pretend it started 6 hours ago)
+        let old_start = Instant::now() - std::time::Duration::from_secs(6 * 3600);
+        app.provider_quota
+            .insert(AgentType::Claude, (42, old_start));
+
+        // Simulate the reset logic from spawn_task
+        let quota = app
+            .provider_quota
+            .entry(AgentType::Claude)
+            .or_insert((0, Instant::now()));
+        if quota.1.elapsed() > std::time::Duration::from_secs(5 * 3600) {
+            *quota = (0, Instant::now());
+        }
+        quota.0 += 1;
+
+        assert_eq!(app.provider_quota[&AgentType::Claude].0, 1);
+    }
+
+    #[test]
+    fn test_quota_separate_per_agent() {
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
+
+        app.provider_quota
+            .insert(AgentType::Claude, (5, Instant::now()));
+        app.provider_quota
+            .insert(AgentType::Codex, (10, Instant::now()));
+        app.provider_quota
+            .insert(AgentType::Gemini, (15, Instant::now()));
+
+        assert_eq!(app.provider_quota[&AgentType::Claude].0, 5);
+        assert_eq!(app.provider_quota[&AgentType::Codex].0, 10);
+        assert_eq!(app.provider_quota[&AgentType::Gemini].0, 15);
     }
 }

@@ -59,7 +59,22 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
         }
-        Commands::Start { agent, r#loop } => {
+        Commands::Start {
+            agent,
+            r#loop,
+            accept_subscription_risk,
+        } => {
+            // DX-038: Check subscription risk before starting
+            if !accept_subscription_risk {
+                let forge_dir = project_root.join(".forge");
+                if forge_dir.exists() {
+                    let state_mgr = cli::start::load_state_for_risk_check(&forge_dir);
+                    if let Some(warning) = state_mgr {
+                        println!("{warning}");
+                        return Ok(());
+                    }
+                }
+            }
             if r#loop {
                 cli::start::execute_loop(&project_root, agent.as_deref()).await?;
             } else {
@@ -78,7 +93,45 @@ async fn main() -> anyhow::Result<()> {
         Commands::Mcp => {
             cli::mcp::execute(&project_root)?;
         }
-        Commands::Dashboard { watch, parallel } => {
+        Commands::Dashboard {
+            watch,
+            parallel,
+            accept_subscription_risk,
+        } => {
+            // DX-038: Check subscription risk before launching dashboard
+            if !accept_subscription_risk {
+                let forge_dir = project_root.join(".forge");
+                if forge_dir.exists() {
+                    let state_mgr = crate::core::state::StateManager::new(&forge_dir);
+                    if let Ok(state) = state_mgr.load() {
+                        let has_claude_sub = state
+                            .agent_auth
+                            .get("claude")
+                            .map(|v| v == "subscription")
+                            .unwrap_or(true);
+                        if has_claude_sub {
+                            println!();
+                            println!(
+                                "  \u{26A0}\u{26A0}\u{26A0}  SUBSCRIPTION RISK DETECTED  \u{26A0}\u{26A0}\u{26A0}"
+                            );
+                            println!();
+                            println!("  Claude is configured to use subscription auth.");
+                            println!("  Anthropic ACTIVELY BLOCKS third-party CLI orchestration");
+                            println!("  and has BANNED accounts for this pattern.");
+                            println!();
+                            println!("  Options:");
+                            println!("    1. Switch to API mode (RECOMMENDED):");
+                            println!("       forge config claude.auth api");
+                            println!();
+                            println!("    2. Accept the risk:");
+                            println!("       forge dashboard --i-accept-subscription-risk");
+                            println!();
+                            println!("  See: docs/research/cli-subscription-gating-analysis.md");
+                            return Ok(());
+                        }
+                    }
+                }
+            }
             cli::dashboard::execute(&project_root, parallel, watch).await?;
         }
         Commands::Config { key, value } => {

@@ -575,20 +575,19 @@ async fn run_agent_loop(
         // DX-035: Check if this provider is paused (rate limited)
         {
             let tracker = provider_tracker.lock().await;
-            if let Some(state) = tracker.get(agent) {
-                if let Some(paused_until) = state.paused_until {
-                    if Instant::now() < paused_until {
-                        let remaining = paused_until - Instant::now();
-                        println!(
-                            "  {tag} {} Provider rate-limited, resuming in {}s...",
-                            "⏸".yellow(),
-                            remaining.as_secs()
-                        );
-                        drop(tracker);
-                        tokio::time::sleep(remaining).await;
-                        continue;
-                    }
-                }
+            if let Some(state) = tracker.get(agent)
+                && let Some(paused_until) = state.paused_until
+                && Instant::now() < paused_until
+            {
+                let remaining = paused_until - Instant::now();
+                println!(
+                    "  {tag} {} Provider rate-limited, resuming in {}s...",
+                    "⏸".yellow(),
+                    remaining.as_secs()
+                );
+                drop(tracker);
+                tokio::time::sleep(remaining).await;
+                continue;
             }
         }
 
@@ -941,10 +940,10 @@ async fn rotate_tasks(
         .iter()
         .filter(|a| {
             *a != paused_agent
-                && !tracker
+                && tracker
                     .get(a)
                     .and_then(|s| s.paused_until)
-                    .is_some_and(|until| Instant::now() < until)
+                    .is_none_or(|until| Instant::now() >= until)
         })
         .collect();
     drop(tracker);
@@ -1104,4 +1103,38 @@ async fn execute_task(
     };
 
     execute_command_async(cmd).await
+}
+
+/// DX-038: Check if Claude is in subscription mode and return warning text if so.
+/// Returns `Some(warning_string)` if risk is detected, `None` if safe.
+pub fn load_state_for_risk_check(forge_dir: &Path) -> Option<String> {
+    let state_mgr = StateManager::new(forge_dir);
+    let state = state_mgr.load().ok()?;
+    let has_claude_sub = state
+        .agent_auth
+        .get("claude")
+        .map(|v| v == "subscription")
+        .unwrap_or(true);
+    if has_claude_sub {
+        Some(
+            "\n\
+             \x20 \u{26A0}\u{26A0}\u{26A0}  SUBSCRIPTION RISK DETECTED  \u{26A0}\u{26A0}\u{26A0}\n\
+             \n\
+             \x20 Claude is configured to use subscription auth.\n\
+             \x20 Anthropic ACTIVELY BLOCKS third-party CLI orchestration\n\
+             \x20 and has BANNED accounts for this pattern.\n\
+             \n\
+             \x20 Options:\n\
+             \x20   1. Switch to API mode (RECOMMENDED):\n\
+             \x20      forge config claude.auth api\n\
+             \n\
+             \x20   2. Accept the risk:\n\
+             \x20      forge start --i-accept-subscription-risk\n\
+             \n\
+             \x20 See: docs/research/cli-subscription-gating-analysis.md"
+                .to_string(),
+        )
+    } else {
+        None
+    }
 }

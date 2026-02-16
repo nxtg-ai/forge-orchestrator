@@ -55,11 +55,45 @@ pub fn execute(project_root: &Path, key: &str, value: &str) -> anyhow::Result<()
                     match value {
                         "subscription" => {
                             println!(
-                                "  → Will use CLI subscription (API keys stripped from subprocess)"
+                                "  \u{2192} Will use CLI subscription (API keys stripped from subprocess)"
                             );
+
+                            // DX-038: Risk warning based on RESEARCH-001
+                            if agent == "claude" {
+                                println!();
+                                println!(
+                                    "  \u{26A0}\u{26A0}\u{26A0}  WARNING: SUBSCRIPTION RISK  \u{26A0}\u{26A0}\u{26A0}"
+                                );
+                                println!(
+                                    "  Anthropic ACTIVELY BLOCKS subscription-based CLI orchestration."
+                                );
+                                println!(
+                                    "  In January 2026, accounts were banned for using third-party"
+                                );
+                                println!(
+                                    "  tools with subscription OAuth tokens (ToS Section D.4)."
+                                );
+                                println!(
+                                    "  \u{2192} STRONGLY RECOMMENDED: Use `forge config claude.auth api` instead."
+                                );
+                                println!(
+                                    "  \u{2192} See: docs/research/cli-subscription-gating-analysis.md"
+                                );
+                                println!();
+                                println!(
+                                    "  To use subscription mode in dashboard/start, you must pass:"
+                                );
+                                println!("  `forge dashboard --i-accept-subscription-risk`");
+                            } else if agent == "codex" {
+                                println!();
+                                println!(
+                                    "  \u{26A0} CAUTION: Codex subscription has 10-60 cloud task/5h limits."
+                                );
+                                println!("  Consider API key mode for heavier workloads.");
+                            }
                         }
                         "api" => {
-                            println!("  → Will pass API keys to subprocess");
+                            println!("  \u{2192} Will pass API keys to subprocess");
                         }
                         _ => {}
                     }

@@ -224,6 +224,15 @@ pub fn execute(project_root: &Path, event_count: usize) -> anyhow::Result<()> {
     println!("{bar}");
     println!();
 
+    // Quota info (DX-037)
+    println!("  {}", "Provider Quota (this session):".bold());
+    println!(
+        "    {} Quota tracking is only active during dashboard sessions",
+        "\u{26A0}".yellow()
+    );
+    println!("    Use `forge dashboard` or `forge start` for live quota monitoring");
+    println!();
+
     // File locks
     if !state.active_locks.is_empty() {
         println!("  {}", "Active Locks:".bold());

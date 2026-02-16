@@ -1,4 +1,5 @@
-use crate::core::task::{Task, TaskPhase, TaskStatus};
+use crate::core::state::StateManager;
+use crate::core::task::{AgentType, Task, TaskPhase, TaskStatus};
 use crate::tui::app::{
     App, DashboardPhase, FocusArea, MAX_BACKOFF_ATTEMPTS, pane_agent, pane_label,
 };
@@ -12,7 +13,7 @@ use std::time::Instant;
 pub fn render(f: &mut Frame, app: &App) {
     // If a pane is expanded, render only that pane full-screen + footer
     if let Some(idx) = app.expanded_pane {
-        let chunks = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).split(f.area());
+        let chunks = Layout::vertical([Constraint::Fill(1), Constraint::Length(2)]).split(f.area());
         render_single_pane(f, app, idx, chunks[0], true);
         render_footer(f, app, chunks[1]);
         return;
@@ -22,7 +23,7 @@ pub fn render(f: &mut Frame, app: &App) {
         Constraint::Percentage(30), // Task board
         Constraint::Percentage(50), // Agent panes 2x2
         Constraint::Percentage(20), // Event log
-        Constraint::Length(1),      // Footer
+        Constraint::Length(2),      // Footer (keys + quota)
     ])
     .split(f.area());
 
@@ -33,6 +34,11 @@ pub fn render(f: &mut Frame, app: &App) {
 }
 
 fn render_footer(f: &mut Frame, app: &App, area: Rect) {
+    // Split footer into 2 lines: keys + quota (DX-037)
+    let footer_chunks =
+        Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(area);
+
+    // Line 1: Key legend
     let text = if app.focus == FocusArea::Pane(3) && app.shell_active {
         "Esc:Unfocus | Ctrl+D:Close Shell | Type to interact"
     } else if app.all_complete {
@@ -43,17 +49,89 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
         "q:Quit | Tab:Focus | \u{2191}\u{2193}:Navigate | Enter/f:Expand | r:Retry | s:Shell"
     };
 
-    let paragraph = Paragraph::new(Line::from(Span::styled(
+    let key_paragraph = Paragraph::new(Line::from(Span::styled(
         text,
         Style::default().fg(Color::DarkGray),
     )));
+    f.render_widget(key_paragraph, footer_chunks[0]);
 
-    f.render_widget(paragraph, area);
+    // Line 2: Quota monitoring (DX-037)
+    let quota_spans = build_quota_spans(app);
+    let quota_line = Paragraph::new(Line::from(quota_spans));
+    f.render_widget(quota_line, footer_chunks[1]);
+}
+
+/// Build quota display spans for each provider (DX-037).
+fn build_quota_spans(app: &App) -> Vec<Span<'static>> {
+    let state_mgr = StateManager::new(&app.forge_dir);
+
+    let mut spans = Vec::new();
+    for (idx, agent_type) in [AgentType::Claude, AgentType::Codex, AgentType::Gemini]
+        .iter()
+        .enumerate()
+    {
+        let agent_name = agent_type.to_string().to_lowercase();
+        let auth_mode = state_mgr
+            .get_agent_auth(&agent_name)
+            .unwrap_or_else(|_| "subscription".to_string());
+
+        let (count, _) = app
+            .provider_quota
+            .get(agent_type)
+            .copied()
+            .unwrap_or((0, Instant::now()));
+
+        if auth_mode == "api" {
+            spans.push(Span::styled(
+                format!("{}: {} (API)", agent_type, count),
+                Style::default().fg(Color::Cyan),
+            ));
+        } else {
+            let max = match agent_type {
+                AgentType::Claude => 50,
+                AgentType::Codex => 60,
+                AgentType::Gemini => 1000,
+                _ => 100,
+            };
+            let ratio = count as f32 / max as f32;
+            let color = if ratio > 0.8 {
+                Color::Red
+            } else if ratio > 0.5 {
+                Color::Yellow
+            } else {
+                Color::Green
+            };
+            spans.push(Span::styled(
+                format!("{}: {}/{} (5h)", agent_type, count, max),
+                Style::default().fg(color),
+            ));
+        }
+
+        if idx < 2 {
+            spans.push(Span::styled(
+                " \u{2502} ",
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+    }
+    spans
 }
 
 fn render_task_board(f: &mut Frame, app: &App, area: Rect) {
     let focused = app.focus == FocusArea::TaskBoard;
-    let border_style = if focused {
+
+    // DX-038: Check for subscription risk
+    let state_mgr_warn = StateManager::new(&app.forge_dir);
+    let has_sub_risk = ["claude", "codex", "gemini"].iter().any(|agent| {
+        state_mgr_warn
+            .get_agent_auth(agent)
+            .unwrap_or_else(|_| "subscription".to_string())
+            == "subscription"
+    });
+
+    let border_style = if has_sub_risk {
+        Style::default().fg(Color::Yellow)
+    } else if focused {
         Style::default().fg(Color::Cyan)
     } else {
         Style::default().fg(Color::DarkGray)
@@ -61,15 +139,16 @@ fn render_task_board(f: &mut Frame, app: &App, area: Rect) {
 
     // Phase-aware title with progress counts
     let (phase_done, phase_total) = phase_progress(app);
+    let sub_suffix = if has_sub_risk { " \u{26A0} SUB" } else { "" };
     let title = if app.project_name.is_empty() {
         format!(
-            " FORGE DASHBOARD \u{2014} {} ({}/{}) ",
-            app.phase, phase_done, phase_total
+            " FORGE DASHBOARD \u{2014} {} ({}/{}){} ",
+            app.phase, phase_done, phase_total, sub_suffix
         )
     } else {
         format!(
-            " FORGE DASHBOARD \u{2014} {} \u{2014} {} ({}/{}) ",
-            app.project_name, app.phase, phase_done, phase_total
+            " FORGE DASHBOARD \u{2014} {} \u{2014} {} ({}/{}){} ",
+            app.project_name, app.phase, phase_done, phase_total, sub_suffix
         )
     };
 
@@ -707,5 +786,226 @@ mod tests {
         let tasks = vec![t1, t2, v1];
         let sorted = hierarchical_sort(&tasks);
         assert_eq!(sorted.len(), 3);
+    }
+
+    // ── DX-037: Quota span tests ────────────────────────────────────
+
+    #[test]
+    fn test_quota_spans_api_mode() {
+        // Create app with a forge_dir that has API mode set
+        let tmp = tempfile::tempdir().unwrap();
+        let forge_dir = tmp.path().join(".forge");
+        std::fs::create_dir_all(&forge_dir).unwrap();
+
+        // Write a state.json with claude auth = api
+        let state_json = serde_json::json!({
+            "version": "1.0.0",
+            "project_name": "test",
+            "created_at": "2026-01-01T00:00:00Z",
+            "brain": { "provider": "rule-based" },
+            "tools": [],
+            "updated_at": "2026-01-01T00:00:00Z",
+            "task_summary": { "total": 0, "pending": 0, "in_progress": 0, "completed": 0, "failed": 0, "blocked": 0 },
+            "agent_auth": { "claude": "api", "codex": "api", "gemini": "api" },
+            "agent_permissions": {},
+            "active_locks": {},
+            "scheduler": {
+                "rotation": false,
+                "pacing_min_secs": 64,
+                "pacing_max_secs": 179
+            },
+            "git": { "auto_commit": false, "strategy": "branch-per-task" }
+        });
+        std::fs::write(forge_dir.join("state.json"), state_json.to_string()).unwrap();
+
+        let (app, _rx, _tx) = App::new(forge_dir, tmp.path().to_path_buf(), 3, false);
+
+        let spans = build_quota_spans(&app);
+        // All three providers should show "(API)" with cyan styling
+        let text: String = spans.iter().map(|s| s.content.to_string()).collect();
+        assert!(text.contains("(API)"), "Expected API label, got: {}", text);
+        // Should have 3 agent entries (lowercase display)
+        assert!(text.contains("claude"));
+        assert!(text.contains("codex"));
+        assert!(text.contains("gemini"));
+    }
+
+    #[test]
+    fn test_quota_spans_subscription_colors() {
+        let tmp = tempfile::tempdir().unwrap();
+        let forge_dir = tmp.path().join(".forge");
+        std::fs::create_dir_all(&forge_dir).unwrap();
+
+        let state_json = serde_json::json!({
+            "version": "1.0.0",
+            "project_name": "test",
+            "created_at": "2026-01-01T00:00:00Z",
+            "brain": { "provider": "rule-based" },
+            "tools": [],
+            "updated_at": "2026-01-01T00:00:00Z",
+            "task_summary": { "total": 0, "pending": 0, "in_progress": 0, "completed": 0, "failed": 0, "blocked": 0 },
+            "agent_auth": {
+                "claude": "subscription",
+                "codex": "subscription",
+                "gemini": "subscription"
+            },
+            "agent_permissions": {},
+            "active_locks": {},
+            "scheduler": {
+                "rotation": false,
+                "pacing_min_secs": 64,
+                "pacing_max_secs": 179
+            },
+            "git": { "auto_commit": false, "strategy": "branch-per-task" }
+        });
+        std::fs::write(forge_dir.join("state.json"), state_json.to_string()).unwrap();
+
+        let (mut app, _rx, _tx) = App::new(forge_dir, tmp.path().to_path_buf(), 3, false);
+
+        // Set Claude to 45/50 (>80% = red), Codex to 35/60 (>50% = yellow), Gemini to 100/1000 (<50% = green)
+        app.provider_quota
+            .insert(AgentType::Claude, (45, Instant::now()));
+        app.provider_quota
+            .insert(AgentType::Codex, (35, Instant::now()));
+        app.provider_quota
+            .insert(AgentType::Gemini, (100, Instant::now()));
+
+        let spans = build_quota_spans(&app);
+        let text: String = spans.iter().map(|s| s.content.to_string()).collect();
+        assert!(
+            text.contains("45/50"),
+            "Expected Claude quota, got: {}",
+            text
+        );
+        assert!(
+            text.contains("35/60"),
+            "Expected Codex quota, got: {}",
+            text
+        );
+        assert!(
+            text.contains("100/1000"),
+            "Expected Gemini quota, got: {}",
+            text
+        );
+
+        // Check colors via span styles
+        let claude_span = &spans[0];
+        assert_eq!(
+            claude_span.style.fg,
+            Some(Color::Red),
+            "Claude at 90% should be red"
+        );
+        let codex_span = &spans[2]; // index 2 because index 1 is the separator
+        assert_eq!(
+            codex_span.style.fg,
+            Some(Color::Yellow),
+            "Codex at 58% should be yellow"
+        );
+        let gemini_span = &spans[4]; // index 4
+        assert_eq!(
+            gemini_span.style.fg,
+            Some(Color::Green),
+            "Gemini at 10% should be green"
+        );
+    }
+
+    // ── DX-038: Subscription risk tests ─────────────────────────────
+
+    #[test]
+    fn test_subscription_risk_detected_claude() {
+        let tmp = tempfile::tempdir().unwrap();
+        let forge_dir = tmp.path().join(".forge");
+        std::fs::create_dir_all(&forge_dir).unwrap();
+
+        // Claude in subscription mode (default)
+        let state_json = serde_json::json!({
+            "version": "1.0.0",
+            "project_name": "test",
+            "created_at": "2026-01-01T00:00:00Z",
+            "brain": { "provider": "rule-based" },
+            "tools": [],
+            "updated_at": "2026-01-01T00:00:00Z",
+            "task_summary": { "total": 0, "pending": 0, "in_progress": 0, "completed": 0, "failed": 0, "blocked": 0 },
+            "agent_auth": { "claude": "subscription" },
+            "agent_permissions": {},
+            "active_locks": {},
+            "scheduler": {
+                "rotation": false,
+                "pacing_min_secs": 64,
+                "pacing_max_secs": 179
+            },
+            "git": { "auto_commit": false, "strategy": "branch-per-task" }
+        });
+        std::fs::write(forge_dir.join("state.json"), state_json.to_string()).unwrap();
+
+        let result = crate::cli::start::load_state_for_risk_check(&forge_dir);
+        assert!(result.is_some(), "Should detect subscription risk");
+        let warning = result.unwrap();
+        assert!(warning.contains("SUBSCRIPTION RISK DETECTED"));
+        assert!(warning.contains("claude.auth api"));
+    }
+
+    #[test]
+    fn test_no_risk_with_api_mode() {
+        let tmp = tempfile::tempdir().unwrap();
+        let forge_dir = tmp.path().join(".forge");
+        std::fs::create_dir_all(&forge_dir).unwrap();
+
+        let state_json = serde_json::json!({
+            "version": "1.0.0",
+            "project_name": "test",
+            "created_at": "2026-01-01T00:00:00Z",
+            "brain": { "provider": "rule-based" },
+            "tools": [],
+            "updated_at": "2026-01-01T00:00:00Z",
+            "task_summary": { "total": 0, "pending": 0, "in_progress": 0, "completed": 0, "failed": 0, "blocked": 0 },
+            "agent_auth": { "claude": "api", "codex": "api", "gemini": "api" },
+            "agent_permissions": {},
+            "active_locks": {},
+            "scheduler": {
+                "rotation": false,
+                "pacing_min_secs": 64,
+                "pacing_max_secs": 179
+            },
+            "git": { "auto_commit": false, "strategy": "branch-per-task" }
+        });
+        std::fs::write(forge_dir.join("state.json"), state_json.to_string()).unwrap();
+
+        let result = crate::cli::start::load_state_for_risk_check(&forge_dir);
+        assert!(result.is_none(), "API mode should not trigger risk warning");
+    }
+
+    #[test]
+    fn test_subscription_risk_codex_no_block() {
+        let tmp = tempfile::tempdir().unwrap();
+        let forge_dir = tmp.path().join(".forge");
+        std::fs::create_dir_all(&forge_dir).unwrap();
+
+        // Codex subscription, Claude API — should NOT block (only Claude sub blocks)
+        let state_json = serde_json::json!({
+            "version": "1.0.0",
+            "project_name": "test",
+            "created_at": "2026-01-01T00:00:00Z",
+            "brain": { "provider": "rule-based" },
+            "tools": [],
+            "updated_at": "2026-01-01T00:00:00Z",
+            "task_summary": { "total": 0, "pending": 0, "in_progress": 0, "completed": 0, "failed": 0, "blocked": 0 },
+            "agent_auth": { "claude": "api", "codex": "subscription", "gemini": "api" },
+            "agent_permissions": {},
+            "active_locks": {},
+            "scheduler": {
+                "rotation": false,
+                "pacing_min_secs": 64,
+                "pacing_max_secs": 179
+            },
+            "git": { "auto_commit": false, "strategy": "branch-per-task" }
+        });
+        std::fs::write(forge_dir.join("state.json"), state_json.to_string()).unwrap();
+
+        let result = crate::cli::start::load_state_for_risk_check(&forge_dir);
+        assert!(
+            result.is_none(),
+            "Codex subscription should NOT block (only Claude)"
+        );
     }
 }
