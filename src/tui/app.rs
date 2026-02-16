@@ -5,7 +5,9 @@ use crate::adapters::gemini::GeminiAdapter;
 use crate::core::event::{EventLogger, EventType, ForgeEvent};
 use crate::core::state::StateManager;
 use crate::core::task::{AgentType, Task, TaskManager, TaskPhase, TaskStatus};
+use crate::tui::pty_session::{PtySession, key_event_to_bytes};
 use crossterm::event::{KeyCode, KeyEvent};
+use portable_pty::{CommandBuilder, PtySize};
 use rand::Rng;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -154,6 +156,16 @@ pub struct App {
     /// Per-provider task dispatch count for quota monitoring (DX-037).
     /// Key: AgentType, Value: (dispatched_count, window_start)
     pub provider_quota: HashMap<AgentType, (u32, Instant)>,
+    /// DX-024 Stargate: Per-agent PTY session (replaces piped output).
+    pub pty_sessions: HashMap<AgentType, PtySession>,
+    /// DX-024: Whether Stargate PTY mode is active.
+    pub pty_mode: bool,
+    /// DX-024: Which pane index is attached for interactive input forwarding.
+    pub attached_pane: Option<usize>,
+    /// DX-024: PTY session for the user shell (pane 3).
+    pub shell_pty: Option<PtySession>,
+    /// Terminal dimensions (cols, rows) for PTY resize propagation.
+    pub terminal_size: (u16, u16),
 }
 
 impl App {
@@ -211,6 +223,11 @@ impl App {
             shell_output: VecDeque::new(),
             shell_input_tx: None,
             provider_quota: HashMap::new(),
+            pty_sessions: HashMap::new(),
+            pty_mode: false,
+            attached_pane: None,
+            shell_pty: None,
+            terminal_size: (80, 24),
         };
 
         (app, rx, tx)
@@ -334,6 +351,13 @@ impl App {
                 return Ok(());
             }
             AgentEvent::Output { agent, line, .. } => {
+                // DX-024: In PTY mode, skip agent_outputs insertion —
+                // output is captured by the PTY session's AnsiLineCollector.
+                // The empty sentinel line just wakes the event loop to redraw.
+                if self.pty_mode && self.pty_sessions.contains_key(&agent) {
+                    return Ok(());
+                }
+
                 let buf = self.agent_outputs.entry(agent.clone()).or_default();
                 if buf.len() >= OUTPUT_BUFFER_CAP {
                     buf.pop_front();
@@ -354,6 +378,11 @@ impl App {
             AgentEvent::Completed { ref task_id, .. } if task_id == "__shell__" => {
                 self.shell_active = false;
                 self.shell_input_tx = None;
+                self.shell_pty = None;
+                // Clear attached if we were attached to shell pane
+                if self.attached_pane == Some(3) {
+                    self.attached_pane = None;
+                }
                 self.push_event("User shell closed");
                 return Ok(());
             }
@@ -365,6 +394,14 @@ impl App {
             } => {
                 self.running_task_ids.remove(&task_id);
                 self.agent_running_task.remove(&agent);
+
+                // DX-024: Clean up PTY session on completion
+                self.pty_sessions.remove(&agent);
+                if let Some(pane_idx) = agent_pane_index(&agent)
+                    && self.attached_pane == Some(pane_idx)
+                {
+                    self.attached_pane = None;
+                }
 
                 let task_mgr = TaskManager::new(&self.forge_dir);
                 let state_mgr = StateManager::new(&self.forge_dir);
@@ -533,6 +570,28 @@ impl App {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent, tx: &mpsc::UnboundedSender<AgentEvent>) {
+        // DX-024: Attached mode — forward ALL keys (except Esc) to the PTY
+        if let Some(pane_idx) = self.attached_pane {
+            if key.code == KeyCode::Esc {
+                self.attached_pane = None;
+                return;
+            }
+            let bytes = key_event_to_bytes(&key);
+            if !bytes.is_empty() {
+                if pane_idx == 3 {
+                    // Shell PTY
+                    if let Some(ref session) = self.shell_pty {
+                        session.write(&bytes);
+                    }
+                } else if let Some(agent) = pane_agent(pane_idx)
+                    && let Some(session) = self.pty_sessions.get(&agent)
+                {
+                    session.write(&bytes);
+                }
+            }
+            return;
+        }
+
         // In expanded pane mode, Esc or Enter collapses back to grid
         if self.expanded_pane.is_some() {
             match key.code {
@@ -657,14 +716,26 @@ impl App {
                 }
                 FocusArea::Pane(idx) => self.scroll_pane_down(idx),
             },
-            KeyCode::Home => {
-                if let FocusArea::Pane(idx) = self.focus {
-                    self.scroll_pane_to_top(idx);
+            KeyCode::Home => match self.focus {
+                FocusArea::TaskBoard => self.selected_index = 0,
+                FocusArea::Pane(idx) => self.scroll_pane_to_top(idx),
+            },
+            KeyCode::End => match self.focus {
+                FocusArea::TaskBoard => {
+                    if !self.tasks.is_empty() {
+                        self.selected_index = self.tasks.len() - 1;
+                    }
+                }
+                FocusArea::Pane(idx) => self.scroll_pane_to_bottom(idx),
+            },
+            KeyCode::PageUp => {
+                if self.focus == FocusArea::TaskBoard {
+                    self.selected_index = self.selected_index.saturating_sub(10);
                 }
             }
-            KeyCode::End => {
-                if let FocusArea::Pane(idx) = self.focus {
-                    self.scroll_pane_to_bottom(idx);
+            KeyCode::PageDown => {
+                if self.focus == FocusArea::TaskBoard && !self.tasks.is_empty() {
+                    self.selected_index = (self.selected_index + 10).min(self.tasks.len() - 1);
                 }
             }
             KeyCode::Enter | KeyCode::Char('f') => {
@@ -685,6 +756,23 @@ impl App {
                         self.spawn_shell(tx);
                     }
                     self.focus = FocusArea::Pane(3);
+                }
+            }
+            // DX-024: 'i' attaches to focused PTY pane for interactive input
+            KeyCode::Char('i') => {
+                if self.pty_mode
+                    && let FocusArea::Pane(idx) = self.focus
+                {
+                    let has_pty = if idx == 3 {
+                        self.shell_pty.is_some()
+                    } else {
+                        pane_agent(idx)
+                            .map(|a| self.pty_sessions.contains_key(&a))
+                            .unwrap_or(false)
+                    };
+                    if has_pty {
+                        self.attached_pane = Some(idx);
+                    }
                 }
             }
             _ => {}
@@ -724,8 +812,25 @@ impl App {
     /// Get the number of lines in a pane's buffer.
     pub fn pane_buffer_len(&self, idx: usize) -> usize {
         match pane_agent(idx) {
-            Some(agent) => self.agent_outputs.get(&agent).map(|b| b.len()).unwrap_or(0),
-            None => 0, // Summary pane has no scrollable buffer
+            Some(agent) => {
+                if self.pty_mode {
+                    // In PTY mode, read line count from the PTY session
+                    self.pty_sessions
+                        .get(&agent)
+                        .map(|s| s.line_count())
+                        .unwrap_or(0)
+                } else {
+                    self.agent_outputs.get(&agent).map(|b| b.len()).unwrap_or(0)
+                }
+            }
+            None => {
+                // Pane 3: shell PTY line count
+                if self.pty_mode && idx == 3 {
+                    self.shell_pty.as_ref().map(|s| s.line_count()).unwrap_or(0)
+                } else {
+                    0
+                }
+            }
         }
     }
 
@@ -795,6 +900,32 @@ impl App {
         Ok(())
     }
 
+    /// DX-024: Handle terminal resize — propagate dimensions to all active PTYs.
+    pub fn handle_resize(&mut self, cols: u16, rows: u16) {
+        self.terminal_size = (cols, rows);
+        if !self.pty_mode {
+            return;
+        }
+        let (pane_cols, pane_rows) = self.estimate_pane_size();
+        for session in self.pty_sessions.values() {
+            let _ = session.resize(pane_cols, pane_rows);
+        }
+        if let Some(ref shell) = self.shell_pty {
+            let _ = shell.resize(pane_cols, pane_rows);
+        }
+    }
+
+    /// DX-024: Estimate the inner dimensions of a single pane from terminal size.
+    /// Layout: 2x2 grid occupying ~50% of terminal height, each pane is half width.
+    pub fn estimate_pane_size(&self) -> (u16, u16) {
+        let (cols, rows) = self.terminal_size;
+        // Each pane: half the terminal width minus borders (2)
+        let pane_cols = (cols / 2).saturating_sub(2).max(10);
+        // Agent pane area is ~50% of terminal, split into 2 rows, minus borders
+        let pane_rows = (rows / 4).saturating_sub(2).max(5);
+        (pane_cols, pane_rows)
+    }
+
     /// Spawn a user shell in pane 3 (replaces Summary).
     pub fn spawn_shell(&mut self, tx: &mpsc::UnboundedSender<AgentEvent>) {
         if self.shell_active {
@@ -803,7 +934,53 @@ impl App {
 
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
 
-        let mut cmd = TokioCommand::new(&shell);
+        // DX-024: PTY mode — spawn shell with a real PTY
+        if self.pty_mode {
+            self.spawn_shell_pty(&shell, tx);
+            return;
+        }
+
+        self.spawn_shell_piped(&shell, tx);
+    }
+
+    /// Spawn shell using PTY (Stargate mode).
+    fn spawn_shell_pty(&mut self, shell: &str, tx: &mpsc::UnboundedSender<AgentEvent>) {
+        let mut cmd = CommandBuilder::new(shell);
+        cmd.cwd(&self.project_root);
+        cmd.env("TERM", "xterm-256color");
+
+        let (pane_cols, pane_rows) = self.estimate_pane_size();
+        let size = PtySize {
+            rows: pane_rows,
+            cols: pane_cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        };
+
+        match PtySession::spawn(
+            cmd,
+            size,
+            tx.clone(),
+            "__shell__".to_string(),
+            AgentType::Any,
+            500,
+        ) {
+            Ok(session) => {
+                self.shell_pty = Some(session);
+                self.shell_active = true;
+                self.shell_output.clear();
+                self.push_event("PTY shell opened (i:Attach | Esc:Detach)");
+            }
+            Err(e) => {
+                self.push_event(&format!("PTY shell failed, falling back: {}", e));
+                self.spawn_shell_piped(shell, tx);
+            }
+        }
+    }
+
+    /// Spawn shell using piped I/O (legacy mode).
+    fn spawn_shell_piped(&mut self, shell: &str, tx: &mpsc::UnboundedSender<AgentEvent>) {
+        let mut cmd = TokioCommand::new(shell);
         cmd.current_dir(&self.project_root)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -877,7 +1054,7 @@ impl App {
 
                 self.shell_active = true;
                 self.shell_output.clear();
-                self.shell_output.push_back(format!("$ {shell}"));
+                self.shell_output.push_back(format!("$ {}", shell));
                 self.push_event("User shell opened (Ctrl+D to close)");
             }
             Err(e) => {
@@ -1159,6 +1336,105 @@ impl App {
             agent
         };
 
+        if self.pty_mode {
+            self.spawn_task_pty(task, &agent, tx);
+        } else {
+            self.spawn_task_piped(task, &agent, tx);
+        }
+    }
+
+    /// DX-024: Spawn task with PTY allocation (Stargate mode).
+    fn spawn_task_pty(
+        &mut self,
+        task: &Task,
+        agent: &AgentType,
+        tx: &mpsc::UnboundedSender<AgentEvent>,
+    ) {
+        let state_mgr = StateManager::new(&self.forge_dir);
+        let agent_name = agent.to_string().to_lowercase();
+        let auth_mode = state_mgr
+            .get_agent_auth(&agent_name)
+            .unwrap_or_else(|_| "subscription".to_string());
+        let permissions = state_mgr
+            .get_agent_permissions(&agent_name)
+            .unwrap_or_else(|_| "safe".to_string());
+
+        // Use interactive command for Claude (no stream-json), standard for others
+        let std_cmd = match agent {
+            AgentType::Claude | AgentType::Any => ClaudeAdapter.build_command_interactive(
+                task,
+                &self.project_root,
+                &auth_mode,
+                &permissions,
+            ),
+            AgentType::Codex => CodexAdapter.build_command_interactive(
+                task,
+                &self.project_root,
+                &auth_mode,
+                &permissions,
+            ),
+            AgentType::Gemini => GeminiAdapter.build_command_interactive(
+                task,
+                &self.project_root,
+                &auth_mode,
+                &permissions,
+            ),
+        };
+
+        // Convert std::process::Command to portable_pty::CommandBuilder
+        let program = std_cmd.get_program().to_string_lossy().to_string();
+        let mut pty_cmd = CommandBuilder::new(&program);
+        for arg in std_cmd.get_args() {
+            pty_cmd.arg(arg.to_string_lossy().as_ref());
+        }
+        if let Some(dir) = std_cmd.get_current_dir() {
+            pty_cmd.cwd(dir);
+        }
+        pty_cmd.env("TERM", "xterm-256color");
+        // Forward environment from the std command
+        for (key, val) in std_cmd.get_envs() {
+            if let Some(v) = val {
+                pty_cmd.env(key.to_string_lossy().as_ref(), v.to_string_lossy().as_ref());
+            }
+        }
+
+        let (pane_cols, pane_rows) = self.estimate_pane_size();
+        let size = PtySize {
+            rows: pane_rows,
+            cols: pane_cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        };
+
+        match PtySession::spawn(
+            pty_cmd,
+            size,
+            tx.clone(),
+            task.id.clone(),
+            agent.clone(),
+            OUTPUT_BUFFER_CAP,
+        ) {
+            Ok(session) => {
+                self.pty_sessions.insert(agent.clone(), session);
+                self.finalize_task_spawn(task, agent, tx);
+            }
+            Err(e) => {
+                self.push_event(&format!(
+                    "PTY spawn failed for {}, falling back to piped: {}",
+                    task.id, e
+                ));
+                self.spawn_task_piped(task, agent, tx);
+            }
+        }
+    }
+
+    /// Spawn task with piped I/O (legacy mode).
+    fn spawn_task_piped(
+        &mut self,
+        task: &Task,
+        agent: &AgentType,
+        tx: &mpsc::UnboundedSender<AgentEvent>,
+    ) {
         let state_mgr = StateManager::new(&self.forge_dir);
         let agent_name = agent.to_string().to_lowercase();
         let auth_mode = state_mgr
@@ -1235,49 +1511,68 @@ impl App {
                     }
                 });
 
-                let task_mgr = TaskManager::new(&self.forge_dir);
-                let state_mgr = StateManager::new(&self.forge_dir);
-                let mut updated = task.clone();
-                updated.status = TaskStatus::InProgress;
-                updated.assigned_to = Some(agent.clone());
-                updated.updated_at = chrono::Utc::now();
-                task_mgr.update_task(&updated).ok();
-
-                if !task.locked_files.is_empty() {
-                    state_mgr
-                        .lock_files(&task.id, agent.clone(), task.locked_files.clone())
-                        .ok();
-                }
-
-                self.running_task_ids.insert(task.id.clone());
-                self.agent_running_task
-                    .insert(agent.clone(), task.id.clone());
-
-                // DX-037: Track quota usage
-                let quota = self
-                    .provider_quota
-                    .entry(agent.clone())
-                    .or_insert((0, Instant::now()));
-                // Reset counter if 5-hour window has elapsed
-                if quota.1.elapsed() > std::time::Duration::from_secs(5 * 3600) {
-                    *quota = (0, Instant::now());
-                }
-                quota.0 += 1;
-
-                self.push_event(&format!("Started {} on {}", task.id, agent));
+                self.finalize_task_spawn(task, agent, tx);
             }
             Err(e) => {
                 self.push_event(&format!("Failed to spawn {}: {}", task.id, e));
                 let _ = tx.send(AgentEvent::Error {
                     task_id: task.id.clone(),
-                    agent,
+                    agent: agent.clone(),
                     message: e.to_string(),
                 });
             }
         }
     }
 
+    /// Common post-spawn bookkeeping for both PTY and piped modes.
+    fn finalize_task_spawn(
+        &mut self,
+        task: &Task,
+        agent: &AgentType,
+        _tx: &mpsc::UnboundedSender<AgentEvent>,
+    ) {
+        let task_mgr = TaskManager::new(&self.forge_dir);
+        let state_mgr = StateManager::new(&self.forge_dir);
+        let mut updated = task.clone();
+        updated.status = TaskStatus::InProgress;
+        updated.assigned_to = Some(agent.clone());
+        updated.updated_at = chrono::Utc::now();
+        task_mgr.update_task(&updated).ok();
+
+        if !task.locked_files.is_empty() {
+            state_mgr
+                .lock_files(&task.id, agent.clone(), task.locked_files.clone())
+                .ok();
+        }
+
+        self.running_task_ids.insert(task.id.clone());
+        self.agent_running_task
+            .insert(agent.clone(), task.id.clone());
+
+        // DX-037: Track quota usage
+        let quota = self
+            .provider_quota
+            .entry(agent.clone())
+            .or_insert((0, Instant::now()));
+        // Reset counter if 5-hour window has elapsed
+        if quota.1.elapsed() > std::time::Duration::from_secs(5 * 3600) {
+            *quota = (0, Instant::now());
+        }
+        quota.0 += 1;
+
+        self.push_event(&format!("Started {} on {}", task.id, agent));
+    }
+
     pub fn cleanup_running_tasks(&mut self) {
+        // DX-024: Kill all active PTY sessions
+        for (_agent, mut session) in self.pty_sessions.drain() {
+            session.kill();
+        }
+        if let Some(mut shell) = self.shell_pty.take() {
+            shell.kill();
+        }
+        self.attached_pane = None;
+
         let task_mgr = TaskManager::new(&self.forge_dir);
         let state_mgr = StateManager::new(&self.forge_dir);
         let event_logger = EventLogger::new(&self.forge_dir);
@@ -2645,5 +2940,56 @@ mod tests {
         assert_eq!(app.provider_quota[&AgentType::Claude].0, 5);
         assert_eq!(app.provider_quota[&AgentType::Codex].0, 10);
         assert_eq!(app.provider_quota[&AgentType::Gemini].0, 15);
+    }
+
+    // ── DX-024: Stargate PTY mode tests ─────────────────────────
+
+    #[test]
+    fn test_pty_mode_defaults_off() {
+        let (app, _rx, _tx) = App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
+        assert!(!app.pty_mode);
+        assert!(app.pty_sessions.is_empty());
+        assert!(app.attached_pane.is_none());
+        assert!(app.shell_pty.is_none());
+    }
+
+    #[test]
+    fn test_estimate_pane_size() {
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
+        app.terminal_size = (120, 40);
+        let (cols, rows) = app.estimate_pane_size();
+        // Half of 120 = 60, minus 2 borders = 58
+        assert_eq!(cols, 58);
+        // 40 / 4 = 10, minus 2 borders = 8
+        assert_eq!(rows, 8);
+    }
+
+    #[test]
+    fn test_attached_pane_detach() {
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
+        app.attached_pane = Some(0);
+
+        // Esc should detach
+        app.handle_key(KeyEvent::from(KeyCode::Esc), &tx);
+        assert!(app.attached_pane.is_none());
+    }
+
+    #[test]
+    fn test_i_key_attaches_in_pty_mode() {
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
+        app.pty_mode = true;
+        app.focus = FocusArea::Pane(0);
+
+        // No PTY session yet — 'i' should not attach
+        app.handle_key(KeyEvent::from(KeyCode::Char('i')), &tx);
+        assert!(app.attached_pane.is_none());
+
+        // 'i' in non-PTY mode should also not attach
+        app.pty_mode = false;
+        app.handle_key(KeyEvent::from(KeyCode::Char('i')), &tx);
+        assert!(app.attached_pane.is_none());
     }
 }

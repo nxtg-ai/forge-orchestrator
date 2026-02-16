@@ -178,6 +178,28 @@ pub fn execute(project_root: &Path, key: &str, value: &str) -> anyhow::Result<()
             println!("✓ Subscription pacing set to: {min}-{max}s");
             println!("  → Random delay of {min}-{max}s between tasks in subscription mode");
         }
+        "dashboard.mode" => match value {
+            "pty" | "piped" => {
+                state.dashboard_mode = value.to_string();
+                state.updated_at = chrono::Utc::now();
+                state_mgr.save(&state)?;
+                println!("✓ dashboard.mode = {value}");
+                match value {
+                    "pty" => {
+                        println!("  → Stargate PTY mode: agents render with full terminal colors");
+                    }
+                    "piped" => {
+                        println!("  → Legacy piped mode: plain text agent output (default)");
+                    }
+                    _ => {}
+                }
+            }
+            _ => {
+                anyhow::bail!(
+                    "Unknown dashboard mode: {value}. Choose: pty, piped\n\n  pty    — Stargate PTY mode with colors and interactivity\n  piped  — Legacy piped mode with plain text (default)"
+                );
+            }
+        },
         "git.auto_commit" => match value.to_lowercase().as_str() {
             "true" | "on" | "yes" => {
                 state.git.auto_commit = true;
@@ -199,7 +221,7 @@ pub fn execute(project_root: &Path, key: &str, value: &str) -> anyhow::Result<()
         },
         _ => {
             anyhow::bail!(
-                "Unknown config key: {key}\n\nAvailable keys:\n  brain                — Brain provider (rule-based, openai)\n  brain.model          — Model name (gpt-4o, gpt-4.1, gpt-5, gpt-5-mini)\n  claude.auth          — Claude auth mode (subscription, api)\n  codex.auth           — Codex auth mode (subscription, api)\n  gemini.auth          — Gemini auth mode (subscription, api)\n  claude.permissions   — Claude permission mode (safe, yolo)\n  codex.permissions    — Codex permission mode (safe, yolo)\n  gemini.permissions   — Gemini permission mode (safe, yolo)\n  scheduler.rotation   — Rotate tasks on rate limit (enabled, disabled)\n  scheduler.pacing     — Subscription delay range (e.g. 64-179)\n  git.auto_commit      — Auto-commit after task completion (true, false)"
+                "Unknown config key: {key}\n\nAvailable keys:\n  brain                — Brain provider (rule-based, openai)\n  brain.model          — Model name (gpt-4o, gpt-4.1, gpt-5, gpt-5-mini)\n  claude.auth          — Claude auth mode (subscription, api)\n  codex.auth           — Codex auth mode (subscription, api)\n  gemini.auth          — Gemini auth mode (subscription, api)\n  claude.permissions   — Claude permission mode (safe, yolo)\n  codex.permissions    — Codex permission mode (safe, yolo)\n  gemini.permissions   — Gemini permission mode (safe, yolo)\n  scheduler.rotation   — Rotate tasks on rate limit (enabled, disabled)\n  scheduler.pacing     — Subscription delay range (e.g. 64-179)\n  git.auto_commit      — Auto-commit after task completion (true, false)\n  dashboard.mode       — Dashboard rendering mode (pty, piped)"
             );
         }
     }
@@ -287,6 +309,16 @@ pub fn show(project_root: &Path) -> anyhow::Result<()> {
     let auto_icon = if state.git.auto_commit { "✓" } else { "✗" };
     println!("    auto_commit  = {} {auto_icon}", state.git.auto_commit);
     println!("    strategy     = {}", state.git.strategy);
+    println!();
+
+    // Dashboard config
+    let mode_icon = if state.dashboard_mode == "pty" {
+        "⚡"
+    } else {
+        "📄"
+    };
+    println!("  Dashboard:");
+    println!("    mode         = {} {mode_icon}", state.dashboard_mode);
     println!();
 
     // Usage hints (DX-006)

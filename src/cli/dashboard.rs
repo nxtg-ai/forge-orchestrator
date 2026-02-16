@@ -16,12 +16,24 @@ pub async fn execute(
     project_root: &Path,
     parallel_limit: usize,
     watch_mode: bool,
+    pty_flag: bool,
 ) -> anyhow::Result<()> {
     let forge_dir = project_root.join(".forge");
 
     if !forge_dir.exists() {
         anyhow::bail!("Forge is not initialized. Run `forge init` first.");
     }
+
+    // Determine PTY mode: CLI flag > config > default (piped)
+    let pty_mode = if pty_flag {
+        true
+    } else {
+        let state_mgr = crate::core::state::StateManager::new(&forge_dir);
+        state_mgr
+            .load()
+            .map(|s| s.dashboard_mode == "pty")
+            .unwrap_or(false)
+    };
 
     // Install a panic hook that restores the terminal before printing the panic
     let original_hook = std::panic::take_hook();
@@ -45,6 +57,9 @@ pub async fn execute(
         parallel_limit,
         watch_mode,
     );
+
+    // Set PTY mode
+    app.pty_mode = pty_mode;
 
     // Load initial tasks
     app.reload_tasks()?;
@@ -89,6 +104,9 @@ pub async fn execute(
                 TuiEvent::Tick => {
                     app.handle_tick(&agent_tx)?;
                 }
+                TuiEvent::Resize(cols, rows) => {
+                    app.handle_resize(cols, rows);
+                }
             }
         }
         if app.should_quit {
@@ -118,6 +136,9 @@ pub async fn execute(
                         }
                         TuiEvent::Tick => {
                             app.handle_tick(&agent_tx)?;
+                        }
+                        TuiEvent::Resize(cols, rows) => {
+                            app.handle_resize(cols, rows);
                         }
                     }
                 }

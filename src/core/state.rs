@@ -27,6 +27,13 @@ pub struct ForgeState {
     /// Scheduler config (pacing, rotation)
     #[serde(default)]
     pub scheduler: SchedulerConfig,
+    /// Dashboard rendering mode: "pty" (Stargate) or "piped" (legacy). Default: "piped".
+    #[serde(default = "default_dashboard_mode")]
+    pub dashboard_mode: String,
+}
+
+fn default_dashboard_mode() -> String {
+    "piped".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,6 +125,7 @@ impl Default for ForgeState {
             agent_permissions: HashMap::new(),
             git: GitConfig::default(),
             scheduler: SchedulerConfig::default(),
+            dashboard_mode: default_dashboard_mode(),
         }
     }
 }
@@ -312,5 +320,28 @@ mod tests {
 
         let loaded = mgr.load().unwrap();
         assert!(!loaded.git.auto_commit);
+    }
+
+    #[test]
+    fn test_dashboard_mode_default() {
+        let state = ForgeState::default();
+        assert_eq!(state.dashboard_mode, "piped");
+    }
+
+    #[test]
+    fn test_dashboard_mode_backward_compat() {
+        // Old state.json without dashboard_mode field should deserialize fine
+        let json = r#"{
+            "version": "1.2.0",
+            "project_name": "test",
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+            "tools": [],
+            "brain": { "provider": "rule-based", "model": null },
+            "task_summary": { "total": 0, "pending": 0, "in_progress": 0, "completed": 0, "failed": 0, "blocked": 0 },
+            "active_locks": {}
+        }"#;
+        let state: ForgeState = serde_json::from_str(json).unwrap();
+        assert_eq!(state.dashboard_mode, "piped");
     }
 }

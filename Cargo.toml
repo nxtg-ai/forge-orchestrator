@@ -52,6 +52,11 @@ uuid = { version = "1", features = ["v4"] }
 # Random delays for subscription pacing
 rand = "0.9"
 
+# PTY allocation (WezTerm-proven, cross-platform)
+portable-pty = "0.9"
+# ANSI escape sequence parser (alacritty's VTE)
+vte = "0.14"
+
 # File watching (future: detect completions)
 # notify = "7"
 

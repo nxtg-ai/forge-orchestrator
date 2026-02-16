@@ -3,6 +3,7 @@ use crate::core::task::{AgentType, Task, TaskPhase, TaskStatus};
 use crate::tui::app::{
     App, DashboardPhase, FocusArea, MAX_BACKOFF_ATTEMPTS, pane_agent, pane_label,
 };
+use crate::tui::pty_session::StyledLine;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -39,12 +40,16 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
         Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(area);
 
     // Line 1: Key legend
-    let text = if app.focus == FocusArea::Pane(3) && app.shell_active {
+    let text = if app.attached_pane.is_some() {
+        "Esc:Detach | All keys forwarded to PTY"
+    } else if app.focus == FocusArea::Pane(3) && app.shell_active && !app.pty_mode {
         "Esc:Unfocus | Ctrl+D:Close Shell | Type to interact"
     } else if app.all_complete {
         "q:Quit | \u{2191}\u{2193}:Scroll | Tab:Switch Pane | s:Shell"
     } else if app.expanded_pane.is_some() {
         "Esc:Back | \u{2191}\u{2193}:Scroll | Home/End:Jump | q:Quit"
+    } else if app.pty_mode {
+        "q:Quit | Tab:Focus | \u{2191}\u{2193}:Navigate | Enter/f:Expand | i:Attach | s:Shell"
     } else {
         "q:Quit | Tab:Focus | \u{2191}\u{2193}:Navigate | Enter/f:Expand | r:Retry | s:Shell"
     };
@@ -120,14 +125,18 @@ fn build_quota_spans(app: &App) -> Vec<Span<'static>> {
 fn render_task_board(f: &mut Frame, app: &App, area: Rect) {
     let focused = app.focus == FocusArea::TaskBoard;
 
-    // DX-038: Check for subscription risk
-    let state_mgr_warn = StateManager::new(&app.forge_dir);
-    let has_sub_risk = ["claude", "codex", "gemini"].iter().any(|agent| {
-        state_mgr_warn
-            .get_agent_auth(agent)
-            .unwrap_or_else(|_| "subscription".to_string())
-            == "subscription"
-    });
+    // DX-038: Check for subscription risk (suppressed in PTY mode — interactive TUI is safe)
+    let has_sub_risk = if app.pty_mode {
+        false
+    } else {
+        let state_mgr_warn = StateManager::new(&app.forge_dir);
+        ["claude", "codex", "gemini"].iter().any(|agent| {
+            state_mgr_warn
+                .get_agent_auth(agent)
+                .unwrap_or_else(|_| "subscription".to_string())
+                == "subscription"
+        })
+    };
 
     let border_style = if has_sub_risk {
         Style::default().fg(Color::Yellow)
@@ -213,7 +222,40 @@ fn render_task_board(f: &mut Frame, app: &App, area: Rect) {
         Constraint::Fill(1),
     ];
 
-    let table = Table::new(rows, widths)
+    // Calculate visible rows (area height minus borders and header)
+    let visible_rows = area.height.saturating_sub(3) as usize; // 2 borders + 1 header
+    let total = sorted_tasks.len();
+
+    // Scroll so selected_index is always visible
+    let scroll_offset =
+        if visible_rows == 0 || total <= visible_rows || app.selected_index < visible_rows / 2 {
+            0
+        } else if app.selected_index + visible_rows / 2 >= total {
+            total.saturating_sub(visible_rows)
+        } else {
+            app.selected_index.saturating_sub(visible_rows / 2)
+        };
+
+    // Scroll indicator in title
+    let scroll_info = if total > visible_rows {
+        format!(
+            " [{}-{}/{}]",
+            scroll_offset + 1,
+            (scroll_offset + visible_rows).min(total),
+            total
+        )
+    } else {
+        String::new()
+    };
+    let title = format!("{}{}", title, scroll_info);
+
+    let visible: Vec<Row> = rows
+        .into_iter()
+        .skip(scroll_offset)
+        .take(visible_rows)
+        .collect();
+
+    let table = Table::new(visible, widths)
         .header(header.style(Style::default().fg(Color::Cyan)))
         .block(
             Block::default()
@@ -242,7 +284,12 @@ fn render_agent_panes(f: &mut Frame, app: &App, area: Rect) {
 
 fn render_single_pane(f: &mut Frame, app: &App, idx: usize, area: Rect, expanded: bool) {
     let focused = app.focus == FocusArea::Pane(idx);
-    let border_style = if focused || expanded {
+    let is_attached = app.attached_pane == Some(idx);
+
+    // DX-024: Green border when attached, Cyan when focused, DarkGray otherwise
+    let border_style = if is_attached {
+        Style::default().fg(Color::Green)
+    } else if focused || expanded {
         Style::default().fg(Color::Cyan)
     } else {
         Style::default().fg(Color::DarkGray)
@@ -253,7 +300,11 @@ fn render_single_pane(f: &mut Frame, app: &App, idx: usize, area: Rect, expanded
     // Pane 3: shell (when active) or summary
     if idx == 3 {
         if app.shell_active {
-            render_shell_pane(f, app, area, focused || expanded);
+            if app.pty_mode && app.shell_pty.is_some() {
+                render_pty_shell_pane(f, app, area, is_attached, focused || expanded);
+            } else {
+                render_shell_pane(f, app, area, focused || expanded);
+            }
         } else {
             render_summary_pane_inner(f, app, label, area, border_style);
         }
@@ -266,6 +317,30 @@ fn render_single_pane(f: &mut Frame, app: &App, idx: usize, area: Rect, expanded
     };
 
     let running_task = app.agent_running_task.get(&agent);
+
+    // DX-024: PTY mode — render styled output from PTY session
+    if app.pty_mode
+        && let Some(session) = app.pty_sessions.get(&agent)
+    {
+        let attach_label = if is_attached { " [ATTACHED]" } else { "" };
+        let title = match running_task {
+            Some(tid) => format!(" {} [{}]{} ", label, tid, attach_label),
+            None => format!(" {}{} ", label, attach_label),
+        };
+        let styled_lines = session.snapshot();
+        render_styled_pane(
+            f,
+            app,
+            idx,
+            &agent,
+            &title,
+            &styled_lines,
+            area,
+            border_style,
+        );
+        return;
+    }
+
     let title = match running_task {
         Some(tid) => format!(" {} [{}] ", label, tid),
         None => format!(" {} ", label),
@@ -330,6 +405,109 @@ fn render_single_pane(f: &mut Frame, app: &App, idx: usize, area: Rect, expanded
     );
 
     f.render_widget(paragraph, area);
+}
+
+/// DX-024: Render a pane using styled lines from a PTY session.
+#[allow(clippy::too_many_arguments)]
+fn render_styled_pane(
+    f: &mut Frame,
+    app: &App,
+    idx: usize,
+    agent: &AgentType,
+    title: &str,
+    styled_lines: &[StyledLine],
+    area: Rect,
+    border_style: Style,
+) {
+    let inner_height = area.height.saturating_sub(2) as usize;
+    let total = styled_lines.len();
+    let scroll = app.pane_scroll[idx];
+
+    let end = total.saturating_sub(scroll);
+    let start = end.saturating_sub(inner_height);
+
+    let mut visible_lines: Vec<Line> = styled_lines[start..end]
+        .iter()
+        .map(|sl| sl.to_ratatui_line())
+        .collect();
+
+    // Show scroll indicator if not at bottom
+    if scroll > 0 && inner_height > 0 && !visible_lines.is_empty() {
+        let indicator = format!("[+{} lines below]", scroll);
+        *visible_lines.last_mut().unwrap() = Line::from(Span::styled(
+            indicator,
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+
+    // Show backoff countdown if agent is rate-limited
+    if let Some(backoff) = app.agent_backoff.get(agent)
+        && let Some(next_retry) = backoff.next_retry
+    {
+        let now = Instant::now();
+        if now < next_retry {
+            let remaining_secs = (next_retry - now).as_secs();
+            let indicator = format!(
+                "--- Rate limited. Retrying in {}s... (attempt {}/{}) ---",
+                remaining_secs, backoff.attempt, MAX_BACKOFF_ATTEMPTS
+            );
+            visible_lines.push(Line::from(Span::styled(
+                indicator,
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )));
+        }
+    }
+
+    let paragraph = Paragraph::new(visible_lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(title.to_string())
+            .border_style(border_style),
+    );
+
+    f.render_widget(paragraph, area);
+}
+
+/// DX-024: Render PTY shell pane with styled output.
+fn render_pty_shell_pane(f: &mut Frame, app: &App, area: Rect, is_attached: bool, active: bool) {
+    let border_style = if is_attached {
+        Style::default().fg(Color::Green)
+    } else if active {
+        Style::default().fg(Color::Cyan)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
+    let attach_label = if is_attached { " [ATTACHED]" } else { "" };
+    let title = if active {
+        format!(" Shell{} (i:Attach | Esc:Detach) ", attach_label)
+    } else {
+        format!(" Shell{} (s:focus) ", attach_label)
+    };
+
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(border_style);
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    if let Some(ref session) = app.shell_pty {
+        let styled_lines = session.snapshot();
+        let visible_height = inner.height as usize;
+        let total = styled_lines.len();
+        let skip = total.saturating_sub(visible_height);
+        let lines: Vec<Line> = styled_lines
+            .iter()
+            .skip(skip)
+            .map(|sl| sl.to_ratatui_line())
+            .collect();
+        let paragraph = Paragraph::new(lines);
+        f.render_widget(paragraph, inner);
+    }
 }
 
 fn render_shell_pane(f: &mut Frame, app: &App, area: Rect, active: bool) {

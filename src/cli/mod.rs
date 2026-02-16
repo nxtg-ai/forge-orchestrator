@@ -113,6 +113,10 @@ pub enum Commands {
         /// Accept subscription risk for providers that may ban automated usage
         #[arg(long = "i-accept-subscription-risk", default_value_t = false)]
         accept_subscription_risk: bool,
+
+        /// Enable Stargate PTY mode — agents render with full terminal colors and interactivity
+        #[arg(long)]
+        pty: bool,
     },
 
     /// Generate verify subtasks for completed build tasks

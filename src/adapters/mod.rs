@@ -29,6 +29,19 @@ pub trait ToolAdapter {
         permissions: &str,
     ) -> Command;
 
+    /// Build the CLI command for interactive PTY execution (Stargate mode).
+    /// Default: delegates to build_command(). Override in adapters that need
+    /// different flags for interactive mode (e.g., Claude omits --output-format).
+    fn build_command_interactive(
+        &self,
+        task: &Task,
+        project_root: &Path,
+        auth_mode: &str,
+        permissions: &str,
+    ) -> Command {
+        self.build_command(task, project_root, auth_mode, permissions)
+    }
+
     /// Execute a task headlessly using this tool (sync, blocking).
     /// Default implementation: calls `build_command()` + `.output()` + `process_output()`.
     fn execute_headless(

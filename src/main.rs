@@ -97,9 +97,24 @@ async fn main() -> anyhow::Result<()> {
             watch,
             parallel,
             accept_subscription_risk,
+            pty,
         } => {
             // DX-038: Check subscription risk before launching dashboard
-            if !accept_subscription_risk {
+            // PTY mode is interactive TUI — Anthropic's preferred pattern, no risk
+            let pty_from_config = {
+                let forge_dir = project_root.join(".forge");
+                if forge_dir.exists() {
+                    let state_mgr = crate::core::state::StateManager::new(&forge_dir);
+                    state_mgr
+                        .load()
+                        .map(|s| s.dashboard_mode == "pty")
+                        .unwrap_or(false)
+                } else {
+                    false
+                }
+            };
+            let is_pty = pty || pty_from_config;
+            if !accept_subscription_risk && !is_pty {
                 let forge_dir = project_root.join(".forge");
                 if forge_dir.exists() {
                     let state_mgr = crate::core::state::StateManager::new(&forge_dir);
@@ -132,7 +147,7 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            cli::dashboard::execute(&project_root, parallel, watch).await?;
+            cli::dashboard::execute(&project_root, parallel, watch, pty).await?;
         }
         Commands::Config { key, value } => {
             if let Some(key) = key {
