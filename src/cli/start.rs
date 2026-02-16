@@ -7,10 +7,13 @@ use crate::core::state::StateManager;
 use crate::core::task::{AgentType, Task, TaskManager, TaskStatus};
 use crate::detect;
 use colored::Colorize;
+use rand::Rng;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
 
 /// Max retries for transient failures (rate limits, timeouts).
 const MAX_RETRIES: usize = 3;
@@ -38,6 +41,20 @@ const TRANSIENT_ERRORS: &[&str] = &[
     "api_error",
 ];
 
+/// Rate-limit-specific error signatures (subset of transient errors).
+const RATE_LIMIT_ERRORS: &[&str] = &[
+    "usage_limit_reached",
+    "rate_limit",
+    "rate limit",
+    "too many requests",
+    "no capacity available",
+    "overloaded",
+    "rate_limit_error",
+];
+
+/// Max consecutive rate limits before pausing a provider for a long time.
+const MAX_CONSECUTIVE_RATE_LIMITS: u32 = 3;
+
 /// Shared orchestration stats.
 struct OrcStats {
     completed: AtomicUsize,
@@ -45,6 +62,15 @@ struct OrcStats {
     retried: AtomicUsize,
     total: usize,
 }
+
+/// Per-provider rate limit tracking (in-memory, not persisted).
+#[derive(Debug, Default)]
+struct ProviderState {
+    consecutive_rate_limits: u32,
+    paused_until: Option<Instant>,
+}
+
+type ProviderTracker = Arc<Mutex<HashMap<AgentType, ProviderState>>>;
 
 /// CEO Mode: loop `execute()` until all tasks are done or permanently stuck.
 /// Resets failed tasks between passes (treats them as retryable).
@@ -189,6 +215,44 @@ pub async fn execute(project_root: &Path, agent_filter: Option<&str>) -> anyhow:
         available_agents.clone()
     };
 
+    // ── Load scheduler config ────────────────────────────────────
+    let state_mgr = StateManager::new(&forge_dir);
+    let state = state_mgr.load()?;
+    let scheduler = state.scheduler.clone();
+
+    // Show pacing info
+    for agent in &target_agents {
+        let agent_name = agent.to_string().to_lowercase();
+        let auth = state
+            .agent_auth
+            .get(&agent_name)
+            .cloned()
+            .unwrap_or_else(|| "subscription".to_string());
+        if auth == "subscription" {
+            println!(
+                "  {} {:<8} subscription mode — pacing {}-{}s between tasks",
+                "⏱".dimmed(),
+                agent_name,
+                scheduler.pacing_min_secs,
+                scheduler.pacing_max_secs,
+            );
+        } else {
+            println!(
+                "  {} {:<8} API mode — full speed",
+                "⚡".dimmed(),
+                agent_name,
+            );
+        }
+    }
+    if scheduler.rotation {
+        println!(
+            "  {} Provider rotation: {}",
+            "↻".dimmed(),
+            "enabled".green()
+        );
+    }
+    println!();
+
     // ── Task inventory ──────────────────────────────────────────
     let task_mgr = TaskManager::new(&forge_dir);
     let tasks = task_mgr.list_tasks()?;
@@ -233,13 +297,34 @@ pub async fn execute(project_root: &Path, agent_filter: Option<&str>) -> anyhow:
         total,
     });
 
+    // ── Provider tracker (rate limit state) ──────────────────────
+    let provider_tracker: ProviderTracker = Arc::new(Mutex::new(HashMap::new()));
+
     // ── Run orchestration ───────────────────────────────────────
-    let lock = Arc::new(tokio::sync::Mutex::new(()));
+    let lock = Arc::new(Mutex::new(()));
+    let scheduler = Arc::new(scheduler);
 
     if target_agents.len() == 1 {
-        run_agent_loop(project_root, &forge_dir, &target_agents[0], &lock, &stats).await?;
+        run_agent_loop(
+            project_root,
+            &forge_dir,
+            &target_agents[0],
+            &lock,
+            &stats,
+            &provider_tracker,
+            &scheduler,
+        )
+        .await?;
     } else {
-        run_parallel(project_root, &forge_dir, &target_agents, &stats).await?;
+        run_parallel(
+            project_root,
+            &forge_dir,
+            &target_agents,
+            &stats,
+            &provider_tracker,
+            &scheduler,
+        )
+        .await?;
     }
 
     // ── Final report ────────────────────────────────────────────
@@ -407,16 +492,26 @@ fn is_transient_error(output: &str) -> bool {
     TRANSIENT_ERRORS.iter().any(|e| lower.contains(e))
 }
 
+/// DX-034: Detect if an error is specifically a rate limit (not just any transient error).
+fn is_rate_limit_error(output: &str) -> bool {
+    let lower = output.to_lowercase();
+    RATE_LIMIT_ERRORS.iter().any(|e| lower.contains(e))
+        || (lower.contains("429")
+            && (lower.contains("capacity") || lower.contains("limit") || lower.contains("quota")))
+}
+
 /// Run multiple agents in parallel, each managing its own task queue.
 async fn run_parallel(
     project_root: &Path,
     forge_dir: &Path,
     agents: &[AgentType],
     stats: &Arc<OrcStats>,
+    provider_tracker: &ProviderTracker,
+    scheduler: &Arc<crate::core::state::SchedulerConfig>,
 ) -> anyhow::Result<()> {
     let project_root = project_root.to_path_buf();
     let forge_dir = forge_dir.to_path_buf();
-    let lock = Arc::new(tokio::sync::Mutex::new(()));
+    let lock = Arc::new(Mutex::new(()));
 
     let handles: Vec<_> = agents
         .iter()
@@ -426,8 +521,12 @@ async fn run_parallel(
             let agent = agent.clone();
             let lock = Arc::clone(&lock);
             let stats = Arc::clone(stats);
+            let tracker = Arc::clone(provider_tracker);
+            let sched = Arc::clone(scheduler);
 
-            tokio::spawn(async move { run_agent_loop(&pr, &fd, &agent, &lock, &stats).await })
+            tokio::spawn(async move {
+                run_agent_loop(&pr, &fd, &agent, &lock, &stats, &tracker, &sched).await
+            })
         })
         .collect();
 
@@ -450,18 +549,49 @@ async fn run_parallel(
     Ok(())
 }
 
-/// Agent loop with retry, progress tracking, and shared coordination.
+/// Agent loop with pacing, rate limit detection, backoff, and rotation.
 async fn run_agent_loop(
     project_root: &Path,
     forge_dir: &Path,
     agent: &AgentType,
-    lock: &Arc<tokio::sync::Mutex<()>>,
+    lock: &Arc<Mutex<()>>,
     stats: &Arc<OrcStats>,
+    provider_tracker: &ProviderTracker,
+    scheduler: &Arc<crate::core::state::SchedulerConfig>,
 ) -> anyhow::Result<()> {
     let tag = format!("[{}]", agent).cyan();
     let mut consecutive_waits = 0u32;
 
+    // DX-033: Get auth mode for this agent (determines pacing)
+    let auth_mode = {
+        let state_mgr = StateManager::new(forge_dir);
+        let agent_name = agent.to_string().to_lowercase();
+        state_mgr
+            .get_agent_auth(&agent_name)
+            .unwrap_or_else(|_| "subscription".to_string())
+    };
+
     loop {
+        // DX-035: Check if this provider is paused (rate limited)
+        {
+            let tracker = provider_tracker.lock().await;
+            if let Some(state) = tracker.get(agent) {
+                if let Some(paused_until) = state.paused_until {
+                    if Instant::now() < paused_until {
+                        let remaining = paused_until - Instant::now();
+                        println!(
+                            "  {tag} {} Provider rate-limited, resuming in {}s...",
+                            "⏸".yellow(),
+                            remaining.as_secs()
+                        );
+                        drop(tracker);
+                        tokio::time::sleep(remaining).await;
+                        continue;
+                    }
+                }
+            }
+        }
+
         // Under lock: find next available task for this agent
         let next_task = {
             let _guard = lock.lock().await;
@@ -549,6 +679,7 @@ async fn run_agent_loop(
         let mut attempt = 0;
         let mut last_output;
         let mut success = false;
+        let mut hit_rate_limit = false;
 
         loop {
             attempt += 1;
@@ -569,13 +700,29 @@ async fn run_agent_loop(
                         stats.total
                     );
                     success = true;
+
+                    // Reset consecutive rate limits on success
+                    {
+                        let mut tracker = provider_tracker.lock().await;
+                        if let Some(state) = tracker.get_mut(agent) {
+                            state.consecutive_rate_limits = 0;
+                            state.paused_until = None;
+                        }
+                    }
+
                     break;
                 }
                 Ok(output) => {
                     last_output = output.output.clone();
                     save_result(forge_dir, &task.id, &last_output).ok();
 
-                    // Check if retryable
+                    // DX-034: Check if this is specifically a rate limit error
+                    if is_rate_limit_error(&last_output) {
+                        hit_rate_limit = true;
+                        break;
+                    }
+
+                    // Check if retryable (non-rate-limit transient error)
                     if attempt < MAX_RETRIES && is_transient_error(&last_output) {
                         let backoff = std::time::Duration::from_secs(10 * attempt as u64);
                         stats.retried.fetch_add(1, Ordering::Relaxed);
@@ -607,11 +754,7 @@ async fn run_agent_loop(
                     fail_task(forge_dir, &task)?;
                     stats.failed.fetch_add(1, Ordering::Relaxed);
                     let snippet = last_output.lines().next().unwrap_or("unknown error");
-                    let snippet = if snippet.len() > 60 {
-                        &snippet[..60]
-                    } else {
-                        snippet
-                    };
+                    let snippet = truncate_safe(snippet, 60);
                     println!(
                         "  {tag} {} {} failed: {} ({})",
                         "✗".red(),
@@ -623,6 +766,15 @@ async fn run_agent_loop(
                 }
                 Err(e) => {
                     let err_str = e.to_string();
+
+                    // Check for rate limit in error
+                    if is_rate_limit_error(&err_str) {
+                        last_output = err_str;
+                        save_result(forge_dir, &task.id, &last_output).ok();
+                        hit_rate_limit = true;
+                        break;
+                    }
+
                     if attempt < MAX_RETRIES && is_transient_error(&err_str) {
                         let backoff = std::time::Duration::from_secs(10 * attempt as u64);
                         stats.retried.fetch_add(1, Ordering::Relaxed);
@@ -646,11 +798,83 @@ async fn run_agent_loop(
                         "✗".red(),
                         task.id,
                         e,
-                        format_duration(elapsed).dimmed()
+                        format_duration(started.elapsed()).dimmed()
                     );
                     break;
                 }
             }
+        }
+
+        // DX-034/035: Handle rate limit — DON'T fail the task, pause the provider
+        if hit_rate_limit {
+            let mut tracker = provider_tracker.lock().await;
+            let pstate = tracker.entry(agent.clone()).or_default();
+            pstate.consecutive_rate_limits += 1;
+
+            // DX-035: Exponential backoff — 60s, 120s, 240s, 480s, 600s max
+            let backoff_secs = std::cmp::min(
+                60 * 2u64.pow(pstate.consecutive_rate_limits.saturating_sub(1)),
+                600,
+            );
+
+            // Reset task to pending so it can be retried later
+            {
+                let _guard = lock.lock().await;
+                let task_mgr = TaskManager::new(forge_dir);
+                let mut updated = task.clone();
+                updated.status = TaskStatus::Pending;
+                updated.updated_at = chrono::Utc::now();
+                task_mgr.update_task(&updated)?;
+            }
+
+            if pstate.consecutive_rate_limits >= MAX_CONSECUTIVE_RATE_LIMITS {
+                // Long pause — 30 minutes
+                pstate.paused_until = Some(Instant::now() + Duration::from_secs(1800));
+                println!(
+                    "  {tag} {} {} rate limited ({} consecutive). Pausing provider for 30 minutes.",
+                    "⛔".red(),
+                    task.id,
+                    pstate.consecutive_rate_limits,
+                );
+
+                // DX-036: Provider rotation — reassign remaining tasks if enabled
+                if scheduler.rotation {
+                    drop(tracker);
+                    let reassigned = rotate_tasks(forge_dir, agent, provider_tracker).await;
+                    if reassigned > 0 {
+                        println!(
+                            "  {tag} {} Rotated {} tasks to available providers.",
+                            "↻".cyan(),
+                            reassigned,
+                        );
+                    } else {
+                        println!(
+                            "  {tag} {} No available providers for rotation.",
+                            "!".yellow(),
+                        );
+                    }
+                } else {
+                    drop(tracker);
+                    println!(
+                        "  {tag} {} Enable rotation: forge config scheduler.rotation enabled",
+                        "💡".dimmed(),
+                    );
+                }
+            } else {
+                pstate.paused_until = Some(Instant::now() + Duration::from_secs(backoff_secs));
+                println!(
+                    "  {tag} {} {} rate limited. Pausing provider for {}s (attempt {}/{}).",
+                    "⏸".yellow(),
+                    task.id,
+                    backoff_secs,
+                    pstate.consecutive_rate_limits,
+                    MAX_CONSECUTIVE_RATE_LIMITS,
+                );
+                drop(tracker);
+            }
+
+            // Don't immediately retry — go back to top of loop where pause check happens
+            continue;
         }
 
         if !success {
@@ -670,9 +894,88 @@ async fn run_agent_loop(
                 )
                 .ok();
         }
+
+        // DX-033: Subscription pacing — random delay between tasks
+        if success && auth_mode == "subscription" {
+            let delay =
+                rand::rng().random_range(scheduler.pacing_min_secs..=scheduler.pacing_max_secs);
+            println!(
+                "  {tag} {} Subscription pacing: waiting {}s before next task...",
+                "⏳".dimmed(),
+                delay,
+            );
+            tokio::time::sleep(Duration::from_secs(delay)).await;
+        }
     }
 
     Ok(())
+}
+
+/// DX-036: Rotate pending tasks from a paused provider to available providers.
+/// Returns the number of tasks reassigned.
+async fn rotate_tasks(
+    forge_dir: &Path,
+    paused_agent: &AgentType,
+    provider_tracker: &ProviderTracker,
+) -> usize {
+    let task_mgr = TaskManager::new(forge_dir);
+    let tasks = match task_mgr.list_tasks() {
+        Ok(t) => t,
+        Err(_) => return 0,
+    };
+
+    // Find pending tasks assigned to the paused provider
+    let pending_for_paused: Vec<_> = tasks
+        .iter()
+        .filter(|t| t.status == TaskStatus::Pending && t.assigned_to.as_ref() == Some(paused_agent))
+        .collect();
+
+    if pending_for_paused.is_empty() {
+        return 0;
+    }
+
+    // Find available providers (not paused)
+    let tracker = provider_tracker.lock().await;
+    let all_agents = [AgentType::Claude, AgentType::Codex, AgentType::Gemini];
+    let available: Vec<_> = all_agents
+        .iter()
+        .filter(|a| {
+            *a != paused_agent
+                && !tracker
+                    .get(a)
+                    .and_then(|s| s.paused_until)
+                    .is_some_and(|until| Instant::now() < until)
+        })
+        .collect();
+    drop(tracker);
+
+    if available.is_empty() {
+        return 0;
+    }
+
+    // Round-robin reassignment
+    let mut reassigned = 0;
+    for (i, task) in pending_for_paused.iter().enumerate() {
+        let target = available[i % available.len()];
+        let mut updated = (*task).clone();
+        updated.assigned_to = Some(target.clone());
+        updated.updated_at = chrono::Utc::now();
+        if task_mgr.update_task(&updated).is_ok() {
+            reassigned += 1;
+        }
+    }
+
+    reassigned
+}
+
+/// UTF-8 safe truncation.
+fn truncate_safe(s: &str, max: usize) -> &str {
+    if s.chars().count() <= max {
+        s
+    } else {
+        let end = s.char_indices().nth(max).map(|(i, _)| i).unwrap_or(s.len());
+        &s[..end]
+    }
 }
 
 /// Find the next available task for a specific agent.

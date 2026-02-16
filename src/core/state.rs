@@ -24,6 +24,9 @@ pub struct ForgeState {
     /// Git integration config
     #[serde(default)]
     pub git: GitConfig,
+    /// Scheduler config (pacing, rotation)
+    #[serde(default)]
+    pub scheduler: SchedulerConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,6 +70,26 @@ pub struct GitConfig {
     pub strategy: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SchedulerConfig {
+    /// Enable provider rotation when a provider is rate-limited. Default: false.
+    pub rotation: bool,
+    /// Minimum pacing delay in seconds for subscription mode. Default: 64.
+    pub pacing_min_secs: u64,
+    /// Maximum pacing delay in seconds for subscription mode. Default: 179.
+    pub pacing_max_secs: u64,
+}
+
+impl Default for SchedulerConfig {
+    fn default() -> Self {
+        Self {
+            rotation: false,
+            pacing_min_secs: 64,
+            pacing_max_secs: 179,
+        }
+    }
+}
+
 impl Default for GitConfig {
     fn default() -> Self {
         Self {
@@ -94,6 +117,7 @@ impl Default for ForgeState {
             agent_auth: HashMap::new(),
             agent_permissions: HashMap::new(),
             git: GitConfig::default(),
+            scheduler: SchedulerConfig::default(),
         }
     }
 }

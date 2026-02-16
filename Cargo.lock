@@ -433,6 +433,7 @@ dependencies = [
  "dotenvy",
  "indicatif",
  "predicates",
+ "rand",
  "ratatui",
  "reqwest",
  "serde",

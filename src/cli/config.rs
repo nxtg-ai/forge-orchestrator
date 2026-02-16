@@ -103,6 +103,47 @@ pub fn execute(project_root: &Path, key: &str, value: &str) -> anyhow::Result<()
                 }
             }
         }
+        "scheduler.rotation" => match value.to_lowercase().as_str() {
+            "true" | "on" | "yes" | "enabled" => {
+                state.scheduler.rotation = true;
+                state.updated_at = chrono::Utc::now();
+                state_mgr.save(&state)?;
+                println!("✓ scheduler.rotation = enabled");
+                println!("  → Rate-limited tasks will be reassigned to available providers");
+            }
+            "false" | "off" | "no" | "disabled" => {
+                state.scheduler.rotation = false;
+                state.updated_at = chrono::Utc::now();
+                state_mgr.save(&state)?;
+                println!("✓ scheduler.rotation = disabled");
+                println!("  → Tasks stay with their assigned provider (default)");
+            }
+            _ => {
+                anyhow::bail!("Invalid value: {value}. Use: enabled / disabled");
+            }
+        },
+        "scheduler.pacing" => {
+            // Format: "min-max" e.g. "64-179"
+            let parts: Vec<&str> = value.split('-').collect();
+            if parts.len() != 2 {
+                anyhow::bail!("Invalid format: {value}. Use: MIN-MAX (e.g. 64-179)");
+            }
+            let min: u64 = parts[0]
+                .parse()
+                .map_err(|_| anyhow::anyhow!("Invalid min: {}", parts[0]))?;
+            let max: u64 = parts[1]
+                .parse()
+                .map_err(|_| anyhow::anyhow!("Invalid max: {}", parts[1]))?;
+            if min >= max || min < 10 {
+                anyhow::bail!("Min must be >= 10 and less than max. Got: {min}-{max}");
+            }
+            state.scheduler.pacing_min_secs = min;
+            state.scheduler.pacing_max_secs = max;
+            state.updated_at = chrono::Utc::now();
+            state_mgr.save(&state)?;
+            println!("✓ Subscription pacing set to: {min}-{max}s");
+            println!("  → Random delay of {min}-{max}s between tasks in subscription mode");
+        }
         "git.auto_commit" => match value.to_lowercase().as_str() {
             "true" | "on" | "yes" => {
                 state.git.auto_commit = true;
@@ -124,7 +165,7 @@ pub fn execute(project_root: &Path, key: &str, value: &str) -> anyhow::Result<()
         },
         _ => {
             anyhow::bail!(
-                "Unknown config key: {key}\n\nAvailable keys:\n  brain              — Brain provider (rule-based, openai)\n  brain.model        — Model name (gpt-4o, gpt-4.1, gpt-5, gpt-5-mini)\n  claude.auth        — Claude auth mode (subscription, api)\n  codex.auth         — Codex auth mode (subscription, api)\n  gemini.auth        — Gemini auth mode (subscription, api)\n  claude.permissions — Claude permission mode (safe, yolo)\n  codex.permissions  — Codex permission mode (safe, yolo)\n  gemini.permissions — Gemini permission mode (safe, yolo)\n  git.auto_commit    — Auto-commit after task completion (true, false)"
+                "Unknown config key: {key}\n\nAvailable keys:\n  brain                — Brain provider (rule-based, openai)\n  brain.model          — Model name (gpt-4o, gpt-4.1, gpt-5, gpt-5-mini)\n  claude.auth          — Claude auth mode (subscription, api)\n  codex.auth           — Codex auth mode (subscription, api)\n  gemini.auth          — Gemini auth mode (subscription, api)\n  claude.permissions   — Claude permission mode (safe, yolo)\n  codex.permissions    — Codex permission mode (safe, yolo)\n  gemini.permissions   — Gemini permission mode (safe, yolo)\n  scheduler.rotation   — Rotate tasks on rate limit (enabled, disabled)\n  scheduler.pacing     — Subscription delay range (e.g. 64-179)\n  git.auto_commit      — Auto-commit after task completion (true, false)"
             );
         }
     }
@@ -188,6 +229,23 @@ pub fn show(project_root: &Path) -> anyhow::Result<()> {
         let perms_icon = if perms == "yolo" { "⚡" } else { "🔒" };
         println!("    {agent:8} auth={auth:13} permissions={perms} {perms_icon}",);
     }
+    println!();
+
+    // Scheduler config
+    println!("  Scheduler:");
+    let rotation_icon = if state.scheduler.rotation {
+        "✓"
+    } else {
+        "✗"
+    };
+    println!(
+        "    rotation     = {} {rotation_icon}",
+        state.scheduler.rotation
+    );
+    println!(
+        "    pacing       = {}-{}s (subscription mode)",
+        state.scheduler.pacing_min_secs, state.scheduler.pacing_max_secs
+    );
     println!();
 
     // Git config
