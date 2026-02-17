@@ -443,6 +443,16 @@ impl PtySession {
             let _ = guard.kill();
         }
     }
+
+    /// Schedule text to be written to the PTY after a delay.
+    /// Used to type the initial prompt into a TUI after it initializes.
+    pub fn schedule_input(&self, text: String, delay_ms: u64) {
+        let sender = self.input_tx.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+            let _ = sender.send(text.into_bytes());
+        });
+    }
 }
 
 /// Convert a crossterm KeyEvent to raw terminal bytes for PTY input.

@@ -115,4 +115,39 @@ impl ToolAdapter for GeminiAdapter {
 
         cmd
     }
+
+    /// Interactive PTY mode: launch `gemini` (full TUI) instead of `gemini -p`.
+    /// The prompt is typed into the TUI via initial_input() after startup.
+    fn build_command_interactive(
+        &self,
+        _task: &Task,
+        project_root: &Path,
+        auth_mode: &str,
+        permissions: &str,
+    ) -> Command {
+        let mut cmd = Command::new("gemini");
+        // No -p flag — launches full interactive TUI
+        if permissions == "yolo" {
+            cmd.args(["--yolo", "--sandbox=false"]);
+        }
+        cmd.current_dir(project_root);
+
+        if auth_mode == "subscription" {
+            cmd.env_remove("GOOGLE_API_KEY")
+                .env_remove("GEMINI_API_KEY");
+        }
+
+        cmd
+    }
+
+    /// Provide the task prompt to be typed into the Gemini TUI after it initializes.
+    fn initial_input(&self, task: &Task) -> Option<String> {
+        let desc = task.description.replace('\n', " ");
+        let prompt = format!(
+            "Complete task {}: {}. {}",
+            task.id, task.title, desc
+        );
+        // \r = Enter to submit the prompt
+        Some(format!("{}\r", prompt))
+    }
 }

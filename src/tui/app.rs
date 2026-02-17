@@ -1428,6 +1428,18 @@ impl App {
             OUTPUT_BUFFER_CAP,
         ) {
             Ok(session) => {
+                // Check if adapter wants to type initial input into the TUI
+                let initial = match agent {
+                    AgentType::Claude | AgentType::Any => ClaudeAdapter.initial_input(task),
+                    AgentType::Codex => CodexAdapter.initial_input(task),
+                    AgentType::Gemini => GeminiAdapter.initial_input(task),
+                };
+
+                // Schedule initial input to be typed after TUI initializes
+                if let Some(text) = initial {
+                    session.schedule_input(text, 1500);
+                }
+
                 self.pty_sessions.insert(agent.clone(), session);
                 self.finalize_task_spawn(task, agent, tx);
             }

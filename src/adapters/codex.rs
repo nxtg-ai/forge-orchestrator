@@ -6,6 +6,32 @@ use std::process::Command;
 
 pub struct CodexAdapter;
 
+impl CodexAdapter {
+    /// Build the task prompt text (shared between headless and initial_input).
+    fn task_prompt(task: &Task) -> String {
+        format!(
+            "Complete task {id}: {title}\n\nDescription: {desc}\n\n\
+             {criteria}\
+             When done, summarize what you did.",
+            id = task.id,
+            title = task.title,
+            desc = task.description,
+            criteria = if task.acceptance_criteria.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "Acceptance criteria:\n{}\n\n",
+                    task.acceptance_criteria
+                        .iter()
+                        .map(|c| format!("- {c}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                )
+            },
+        )
+    }
+}
+
 impl ToolAdapter for CodexAdapter {
     fn name(&self) -> &str {
         "codex"
@@ -78,26 +104,7 @@ impl ToolAdapter for CodexAdapter {
         auth_mode: &str,
         permissions: &str,
     ) -> Command {
-        let prompt = format!(
-            "Complete task {id}: {title}\n\nDescription: {desc}\n\n\
-             {criteria}\
-             When done, summarize what you did.",
-            id = task.id,
-            title = task.title,
-            desc = task.description,
-            criteria = if task.acceptance_criteria.is_empty() {
-                String::new()
-            } else {
-                format!(
-                    "Acceptance criteria:\n{}\n\n",
-                    task.acceptance_criteria
-                        .iter()
-                        .map(|c| format!("- {c}"))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                )
-            },
-        );
+        let prompt = Self::task_prompt(task);
 
         let mut cmd = Command::new("codex");
         if permissions == "yolo" {
@@ -112,5 +119,39 @@ impl ToolAdapter for CodexAdapter {
         }
 
         cmd
+    }
+
+    /// Interactive PTY mode: launch `codex` (full TUI) instead of `codex exec`.
+    /// The prompt is typed into the TUI via initial_input() after startup.
+    fn build_command_interactive(
+        &self,
+        _task: &Task,
+        project_root: &Path,
+        auth_mode: &str,
+        permissions: &str,
+    ) -> Command {
+        let mut cmd = Command::new("codex");
+        // No "exec" subcommand — launches full interactive TUI
+        if permissions == "yolo" {
+            cmd.arg("--full-auto");
+        }
+        cmd.current_dir(project_root);
+
+        if auth_mode == "subscription" {
+            cmd.env_remove("OPENAI_API_KEY");
+        }
+
+        cmd
+    }
+
+    /// Provide the task prompt to be typed into the Codex TUI after it initializes.
+    fn initial_input(&self, task: &Task) -> Option<String> {
+        let desc = task.description.replace('\n', " ");
+        let prompt = format!(
+            "Complete task {}: {}. {}",
+            task.id, task.title, desc
+        );
+        // \r = Enter to submit the prompt
+        Some(format!("{}\r", prompt))
     }
 }
