@@ -154,4 +154,9 @@ impl ToolAdapter for CodexAdapter {
         // \r = Enter to submit the prompt
         Some(format!("{}\r", prompt))
     }
+
+    /// Codex TUI shows "What can I help you with?" when ready for input.
+    fn ready_pattern(&self) -> Option<&str> {
+        Some("help you with")
+    }
 }

@@ -49,6 +49,21 @@ pub trait ToolAdapter {
         None
     }
 
+    /// Delay in milliseconds before typing initial_input into the PTY (fallback timeout).
+    /// Only used if ready_pattern() returns None, or as max wait for pattern detection.
+    /// Default: 10000ms.
+    fn initial_input_delay_ms(&self) -> u64 {
+        10000
+    }
+
+    /// Pattern to detect in PTY output indicating the TUI is ready for input.
+    /// When this text appears in the terminal output, initial_input is typed immediately.
+    /// Falls back to initial_input_delay_ms() timeout if pattern never appears.
+    /// Default: None (use fixed delay).
+    fn ready_pattern(&self) -> Option<&str> {
+        None
+    }
+
     /// Execute a task headlessly using this tool (sync, blocking).
     /// Default implementation: calls `build_command()` + `.output()` + `process_output()`.
     fn execute_headless(

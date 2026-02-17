@@ -150,4 +150,9 @@ impl ToolAdapter for GeminiAdapter {
         // \r = Enter to submit the prompt
         Some(format!("{}\r", prompt))
     }
+
+    /// Gemini TUI shows "Type your message" when ready for input.
+    fn ready_pattern(&self) -> Option<&str> {
+        Some("Type your message")
+    }
 }

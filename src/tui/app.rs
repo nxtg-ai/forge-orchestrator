@@ -586,6 +586,7 @@ impl App {
                 } else {
                     self.expanded_pane = Some(pane_idx);
                 }
+                self.resize_pty_for_pane(pane_idx);
                 return;
             }
             let bytes = key_event_to_bytes(&key);
@@ -608,7 +609,12 @@ impl App {
         if self.expanded_pane.is_some() {
             match key.code {
                 KeyCode::Esc | KeyCode::Enter => {
+                    let was_expanded = self.expanded_pane;
                     self.expanded_pane = None;
+                    // Resize PTY back to small pane dimensions
+                    if let Some(idx) = was_expanded {
+                        self.resize_pty_for_pane(idx);
+                    }
                     return;
                 }
                 KeyCode::Char('q') => {
@@ -754,6 +760,7 @@ impl App {
             KeyCode::Enter | KeyCode::Char('f') => {
                 if let FocusArea::Pane(idx) = self.focus {
                     self.expanded_pane = Some(idx);
+                    self.resize_pty_for_pane(idx);
                 }
             }
             KeyCode::Char('r') => {
@@ -937,6 +944,46 @@ impl App {
         // Agent pane area is ~50% of terminal, split into 2 rows, minus borders
         let pane_rows = (rows / 4).saturating_sub(2).max(5);
         (pane_cols, pane_rows)
+    }
+
+    /// Estimate expanded pane size (nearly full terminal).
+    fn estimate_expanded_pane_size(&self) -> (u16, u16) {
+        let (cols, rows) = self.terminal_size;
+        // Full width minus borders, nearly full height minus header/footer
+        let pane_cols = cols.saturating_sub(4).max(10);
+        let pane_rows = rows.saturating_sub(8).max(10);
+        (pane_cols, pane_rows)
+    }
+
+    /// Resize the PTY for a pane based on current expand state.
+    fn resize_pty_for_pane(&self, pane_idx: usize) {
+        if !self.pty_mode {
+            return;
+        }
+        let (cols, rows) = if self.expanded_pane.is_some() {
+            self.estimate_expanded_pane_size()
+        } else {
+            self.estimate_pane_size()
+        };
+
+        // Map pane index to agent type
+        let agent = match pane_idx {
+            0 => Some(AgentType::Claude),
+            1 => Some(AgentType::Codex),
+            2 => Some(AgentType::Gemini),
+            3 => None, // Shell pane
+            _ => None,
+        };
+
+        if pane_idx == 3 {
+            if let Some(ref shell) = self.shell_pty {
+                let _ = shell.resize(cols, rows);
+            }
+        } else if let Some(agent) = agent {
+            if let Some(session) = self.pty_sessions.get(&agent) {
+                let _ = session.resize(cols, rows);
+            }
+        }
     }
 
     /// Spawn a user shell in pane 3 (replaces Summary).
@@ -1429,15 +1476,31 @@ impl App {
         ) {
             Ok(session) => {
                 // Check if adapter wants to type initial input into the TUI
-                let initial = match agent {
-                    AgentType::Claude | AgentType::Any => ClaudeAdapter.initial_input(task),
-                    AgentType::Codex => CodexAdapter.initial_input(task),
-                    AgentType::Gemini => GeminiAdapter.initial_input(task),
+                let (initial, timeout, pattern) = match agent {
+                    AgentType::Claude | AgentType::Any => (
+                        ClaudeAdapter.initial_input(task),
+                        ClaudeAdapter.initial_input_delay_ms(),
+                        ClaudeAdapter.ready_pattern().map(String::from),
+                    ),
+                    AgentType::Codex => (
+                        CodexAdapter.initial_input(task),
+                        CodexAdapter.initial_input_delay_ms(),
+                        CodexAdapter.ready_pattern().map(String::from),
+                    ),
+                    AgentType::Gemini => (
+                        GeminiAdapter.initial_input(task),
+                        GeminiAdapter.initial_input_delay_ms(),
+                        GeminiAdapter.ready_pattern().map(String::from),
+                    ),
                 };
 
-                // Schedule initial input to be typed after TUI initializes
+                // Schedule initial input: pattern-based (instant) or fixed delay (fallback)
                 if let Some(text) = initial {
-                    session.schedule_input(text, 1500);
+                    if let Some(pat) = pattern {
+                        session.schedule_input_when_ready(text, pat, timeout);
+                    } else {
+                        session.schedule_input(text, timeout);
+                    }
                 }
 
                 self.pty_sessions.insert(agent.clone(), session);

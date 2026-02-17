@@ -444,13 +444,71 @@ impl PtySession {
         }
     }
 
-    /// Schedule text to be written to the PTY after a delay.
-    /// Used to type the initial prompt into a TUI after it initializes.
+    /// Schedule text to be written to the PTY after a fixed delay.
+    /// Fallback when no ready_pattern is available.
     pub fn schedule_input(&self, text: String, delay_ms: u64) {
         let sender = self.input_tx.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(delay_ms));
             let _ = sender.send(text.into_bytes());
+        });
+    }
+
+    /// Schedule text to be written when a pattern appears in the PTY output.
+    /// Polls the collector every 200ms for the pattern. Falls back to timeout.
+    /// This is the adaptive "golden egg" — no guessing delays, instant response.
+    pub fn schedule_input_when_ready(
+        &self,
+        text: String,
+        pattern: String,
+        timeout_ms: u64,
+    ) {
+        let sender = self.input_tx.clone();
+        let collector = Arc::clone(&self.collector);
+        std::thread::spawn(move || {
+            let start = std::time::Instant::now();
+            let timeout = std::time::Duration::from_millis(timeout_ms);
+            let poll_interval = std::time::Duration::from_millis(200);
+
+            loop {
+                // Check if pattern appears in collector output
+                if let Ok(guard) = collector.lock() {
+                    let lines = guard.0.snapshot();
+                    let found = lines.iter().any(|line| {
+                        let full_text: String =
+                            line.spans.iter().map(|s| s.text.as_str()).collect();
+                        full_text.contains(&pattern)
+                    });
+                    if found {
+                        // Small grace period for TUI to finish rendering
+                        drop(guard);
+                        std::thread::sleep(std::time::Duration::from_millis(300));
+                        // Send text and Enter separately — some TUIs need Enter
+                        // as a distinct write to trigger submit
+                        let bytes = text.into_bytes();
+                        // Strip trailing \r from text, send it, then send \r separately
+                        let (body, has_cr) = if bytes.ends_with(b"\r") {
+                            (&bytes[..bytes.len() - 1], true)
+                        } else {
+                            (&bytes[..], false)
+                        };
+                        let _ = sender.send(body.to_vec());
+                        if has_cr {
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                            let _ = sender.send(b"\r".to_vec());
+                        }
+                        return;
+                    }
+                }
+
+                // Check timeout
+                if start.elapsed() >= timeout {
+                    let _ = sender.send(text.into_bytes());
+                    return;
+                }
+
+                std::thread::sleep(poll_interval);
+            }
         });
     }
 }
