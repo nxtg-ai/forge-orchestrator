@@ -570,10 +570,22 @@ impl App {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent, tx: &mpsc::UnboundedSender<AgentEvent>) {
-        // DX-024: Attached mode — forward ALL keys (except Esc) to the PTY
+        use crossterm::event::KeyModifiers;
+        // DX-024: Attached mode — forward ALL keys (except Esc/Ctrl+F) to the PTY
         if let Some(pane_idx) = self.attached_pane {
             if key.code == KeyCode::Esc {
                 self.attached_pane = None;
+                return;
+            }
+            // Ctrl+F: toggle expand/collapse while attached
+            if key.code == KeyCode::Char('f')
+                && key.modifiers.contains(KeyModifiers::CONTROL)
+            {
+                if self.expanded_pane.is_some() {
+                    self.expanded_pane = None;
+                } else {
+                    self.expanded_pane = Some(pane_idx);
+                }
                 return;
             }
             let bytes = key_event_to_bytes(&key);
@@ -628,6 +640,8 @@ impl App {
                     }
                     return;
                 }
+                // Allow 'i' to fall through to attach handler in expanded mode
+                KeyCode::Char('i') => {}
                 _ => return,
             }
         }
@@ -637,7 +651,6 @@ impl App {
             && self.shell_active
             && let Some(shell_tx) = &self.shell_input_tx
         {
-            use crossterm::event::KeyModifiers;
             match key.code {
                 KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                     let _ = shell_tx.send("exit\n".to_string());

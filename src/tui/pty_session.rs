@@ -225,6 +225,11 @@ impl vte::Perform for AnsiLineCollector {
 
     fn execute(&mut self, byte: u8) {
         match byte {
+            // BS -> cursor back (erase last char from current text)
+            0x08 => {
+                self.apply_cr();
+                self.current_text.pop();
+            }
             // LF / VT / FF -> complete line
             0x0a..=0x0c => {
                 self.complete_line();
@@ -237,7 +242,7 @@ impl vte::Perform for AnsiLineCollector {
             0x09 => {
                 self.current_text.push_str("    ");
             }
-            // BEL, BS, etc -- ignore for now
+            // BEL, etc -- ignore
             _ => {}
         }
     }
@@ -298,7 +303,7 @@ pub fn feed_through_vte(parser: &mut vte::Parser, collector: &mut AnsiLineCollec
 
 /// PTY session lifecycle manager.
 pub struct PtySession {
-    child: Box<dyn Child + Send + Sync>,
+    child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
     collector: Arc<Mutex<(AnsiLineCollector, vte::Parser)>>,
     input_tx: std::sync::mpsc::Sender<Vec<u8>>,
     master: Box<dyn MasterPty + Send>,
@@ -321,19 +326,23 @@ impl PtySession {
         // Drop the slave -- the child owns it now
         drop(pair.slave);
 
+        let child = Arc::new(Mutex::new(child));
+
         let collector = Arc::new(Mutex::new((
             AnsiLineCollector::new(max_lines),
             vte::Parser::new(),
         )));
 
-        // Reader thread: reads from PTY master, feeds into AnsiLineCollector
+        // Reader thread: reads from PTY master, feeds into AnsiLineCollector.
+        // When the process exits (EOF), waits for exit code and sends Completed.
         let mut reader = pair.master.try_clone_reader()?;
         let collector_clone = Arc::clone(&collector);
+        let child_clone = Arc::clone(&child);
         std::thread::spawn(move || {
             let mut buf = [0u8; 4096];
             loop {
                 match reader.read(&mut buf) {
-                    Ok(0) => break, // EOF
+                    Ok(0) => break, // EOF — process exited
                     Ok(n) => {
                         if let Ok(mut guard) = collector_clone.lock() {
                             let (ref mut coll, ref mut parser) = *guard;
@@ -349,6 +358,21 @@ impl PtySession {
                     Err(_) => break,
                 }
             }
+            // Process exited — get exit code and notify event loop
+            let (success, exit_code) = if let Ok(mut guard) = child_clone.lock() {
+                match guard.wait() {
+                    Ok(status) => (status.success(), if status.success() { 0 } else { 1 }),
+                    Err(_) => (false, -1),
+                }
+            } else {
+                (false, -1)
+            };
+            let _ = agent_tx.send(AgentEvent::Completed {
+                task_id,
+                agent,
+                success,
+                exit_code,
+            });
         });
 
         // Writer thread: receives bytes from input channel, writes to PTY
@@ -406,12 +430,18 @@ impl PtySession {
 
     /// Try to check if the child has exited.
     pub fn try_wait(&mut self) -> Option<portable_pty::ExitStatus> {
-        self.child.try_wait().ok().flatten()
+        if let Ok(mut guard) = self.child.lock() {
+            guard.try_wait().ok().flatten()
+        } else {
+            None
+        }
     }
 
     /// Kill the child process.
     pub fn kill(&mut self) {
-        let _ = self.child.kill();
+        if let Ok(mut guard) = self.child.lock() {
+            let _ = guard.kill();
+        }
     }
 }
 

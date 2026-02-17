@@ -41,7 +41,7 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
 
     // Line 1: Key legend
     let text = if app.attached_pane.is_some() {
-        "Esc:Detach | All keys forwarded to PTY"
+        "Esc:Detach | Ctrl+F:Expand/Collapse | All keys forwarded to PTY"
     } else if app.focus == FocusArea::Pane(3) && app.shell_active && !app.pty_mode {
         "Esc:Unfocus | Ctrl+D:Close Shell | Type to interact"
     } else if app.all_complete {

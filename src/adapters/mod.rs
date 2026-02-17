@@ -30,8 +30,8 @@ pub trait ToolAdapter {
     ) -> Command;
 
     /// Build the CLI command for interactive PTY execution (Stargate mode).
-    /// Default: delegates to build_command(). Override in adapters that need
-    /// different flags for interactive mode (e.g., Claude omits --output-format).
+    /// This should launch the CLI's native interactive TUI (no exec/pipe flags).
+    /// Default: delegates to build_command(). Override to launch actual TUIs.
     fn build_command_interactive(
         &self,
         task: &Task,
@@ -40,6 +40,13 @@ pub trait ToolAdapter {
         permissions: &str,
     ) -> Command {
         self.build_command(task, project_root, auth_mode, permissions)
+    }
+
+    /// Text to type into the PTY after spawning the interactive TUI.
+    /// Written after a short delay to let the TUI initialize.
+    /// Default: None (no initial input).
+    fn initial_input(&self, _task: &Task) -> Option<String> {
+        None
     }
 
     /// Execute a task headlessly using this tool (sync, blocking).
