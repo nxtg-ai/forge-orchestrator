@@ -147,10 +147,7 @@ impl ToolAdapter for CodexAdapter {
     /// Provide the task prompt to be typed into the Codex TUI after it initializes.
     fn initial_input(&self, task: &Task) -> Option<String> {
         let desc = task.description.replace('\n', " ");
-        let prompt = format!(
-            "Complete task {}: {}. {}",
-            task.id, task.title, desc
-        );
+        let prompt = format!("Complete task {}: {}. {}", task.id, task.title, desc);
         // \r = Enter to submit the prompt
         Some(format!("{}\r", prompt))
     }

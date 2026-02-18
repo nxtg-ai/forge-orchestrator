@@ -444,6 +444,19 @@ impl PtySession {
         }
     }
 
+    /// Check if a pattern appears in the last N lines of PTY output.
+    pub fn has_pattern_in_last_n(&self, pattern: &str, n: usize) -> bool {
+        if let Ok(guard) = self.collector.lock() {
+            let lines = guard.0.snapshot();
+            lines.iter().rev().take(n).any(|line| {
+                let text: String = line.spans.iter().map(|s| s.text.as_str()).collect();
+                text.contains(pattern)
+            })
+        } else {
+            false
+        }
+    }
+
     /// Schedule text to be written to the PTY after a fixed delay.
     /// Fallback when no ready_pattern is available.
     pub fn schedule_input(&self, text: String, delay_ms: u64) {
@@ -457,12 +470,7 @@ impl PtySession {
     /// Schedule text to be written when a pattern appears in the PTY output.
     /// Polls the collector every 200ms for the pattern. Falls back to timeout.
     /// This is the adaptive "golden egg" — no guessing delays, instant response.
-    pub fn schedule_input_when_ready(
-        &self,
-        text: String,
-        pattern: String,
-        timeout_ms: u64,
-    ) {
+    pub fn schedule_input_when_ready(&self, text: String, pattern: String, timeout_ms: u64) {
         let sender = self.input_tx.clone();
         let collector = Arc::clone(&self.collector);
         std::thread::spawn(move || {
@@ -501,9 +509,19 @@ impl PtySession {
                     }
                 }
 
-                // Check timeout
+                // Check timeout — use same split logic as pattern-match path
                 if start.elapsed() >= timeout {
-                    let _ = sender.send(text.into_bytes());
+                    let bytes = text.into_bytes();
+                    let (body, has_cr) = if bytes.ends_with(b"\r") {
+                        (&bytes[..bytes.len() - 1], true)
+                    } else {
+                        (&bytes[..], false)
+                    };
+                    let _ = sender.send(body.to_vec());
+                    if has_cr {
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        let _ = sender.send(b"\r".to_vec());
+                    }
                     return;
                 }
 
@@ -705,6 +723,30 @@ mod tests {
 
         let left = KeyEvent::from(KeyCode::Left);
         assert_eq!(key_event_to_bytes(&left), b"\x1b[D".to_vec());
+    }
+
+    #[test]
+    fn test_has_pattern_in_last_n_found() {
+        let (mut c, mut p) = make_collector(100);
+        feed(&mut c, &mut p, b"line 1\nline 2\nhello world\nline 4\n");
+        let snap = c.snapshot();
+        let found = snap.iter().rev().take(5).any(|line| {
+            let text: String = line.spans.iter().map(|s| s.text.as_str()).collect();
+            text.contains("hello world")
+        });
+        assert!(found, "Pattern should be found in last 5 lines");
+    }
+
+    #[test]
+    fn test_has_pattern_in_last_n_not_found() {
+        let (mut c, mut p) = make_collector(100);
+        feed(&mut c, &mut p, b"line 1\nline 2\nline 3\nline 4\nline 5\n");
+        let snap = c.snapshot();
+        let found = snap.iter().rev().take(5).any(|line| {
+            let text: String = line.spans.iter().map(|s| s.text.as_str()).collect();
+            text.contains("hello world")
+        });
+        assert!(!found, "Pattern should NOT be found");
     }
 
     #[test]

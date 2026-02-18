@@ -127,56 +127,42 @@ impl ToolAdapter for ClaudeAdapter {
         cmd
     }
 
-    /// Interactive PTY mode: omit --output-format and --verbose so Claude
-    /// renders its native TUI with colors, spinners, and progress indicators.
+    /// Interactive PTY mode: launch `claude` (full TUI) instead of `claude -p`.
+    /// The prompt is typed into the TUI via initial_input() after startup.
     fn build_command_interactive(
         &self,
-        task: &Task,
+        _task: &Task,
         project_root: &Path,
         auth_mode: &str,
         permissions: &str,
     ) -> Command {
-        let task_type = task.task_type.as_deref().unwrap_or("");
-        let prompt = build_prompt(task, task_type);
-
         let mut cmd = Command::new("claude");
-        // Note: NO --output-format stream-json, NO --verbose
-        cmd.args(["-p", &prompt]).current_dir(project_root);
-
-        // Smart permissions (same as headless)
+        // No -p flag — launches full interactive TUI
+        // No --output-format, no --verbose
         if permissions == "yolo" {
-            match task_type {
-                "implement" => {
-                    cmd.args(["--allowedTools", "Write,Edit,Read,Glob,Grep,Bash"]);
-                }
-                "review" | "test" => {
-                    cmd.args(["--allowedTools", "Read,Glob,Grep,Bash"]);
-                }
-                "document" => {
-                    cmd.args(["--allowedTools", "Write,Edit,Read,Glob,Grep"]);
-                }
-                _ => {
-                    cmd.args(["--dangerously-skip-permissions"]);
-                }
-            }
+            cmd.arg("--dangerously-skip-permissions");
         }
-
-        // Task-type-aware turn limits (same as headless)
-        match task_type {
-            "review" | "test" => {
-                cmd.args(["--max-turns", "20"]);
-            }
-            "design" => {
-                cmd.args(["--max-turns", "30"]);
-            }
-            _ => {}
-        }
+        cmd.current_dir(project_root);
 
         if auth_mode == "subscription" {
             cmd.env_remove("ANTHROPIC_API_KEY");
         }
 
         cmd
+    }
+
+    /// Provide the task prompt to be typed into the Claude TUI after it initializes.
+    fn initial_input(&self, task: &Task) -> Option<String> {
+        let task_type = task.task_type.as_deref().unwrap_or("");
+        let prompt = build_prompt(task, task_type);
+        // \r = Enter to submit the prompt
+        Some(format!("{}\r", prompt))
+    }
+
+    /// Claude Code TUI shows "shift+tab to cycle" in the permission indicator
+    /// at the bottom when ready for input.
+    fn ready_pattern(&self) -> Option<&str> {
+        Some("to cycle")
     }
 }
 

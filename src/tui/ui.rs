@@ -49,7 +49,7 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     } else if app.expanded_pane.is_some() {
         "Esc:Back | \u{2191}\u{2193}:Scroll | Home/End:Jump | q:Quit"
     } else if app.pty_mode {
-        "q:Quit | Tab:Focus | \u{2191}\u{2193}:Navigate | Enter/f:Expand | i:Attach | s:Shell"
+        "q:Quit | Tab:Focus | \u{2191}\u{2193}:Navigate | a:Assign | Enter/f:Expand | i:Attach | s:Shell"
     } else {
         "q:Quit | Tab:Focus | \u{2191}\u{2193}:Navigate | Enter/f:Expand | r:Retry | s:Shell"
     };
@@ -322,11 +322,8 @@ fn render_single_pane(f: &mut Frame, app: &App, idx: usize, area: Rect, expanded
     if app.pty_mode
         && let Some(session) = app.pty_sessions.get(&agent)
     {
-        let attach_label = if is_attached { " [ATTACHED]" } else { "" };
-        let title = match running_task {
-            Some(tid) => format!(" {} [{}]{} ", label, tid, attach_label),
-            None => format!(" {}{} ", label, attach_label),
-        };
+        let (title, title_style) =
+            build_pane_title(app, idx, label, &agent, running_task, is_attached);
         let styled_lines = session.snapshot();
         render_styled_pane(
             f,
@@ -334,6 +331,7 @@ fn render_single_pane(f: &mut Frame, app: &App, idx: usize, area: Rect, expanded
             idx,
             &agent,
             &title,
+            title_style,
             &styled_lines,
             area,
             border_style,
@@ -407,6 +405,69 @@ fn render_single_pane(f: &mut Frame, app: &App, idx: usize, area: Rect, expanded
     f.render_widget(paragraph, area);
 }
 
+const SPINNER_CHARS: [char; 10] = [
+    '\u{280B}', '\u{2819}', '\u{2839}', '\u{2838}', '\u{283C}', '\u{2834}', '\u{2826}', '\u{2827}',
+    '\u{2807}', '\u{280F}',
+];
+
+/// Pane state for visual styling.
+enum PaneState {
+    Active,  // Agent is working on a task (spinner visible)
+    Ready,   // PTY running, idle, waiting for next task
+    Offline, // No PTY session
+}
+
+/// DX-050: Build pane title with state indicator and color for Builder Mode.
+fn build_pane_title(
+    app: &App,
+    _idx: usize,
+    label: &str,
+    agent: &AgentType,
+    running_task: Option<&String>,
+    is_attached: bool,
+) -> (String, Style) {
+    let attach_label = if is_attached { " [ATTACHED]" } else { "" };
+    let has_pty = app.pty_sessions.contains_key(agent);
+    let is_awaiting = app.awaiting_completion.contains_key(agent);
+
+    let (text, state) = match running_task {
+        Some(tid) => {
+            if is_awaiting {
+                let spinner = SPINNER_CHARS[app.spinner_frame];
+                (
+                    format!(" {} {} [{}]{} ", spinner, label, tid, attach_label),
+                    PaneState::Active,
+                )
+            } else {
+                (
+                    format!(" {} [{}]{} ", label, tid, attach_label),
+                    PaneState::Active,
+                )
+            }
+        }
+        None => {
+            if has_pty {
+                (
+                    format!(" {} [ready]{} ", label, attach_label),
+                    PaneState::Ready,
+                )
+            } else {
+                (format!(" {}{} ", label, attach_label), PaneState::Offline)
+            }
+        }
+    };
+
+    let style = match state {
+        PaneState::Active => Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD),
+        PaneState::Ready => Style::default().fg(Color::Cyan),
+        PaneState::Offline => Style::default().fg(Color::DarkGray),
+    };
+
+    (text, style)
+}
+
 /// DX-024: Render a pane using styled lines from a PTY session.
 #[allow(clippy::too_many_arguments)]
 fn render_styled_pane(
@@ -415,6 +476,7 @@ fn render_styled_pane(
     idx: usize,
     agent: &AgentType,
     title: &str,
+    title_style: Style,
     styled_lines: &[StyledLine],
     area: Rect,
     border_style: Style,
@@ -463,7 +525,7 @@ fn render_styled_pane(
     let paragraph = Paragraph::new(visible_lines).block(
         Block::default()
             .borders(Borders::ALL)
-            .title(title.to_string())
+            .title(Span::styled(title.to_string(), title_style))
             .border_style(border_style),
     );
 

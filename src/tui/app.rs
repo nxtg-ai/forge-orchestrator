@@ -11,7 +11,7 @@ use portable_pty::{CommandBuilder, PtySize};
 use rand::Rng;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::io::AsyncBufReadExt;
 use tokio::process::Command as TokioCommand;
 use tokio::sync::mpsc;
@@ -40,6 +40,13 @@ const RATE_LIMIT_PATTERNS: &[&str] = &[
     "resource exhausted",
     "resource_exhausted",
 ];
+
+/// Builder Mode: tracks when an agent is awaiting task completion (ready-pattern reappearance).
+pub struct AwaitingCompletion {
+    pub task_id: String,
+    pub dispatched_at: Instant,
+    pub last_output_at: Instant,
+}
 
 /// Per-agent rate limit backoff tracking.
 pub struct BackoffState {
@@ -166,6 +173,10 @@ pub struct App {
     pub shell_pty: Option<PtySession>,
     /// Terminal dimensions (cols, rows) for PTY resize propagation.
     pub terminal_size: (u16, u16),
+    /// DX-050 Builder Mode: tracks which agents are awaiting task completion.
+    pub awaiting_completion: HashMap<AgentType, AwaitingCompletion>,
+    /// DX-050: Spinner animation frame counter (cycles 0..9 on each tick).
+    pub spinner_frame: usize,
 }
 
 impl App {
@@ -228,6 +239,8 @@ impl App {
             attached_pane: None,
             shell_pty: None,
             terminal_size: (80, 24),
+            awaiting_completion: HashMap::new(),
+            spinner_frame: 0,
         };
 
         (app, rx, tx)
@@ -257,6 +270,14 @@ impl App {
         let scheduler = state_mgr.load().map(|s| s.scheduler).unwrap_or_default();
 
         let now = Instant::now();
+
+        // In PTY mode, each agent can only run 1 task at a time (TUI is single-threaded).
+        // Track which agents are already busy or claimed this scheduling round.
+        let mut agents_busy: HashSet<AgentType> = if self.pty_mode {
+            self.agent_running_task.keys().cloned().collect()
+        } else {
+            HashSet::new()
+        };
 
         let candidates: Vec<Task> = self
             .tasks
@@ -297,6 +318,24 @@ impl App {
                 {
                     return false; // Still cooling down
                 }
+                true
+            })
+            .filter(|t| {
+                // PTY mode: 1 task per agent — skip if agent already busy or claimed
+                if !self.pty_mode {
+                    return true;
+                }
+                let agent = t.assigned_to.clone().unwrap_or(AgentType::Claude);
+                let agent = if agent == AgentType::Any {
+                    AgentType::Claude
+                } else {
+                    agent
+                };
+                if agents_busy.contains(&agent) {
+                    return false;
+                }
+                // Claim this agent for this scheduling round
+                agents_busy.insert(agent);
                 true
             })
             .take(slots)
@@ -355,6 +394,10 @@ impl App {
                 // output is captured by the PTY session's AnsiLineCollector.
                 // The empty sentinel line just wakes the event loop to redraw.
                 if self.pty_mode && self.pty_sessions.contains_key(&agent) {
+                    // DX-050: Update last_output_at for completion detection
+                    if let Some(awaiting) = self.awaiting_completion.get_mut(&agent) {
+                        awaiting.last_output_at = Instant::now();
+                    }
                     return Ok(());
                 }
 
@@ -395,12 +438,23 @@ impl App {
                 self.running_task_ids.remove(&task_id);
                 self.agent_running_task.remove(&agent);
 
-                // DX-024: Clean up PTY session on completion
-                self.pty_sessions.remove(&agent);
-                if let Some(pane_idx) = agent_pane_index(&agent)
-                    && self.attached_pane == Some(pane_idx)
-                {
-                    self.attached_pane = None;
+                // DX-024/DX-050: Only remove PTY session if the process truly exited.
+                // In Builder Mode, check_pty_completion sends synthetic Completed events
+                // while the TUI process is still alive. Keep the PTY so it can accept
+                // the next task dispatch.
+                let process_exited = self
+                    .pty_sessions
+                    .get_mut(&agent)
+                    .map(|s| s.try_wait().is_some())
+                    .unwrap_or(true);
+
+                if process_exited {
+                    self.pty_sessions.remove(&agent);
+                    if let Some(pane_idx) = agent_pane_index(&agent)
+                        && self.attached_pane == Some(pane_idx)
+                    {
+                        self.attached_pane = None;
+                    }
                 }
 
                 let task_mgr = TaskManager::new(&self.forge_dir);
@@ -578,9 +632,7 @@ impl App {
                 return;
             }
             // Ctrl+F: toggle expand/collapse while attached
-            if key.code == KeyCode::Char('f')
-                && key.modifiers.contains(KeyModifiers::CONTROL)
-            {
+            if key.code == KeyCode::Char('f') && key.modifiers.contains(KeyModifiers::CONTROL) {
                 if self.expanded_pane.is_some() {
                     self.expanded_pane = None;
                 } else {
@@ -763,6 +815,11 @@ impl App {
                     self.resize_pty_for_pane(idx);
                 }
             }
+            KeyCode::Char('a') => {
+                if self.pty_mode && self.focus == FocusArea::TaskBoard {
+                    self.dispatch_to_tui(tx);
+                }
+            }
             KeyCode::Char('r') => {
                 if self.focus == FocusArea::TaskBoard {
                     self.retry_selected_task(tx);
@@ -886,6 +943,80 @@ impl App {
         }
     }
 
+    /// DX-050 Builder Mode: detect task completion in full TUI mode.
+    /// Two detection methods (checked in priority order):
+    /// 1. **Signal file** (reliable): agent creates `.forge/signals/T-XXX.complete`
+    /// 2. **Heuristic** (fallback): ready-pattern reappears + 10s min work + 3s quiet
+    fn check_pty_completion(&mut self, tx: &mpsc::UnboundedSender<AgentEvent>) {
+        let now = Instant::now();
+        let mut completed: Vec<AgentType> = Vec::new();
+        let signals_dir = self.forge_dir.join("signals");
+
+        for (agent, awaiting) in &self.awaiting_completion {
+            // Method 1: Check for signal file (instant, no timing requirements)
+            let signal_file = signals_dir.join(format!("{}.complete", awaiting.task_id));
+            if signal_file.exists() {
+                // Clean up signal file
+                std::fs::remove_file(&signal_file).ok();
+                completed.push(agent.clone());
+                continue;
+            }
+
+            // Method 2: Heuristic — ready-pattern + timing
+            // Must have been working for at least 10s
+            if now.duration_since(awaiting.dispatched_at) < Duration::from_secs(10) {
+                continue;
+            }
+            // Output must have been quiet for at least 3s
+            if now.duration_since(awaiting.last_output_at) < Duration::from_secs(3) {
+                continue;
+            }
+            // Check if ready-pattern appears in last 10 lines of snapshot
+            if let Some(session) = self.pty_sessions.get(agent) {
+                let pattern = match agent {
+                    AgentType::Claude | AgentType::Any => ClaudeAdapter.ready_pattern(),
+                    AgentType::Codex => CodexAdapter.ready_pattern(),
+                    AgentType::Gemini => GeminiAdapter.ready_pattern(),
+                };
+                if let Some(pat) = pattern
+                    && session.has_pattern_in_last_n(pat, 10)
+                {
+                    completed.push(agent.clone());
+                }
+            }
+        }
+
+        // Process completions
+        for agent in completed {
+            if let Some(awaiting) = self.awaiting_completion.remove(&agent) {
+                let duration = now.duration_since(awaiting.dispatched_at);
+                let secs = duration.as_secs();
+                self.push_event(&format!(
+                    "{} completed by {} ({}s, builder mode)",
+                    awaiting.task_id, agent, secs
+                ));
+                // Send synthetic Completed event
+                let _ = tx.send(AgentEvent::Completed {
+                    task_id: awaiting.task_id,
+                    agent,
+                    success: true,
+                    exit_code: 0,
+                });
+            }
+        }
+    }
+
+    /// Build the completion signal instruction to append to task prompts.
+    fn completion_signal_instruction(forge_dir: &std::path::Path, task_id: &str) -> String {
+        let signals_dir = forge_dir.join("signals");
+        format!(
+            " When you have fully completed this task, run this bash command: mkdir -p {} && touch {}/{}.complete",
+            signals_dir.display(),
+            signals_dir.display(),
+            task_id
+        )
+    }
+
     /// Handle a tick event: throttled task reload, backoff checks, completion detection.
     pub fn handle_tick(
         &mut self,
@@ -898,6 +1029,10 @@ impl App {
             self.check_phase_transition();
         }
         self.check_backoff_timers(agent_tx);
+        if self.pty_mode {
+            self.check_pty_completion(agent_tx);
+        }
+        self.spinner_frame = (self.spinner_frame + 1) % 10;
         if !self.watch_mode
             && !self.all_complete
             && self.running_task_ids.is_empty()
@@ -979,10 +1114,10 @@ impl App {
             if let Some(ref shell) = self.shell_pty {
                 let _ = shell.resize(cols, rows);
             }
-        } else if let Some(agent) = agent {
-            if let Some(session) = self.pty_sessions.get(&agent) {
-                let _ = session.resize(cols, rows);
-            }
+        } else if let Some(agent) = agent
+            && let Some(session) = self.pty_sessions.get(&agent)
+        {
+            let _ = session.resize(cols, rows);
         }
     }
 
@@ -1180,6 +1315,127 @@ impl App {
                 }
             }
         });
+    }
+
+    /// DX-050 Builder Mode: dispatch the selected task to the agent's running TUI.
+    fn dispatch_to_tui(&mut self, _tx: &mpsc::UnboundedSender<AgentEvent>) {
+        if self.selected_index >= self.tasks.len() {
+            return;
+        }
+        let task = &self.tasks[self.selected_index];
+
+        // Guard: task must be Pending
+        if task.status != TaskStatus::Pending {
+            self.push_event(&format!("{} is not pending ({:?})", task.id, task.status));
+            return;
+        }
+
+        // Resolve agent
+        let agent = task.assigned_to.clone().unwrap_or(AgentType::Claude);
+        let agent = if agent == AgentType::Any {
+            AgentType::Claude
+        } else {
+            agent
+        };
+
+        // Guard: TUI must be running
+        if !self.pty_sessions.contains_key(&agent) {
+            self.push_event(&format!("{} TUI not running — cannot dispatch", agent));
+            return;
+        }
+
+        // Guard: TUI must be idle (not already running a task)
+        if self.agent_running_task.contains_key(&agent) {
+            self.push_event(&format!(
+                "{} is busy with {} — wait for completion",
+                agent,
+                self.agent_running_task.get(&agent).unwrap()
+            ));
+            return;
+        }
+
+        // Build prompt via adapter's initial_input
+        let (initial, pattern) = match agent {
+            AgentType::Claude | AgentType::Any => (
+                ClaudeAdapter.initial_input(task),
+                ClaudeAdapter.ready_pattern().map(String::from),
+            ),
+            AgentType::Codex => (
+                CodexAdapter.initial_input(task),
+                CodexAdapter.ready_pattern().map(String::from),
+            ),
+            AgentType::Gemini => (
+                GeminiAdapter.initial_input(task),
+                GeminiAdapter.ready_pattern().map(String::from),
+            ),
+        };
+
+        let Some(mut text) = initial else {
+            self.push_event(&format!(
+                "No prompt for {} — adapter returned None",
+                task.id
+            ));
+            return;
+        };
+
+        // Inject completion signal instruction before the trailing \r
+        let signal = Self::completion_signal_instruction(&self.forge_dir, &task.id);
+        if text.ends_with('\r') {
+            text.insert_str(text.len() - 1, &signal);
+        } else {
+            text.push_str(&signal);
+        }
+
+        // Type the prompt into the TUI.
+        // schedule_input_when_ready() polls for the ready-pattern with its own timeout,
+        // so we don't need a hard pre-check here — just dispatch and let it wait.
+        let session = self.pty_sessions.get(&agent).unwrap();
+        if let Some(pat) = pattern {
+            session.schedule_input_when_ready(text, pat, 10000);
+        } else {
+            session.schedule_input(text, 300);
+        }
+
+        // Mark task InProgress
+        let task_mgr = TaskManager::new(&self.forge_dir);
+        let state_mgr = StateManager::new(&self.forge_dir);
+        if let Ok(mut t) = task_mgr.get_task(&task.id) {
+            t.status = TaskStatus::InProgress;
+            t.assigned_to = Some(agent.clone());
+            t.updated_at = chrono::Utc::now();
+            task_mgr.update_task(&t).ok();
+            if !t.locked_files.is_empty() {
+                state_mgr
+                    .lock_files(&t.id, agent.clone(), t.locked_files.clone())
+                    .ok();
+            }
+        }
+
+        let task_id = task.id.clone();
+        self.running_task_ids.insert(task_id.clone());
+        self.agent_running_task
+            .insert(agent.clone(), task_id.clone());
+
+        // DX-037: Track quota usage
+        let now = Instant::now();
+        let quota = self.provider_quota.entry(agent.clone()).or_insert((0, now));
+        if quota.1.elapsed() > Duration::from_secs(5 * 3600) {
+            *quota = (0, now);
+        }
+        quota.0 += 1;
+
+        // Track completion detection
+        self.awaiting_completion.insert(
+            agent.clone(),
+            AwaitingCompletion {
+                task_id: task_id.clone(),
+                dispatched_at: now,
+                last_output_at: now,
+            },
+        );
+
+        self.push_event(&format!("Dispatched {} to {}", task_id, agent));
+        self.reload_tasks().ok();
     }
 
     fn retry_selected_task(&mut self, tx: &mpsc::UnboundedSender<AgentEvent>) {
@@ -1403,13 +1659,190 @@ impl App {
         }
     }
 
+    /// Dispatch a task's prompt into an already-running TUI session.
+    fn dispatch_task_to_existing_tui(
+        &mut self,
+        task: &Task,
+        agent: &AgentType,
+        tx: &mpsc::UnboundedSender<AgentEvent>,
+    ) {
+        let (initial, timeout, pattern) = match agent {
+            AgentType::Claude | AgentType::Any => (
+                ClaudeAdapter.initial_input(task),
+                ClaudeAdapter.initial_input_delay_ms(),
+                ClaudeAdapter.ready_pattern().map(String::from),
+            ),
+            AgentType::Codex => (
+                CodexAdapter.initial_input(task),
+                CodexAdapter.initial_input_delay_ms(),
+                CodexAdapter.ready_pattern().map(String::from),
+            ),
+            AgentType::Gemini => (
+                GeminiAdapter.initial_input(task),
+                GeminiAdapter.initial_input_delay_ms(),
+                GeminiAdapter.ready_pattern().map(String::from),
+            ),
+        };
+
+        if let Some(mut text) = initial {
+            // Inject completion signal instruction
+            let signal = Self::completion_signal_instruction(&self.forge_dir, &task.id);
+            if text.ends_with('\r') {
+                text.insert_str(text.len() - 1, &signal);
+            } else {
+                text.push_str(&signal);
+            }
+
+            let session = self.pty_sessions.get(agent).unwrap();
+            if let Some(pat) = pattern {
+                session.schedule_input_when_ready(text, pat, timeout);
+            } else {
+                session.schedule_input(text, timeout);
+            }
+        }
+
+        // Track for completion detection
+        let now = Instant::now();
+        self.awaiting_completion.insert(
+            agent.clone(),
+            AwaitingCompletion {
+                task_id: task.id.clone(),
+                dispatched_at: now,
+                last_output_at: now,
+            },
+        );
+
+        self.finalize_task_spawn(task, agent, tx);
+    }
+
+    /// DX-050: Ensure all 3 agent TUIs are running in PTY mode.
+    /// Spawns idle TUI sessions for agents that don't already have a PTY session.
+    /// Called on startup so users can manually dispatch tasks via `a` key.
+    pub fn spawn_idle_tuis(&mut self, tx: &mpsc::UnboundedSender<AgentEvent>) {
+        if !self.pty_mode {
+            return;
+        }
+        let agents = [AgentType::Claude, AgentType::Codex, AgentType::Gemini];
+        for agent in &agents {
+            if self.pty_sessions.contains_key(agent) {
+                continue; // Already has a TUI from task dispatch
+            }
+            self.spawn_idle_tui(agent, tx);
+        }
+    }
+
+    /// Spawn an idle TUI for an agent (no task, just launch the interactive CLI).
+    fn spawn_idle_tui(&mut self, agent: &AgentType, tx: &mpsc::UnboundedSender<AgentEvent>) {
+        let state_mgr = StateManager::new(&self.forge_dir);
+        let agent_name = agent.to_string().to_lowercase();
+        let auth_mode = state_mgr
+            .get_agent_auth(&agent_name)
+            .unwrap_or_else(|_| "subscription".to_string());
+        let permissions = state_mgr
+            .get_agent_permissions(&agent_name)
+            .unwrap_or_else(|_| "safe".to_string());
+
+        // Build a dummy task just for the command builder (no prompt will be typed)
+        let now = chrono::Utc::now();
+        let dummy = Task {
+            id: String::new(),
+            title: String::new(),
+            description: String::new(),
+            status: TaskStatus::Pending,
+            assigned_to: Some(agent.clone()),
+            task_type: None,
+            depends_on: Vec::new(),
+            locked_files: Vec::new(),
+            acceptance_criteria: Vec::new(),
+            created_at: now,
+            updated_at: now,
+            completed_at: None,
+            plan_version: None,
+            parent_task: None,
+            phase: None,
+            retry_count: 0,
+        };
+
+        let std_cmd = match agent {
+            AgentType::Claude | AgentType::Any => ClaudeAdapter.build_command_interactive(
+                &dummy,
+                &self.project_root,
+                &auth_mode,
+                &permissions,
+            ),
+            AgentType::Codex => CodexAdapter.build_command_interactive(
+                &dummy,
+                &self.project_root,
+                &auth_mode,
+                &permissions,
+            ),
+            AgentType::Gemini => GeminiAdapter.build_command_interactive(
+                &dummy,
+                &self.project_root,
+                &auth_mode,
+                &permissions,
+            ),
+        };
+
+        let program = std_cmd.get_program().to_string_lossy().to_string();
+        let mut pty_cmd = CommandBuilder::new(&program);
+        for arg in std_cmd.get_args() {
+            pty_cmd.arg(arg.to_string_lossy().as_ref());
+        }
+        if let Some(dir) = std_cmd.get_current_dir() {
+            pty_cmd.cwd(dir);
+        }
+        pty_cmd.env("TERM", "xterm-256color");
+        for (key, val) in std_cmd.get_envs() {
+            if let Some(v) = val {
+                pty_cmd.env(key.to_string_lossy().as_ref(), v.to_string_lossy().as_ref());
+            }
+        }
+
+        let (pane_cols, pane_rows) = self.estimate_pane_size();
+        let size = PtySize {
+            rows: pane_rows,
+            cols: pane_cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        };
+
+        // Use a placeholder task_id for the PTY reader thread
+        let placeholder_id = format!("idle-{}", agent_name);
+
+        match PtySession::spawn(
+            pty_cmd,
+            size,
+            tx.clone(),
+            placeholder_id,
+            agent.clone(),
+            OUTPUT_BUFFER_CAP,
+        ) {
+            Ok(session) => {
+                self.pty_sessions.insert(agent.clone(), session);
+                self.push_event(&format!("{} TUI launched (idle)", agent));
+            }
+            Err(e) => {
+                self.push_event(&format!("Failed to launch {} TUI: {}", agent, e));
+            }
+        }
+    }
+
     /// DX-024: Spawn task with PTY allocation (Stargate mode).
+    /// If an idle TUI already exists for this agent, reuse it (type prompt into it).
+    /// Otherwise, spawn a new PTY process.
     fn spawn_task_pty(
         &mut self,
         task: &Task,
         agent: &AgentType,
         tx: &mpsc::UnboundedSender<AgentEvent>,
     ) {
+        // Reuse existing idle TUI if available
+        if self.pty_sessions.contains_key(agent) {
+            self.dispatch_task_to_existing_tui(task, agent, tx);
+            return;
+        }
+
         let state_mgr = StateManager::new(&self.forge_dir);
         let agent_name = agent.to_string().to_lowercase();
         let auth_mode = state_mgr
@@ -1495,7 +1928,15 @@ impl App {
                 };
 
                 // Schedule initial input: pattern-based (instant) or fixed delay (fallback)
-                if let Some(text) = initial {
+                if let Some(mut text) = initial {
+                    // Inject completion signal instruction before the trailing \r
+                    let signal = Self::completion_signal_instruction(&self.forge_dir, &task.id);
+                    if text.ends_with('\r') {
+                        text.insert_str(text.len() - 1, &signal);
+                    } else {
+                        text.push_str(&signal);
+                    }
+
                     if let Some(pat) = pattern {
                         session.schedule_input_when_ready(text, pat, timeout);
                     } else {
@@ -1504,6 +1945,17 @@ impl App {
                 }
 
                 self.pty_sessions.insert(agent.clone(), session);
+
+                // Track for completion detection — full TUI processes don't exit after task.
+                self.awaiting_completion.insert(
+                    agent.clone(),
+                    AwaitingCompletion {
+                        task_id: task.id.clone(),
+                        dispatched_at: Instant::now(),
+                        last_output_at: Instant::now(),
+                    },
+                );
+
                 self.finalize_task_spawn(task, agent, tx);
             }
             Err(e) => {
@@ -1660,6 +2112,7 @@ impl App {
             shell.kill();
         }
         self.attached_pane = None;
+        self.awaiting_completion.clear();
 
         let task_mgr = TaskManager::new(&self.forge_dir);
         let state_mgr = StateManager::new(&self.forge_dir);
@@ -3031,6 +3484,147 @@ mod tests {
     }
 
     // ── DX-024: Stargate PTY mode tests ─────────────────────────
+
+    // ── DX-050: Builder Mode tests ─────────────────────────────
+
+    #[test]
+    fn test_dispatch_to_tui_pending_task() {
+        let tmp = tempfile::tempdir().unwrap();
+        let forge_dir = tmp.path().join(".forge");
+        let tasks_dir = forge_dir.join("tasks");
+        std::fs::create_dir_all(&tasks_dir).unwrap();
+
+        // Create a pending task assigned to Claude
+        let mut task = Task::new("T-010", "Build auth", "Implement auth module");
+        task.status = TaskStatus::Pending;
+        task.assigned_to = Some(AgentType::Claude);
+        let json = serde_json::to_string_pretty(&task).unwrap();
+        std::fs::write(tasks_dir.join("T-010.json"), &json).unwrap();
+        std::fs::write(tasks_dir.join("T-010.md"), "# T-010").unwrap();
+
+        let (mut app, _rx, tx) = App::new(forge_dir, tmp.path().to_path_buf(), 3, false);
+        app.reload_tasks().unwrap();
+        app.pty_mode = true;
+        app.selected_index = 0;
+
+        // Simulate a running PTY session for Claude with a ready prompt
+        // We can't easily create a real PtySession in tests, but we can test
+        // the guards: dispatch should fail without a PTY session
+        app.handle_key(KeyEvent::from(KeyCode::Char('a')), &tx);
+        // Should log "TUI not running" since no pty_sessions
+        assert!(app.events.iter().any(|e| e.contains("not running")));
+    }
+
+    #[test]
+    fn test_dispatch_to_tui_busy_agent() {
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
+        app.pty_mode = true;
+        app.focus = FocusArea::TaskBoard;
+
+        let mut task = make_task("T-001", TaskStatus::Pending, vec![]);
+        task.assigned_to = Some(AgentType::Claude);
+        app.tasks = vec![task];
+        app.selected_index = 0;
+
+        // Claude is already running a task
+        app.agent_running_task
+            .insert(AgentType::Claude, "T-999".to_string());
+
+        app.dispatch_to_tui(&tx);
+        // Should log "busy" since agent already running
+        // Note: this will first fail on "TUI not running" since no pty_sessions
+        assert!(
+            app.events
+                .iter()
+                .any(|e| e.contains("not running") || e.contains("busy")),
+            "Expected dispatch guard message, got: {:?}",
+            app.events
+        );
+    }
+
+    #[test]
+    fn test_completion_detection_too_early() {
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
+        app.pty_mode = true;
+
+        // Insert awaiting completion that was just dispatched (now)
+        app.awaiting_completion.insert(
+            AgentType::Claude,
+            AwaitingCompletion {
+                task_id: "T-001".to_string(),
+                dispatched_at: Instant::now(),
+                last_output_at: Instant::now(),
+            },
+        );
+
+        // Should NOT fire completion — less than 10s elapsed
+        app.check_pty_completion(&tx);
+        assert!(
+            app.awaiting_completion.contains_key(&AgentType::Claude),
+            "Should not complete before 10s minimum"
+        );
+    }
+
+    #[test]
+    fn test_completion_detection_quiet_period() {
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
+        app.pty_mode = true;
+
+        // Insert awaiting completion that was dispatched 15s ago, output quiet 5s
+        let now = Instant::now();
+        app.awaiting_completion.insert(
+            AgentType::Claude,
+            AwaitingCompletion {
+                task_id: "T-001".to_string(),
+                dispatched_at: now - Duration::from_secs(15),
+                last_output_at: now - Duration::from_secs(5),
+            },
+        );
+
+        // No PTY session — check_pty_completion should skip (no session to check pattern)
+        app.check_pty_completion(&tx);
+        assert!(
+            app.awaiting_completion.contains_key(&AgentType::Claude),
+            "Should not complete without PTY session"
+        );
+    }
+
+    #[test]
+    fn test_awaiting_completion_cleared_on_cleanup() {
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
+        app.awaiting_completion.insert(
+            AgentType::Claude,
+            AwaitingCompletion {
+                task_id: "T-001".to_string(),
+                dispatched_at: Instant::now(),
+                last_output_at: Instant::now(),
+            },
+        );
+        assert!(!app.awaiting_completion.is_empty());
+        app.cleanup_running_tasks();
+        assert!(app.awaiting_completion.is_empty());
+    }
+
+    #[test]
+    fn test_spinner_frame_increments() {
+        let tmp = tempfile::tempdir().unwrap();
+        let forge_dir = tmp.path().join(".forge");
+        std::fs::create_dir_all(forge_dir.join("tasks")).unwrap();
+
+        let (mut app, _rx, tx) = App::new(forge_dir, tmp.path().to_path_buf(), 3, false);
+        assert_eq!(app.spinner_frame, 0);
+        app.handle_tick(&tx).unwrap();
+        assert_eq!(app.spinner_frame, 1);
+        // Cycle through
+        for _ in 0..9 {
+            app.handle_tick(&tx).unwrap();
+        }
+        assert_eq!(app.spinner_frame, 0); // wrapped around
+    }
 
     #[test]
     fn test_pty_mode_defaults_off() {

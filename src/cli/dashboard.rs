@@ -80,6 +80,10 @@ pub async fn execute(
     // Schedule initial tasks (if not watch mode)
     app.schedule_unblocked_tasks(&agent_tx);
 
+    // DX-050: In PTY mode, ensure all 3 agent TUIs are running (even without tasks).
+    // This enables Builder Mode — manual dispatch via `a` key.
+    app.spawn_idle_tuis(&agent_tx);
+
     // Start keyboard event listener
     let (tui_tx, mut tui_rx) = tokio::sync::mpsc::unbounded_channel();
     spawn_event_listener(tui_tx);
