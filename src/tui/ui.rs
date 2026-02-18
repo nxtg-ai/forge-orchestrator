@@ -49,9 +49,9 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     } else if app.expanded_pane.is_some() {
         "Esc:Back | \u{2191}\u{2193}:Scroll | Home/End:Jump | q:Quit"
     } else if app.pty_mode {
-        "q:Quit | Tab:Focus | \u{2191}\u{2193}:Navigate | a:Assign | Enter/f:Expand | i:Attach | s:Shell"
+        "q:Quit | Tab:Focus | \u{2191}\u{2193}:Navigate | a:Assign | c:Cycle | Enter/f:Expand | i:Attach | s:Shell"
     } else {
-        "q:Quit | Tab:Focus | \u{2191}\u{2193}:Navigate | Enter/f:Expand | r:Retry | s:Shell"
+        "q:Quit | Tab:Focus | \u{2191}\u{2193}:Navigate | c:Cycle | Enter/f:Expand | r:Retry | s:Shell"
     };
 
     let key_paragraph = Paragraph::new(Line::from(Span::styled(

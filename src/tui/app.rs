@@ -820,6 +820,11 @@ impl App {
                     self.dispatch_to_tui(tx);
                 }
             }
+            KeyCode::Char('c') => {
+                if self.focus == FocusArea::TaskBoard {
+                    self.cycle_agent_assignment();
+                }
+            }
             KeyCode::Char('r') => {
                 if self.focus == FocusArea::TaskBoard {
                     self.retry_selected_task(tx);
@@ -1435,6 +1440,41 @@ impl App {
         );
 
         self.push_event(&format!("Dispatched {} to {}", task_id, agent));
+        self.reload_tasks().ok();
+    }
+
+    /// Cycle the agent assignment on the selected task: Claude → Codex → Gemini → Claude.
+    fn cycle_agent_assignment(&mut self) {
+        if self.selected_index >= self.tasks.len() {
+            return;
+        }
+        let task = &self.tasks[self.selected_index];
+
+        // Only allow reassignment on Pending or Failed tasks
+        if !matches!(task.status, TaskStatus::Pending | TaskStatus::Failed) {
+            self.push_event(&format!(
+                "{} is {:?} — can only reassign pending/failed tasks",
+                task.id, task.status
+            ));
+            return;
+        }
+
+        let current = task.assigned_to.clone().unwrap_or(AgentType::Any);
+        let next = match current {
+            AgentType::Claude => AgentType::Codex,
+            AgentType::Codex => AgentType::Gemini,
+            AgentType::Gemini => AgentType::Claude,
+            AgentType::Any => AgentType::Claude,
+        };
+
+        let task_id = task.id.clone();
+        let task_mgr = TaskManager::new(&self.forge_dir);
+        if let Ok(mut t) = task_mgr.get_task(&task_id) {
+            t.assigned_to = Some(next.clone());
+            t.updated_at = chrono::Utc::now();
+            task_mgr.update_task(&t).ok();
+        }
+        self.push_event(&format!("{} reassigned to {}", task_id, next));
         self.reload_tasks().ok();
     }
 
@@ -3673,5 +3713,56 @@ mod tests {
         app.pty_mode = false;
         app.handle_key(KeyEvent::from(KeyCode::Char('i')), &tx);
         assert!(app.attached_pane.is_none());
+    }
+
+    #[test]
+    fn test_cycle_agent_assignment() {
+        let tmp = tempfile::tempdir().unwrap();
+        let forge_dir = tmp.path().join(".forge");
+        let tasks_dir = forge_dir.join("tasks");
+        std::fs::create_dir_all(&tasks_dir).unwrap();
+
+        let mut task = Task::new("T-020", "Test cycle", "Test agent cycling");
+        task.status = TaskStatus::Pending;
+        task.assigned_to = Some(AgentType::Claude);
+        let json = serde_json::to_string_pretty(&task).unwrap();
+        std::fs::write(tasks_dir.join("T-020.json"), &json).unwrap();
+        std::fs::write(tasks_dir.join("T-020.md"), "# T-020").unwrap();
+
+        let (mut app, _rx, tx) = App::new(forge_dir.clone(), tmp.path().to_path_buf(), 3, false);
+        app.reload_tasks().unwrap();
+        app.focus = FocusArea::TaskBoard;
+        app.selected_index = 0;
+
+        // Claude → Codex
+        app.handle_key(KeyEvent::from(KeyCode::Char('c')), &tx);
+        app.reload_tasks().unwrap();
+        assert_eq!(app.tasks[0].assigned_to, Some(AgentType::Codex));
+
+        // Codex → Gemini
+        app.handle_key(KeyEvent::from(KeyCode::Char('c')), &tx);
+        app.reload_tasks().unwrap();
+        assert_eq!(app.tasks[0].assigned_to, Some(AgentType::Gemini));
+
+        // Gemini → Claude
+        app.handle_key(KeyEvent::from(KeyCode::Char('c')), &tx);
+        app.reload_tasks().unwrap();
+        assert_eq!(app.tasks[0].assigned_to, Some(AgentType::Claude));
+    }
+
+    #[test]
+    fn test_cycle_agent_blocked_on_running_task() {
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
+        app.focus = FocusArea::TaskBoard;
+
+        let mut task = make_task("T-021", TaskStatus::InProgress, vec![]);
+        task.assigned_to = Some(AgentType::Claude);
+        app.tasks = vec![task];
+        app.selected_index = 0;
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('c')), &tx);
+        // Should not cycle — task is InProgress
+        assert!(app.events.iter().any(|e| e.contains("can only reassign")));
     }
 }
