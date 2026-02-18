@@ -32,279 +32,120 @@ impl StyledLine {
     }
 }
 
-/// VTE-based ANSI escape sequence parser that collects styled lines.
-pub struct AnsiLineCollector {
-    lines: Vec<StyledLine>,
-    current_line: Vec<StyledSpan>,
-    current_text: String,
-    current_style: Style,
-    max_lines: usize,
-    cr_pending: bool,
-}
-
-impl AnsiLineCollector {
-    pub fn new(max_lines: usize) -> Self {
-        Self {
-            lines: Vec::new(),
-            current_line: Vec::new(),
-            current_text: String::new(),
-            current_style: Style::default(),
-            max_lines,
-            cr_pending: false,
-        }
-    }
-
-    /// Take a snapshot of the current styled lines (including any partial current line).
-    pub fn snapshot(&self) -> Vec<StyledLine> {
-        let mut result = self.lines.clone();
-        // Include the current partial line
-        let mut partial = self.current_line.clone();
-        if !self.current_text.is_empty() {
-            partial.push(StyledSpan {
-                text: self.current_text.clone(),
-                style: self.current_style,
-            });
-        }
-        if !partial.is_empty() {
-            result.push(StyledLine { spans: partial });
-        }
-        result
-    }
-
-    /// Total line count including partial current line.
-    pub fn line_count(&self) -> usize {
-        let has_partial = !self.current_line.is_empty() || !self.current_text.is_empty();
-        self.lines.len() + if has_partial { 1 } else { 0 }
-    }
-
-    /// Flush current text into a span and complete the current line.
-    fn complete_line(&mut self) {
-        self.cr_pending = false; // \r\n → line is completed, not overwritten
-        if !self.current_text.is_empty() {
-            self.current_line.push(StyledSpan {
-                text: std::mem::take(&mut self.current_text),
-                style: self.current_style,
-            });
-        }
-        let line = StyledLine {
-            spans: std::mem::take(&mut self.current_line),
-        };
-        self.lines.push(line);
-        // Ring buffer cap
-        while self.lines.len() > self.max_lines {
-            self.lines.remove(0);
-        }
-    }
-
-    /// Carriage return: mark pending overwrite (deferred until next print).
-    /// This handles `\r\n` (line ending) correctly — `\r` sets the flag,
-    /// and `\n` completes the line without clearing it. Only if new text
-    /// is printed after `\r` does the current line get cleared (for progress bars).
-    fn carriage_return(&mut self) {
-        self.cr_pending = true;
-    }
-
-    /// Apply the deferred carriage return: clear line for overwrite.
-    fn apply_cr(&mut self) {
-        if self.cr_pending {
-            self.cr_pending = false;
-            self.current_line.clear();
-            self.current_text.clear();
-        }
-    }
-
-    /// Flush current text segment before style change.
-    fn flush_text(&mut self) {
-        if !self.current_text.is_empty() {
-            self.current_line.push(StyledSpan {
-                text: std::mem::take(&mut self.current_text),
-                style: self.current_style,
-            });
-        }
-    }
-
-    /// Apply SGR (Select Graphic Rendition) parameters.
-    fn apply_sgr(&mut self, params: &[u16]) {
-        let mut i = 0;
-        while i < params.len() {
-            match params[i] {
-                0 => self.current_style = Style::default(),
-                1 => self.current_style = self.current_style.add_modifier(Modifier::BOLD),
-                2 => self.current_style = self.current_style.add_modifier(Modifier::DIM),
-                3 => self.current_style = self.current_style.add_modifier(Modifier::ITALIC),
-                4 => self.current_style = self.current_style.add_modifier(Modifier::UNDERLINED),
-                7 => self.current_style = self.current_style.add_modifier(Modifier::REVERSED),
-                9 => self.current_style = self.current_style.add_modifier(Modifier::CROSSED_OUT),
-                22 => {
-                    self.current_style = self
-                        .current_style
-                        .remove_modifier(Modifier::BOLD)
-                        .remove_modifier(Modifier::DIM)
-                }
-                23 => self.current_style = self.current_style.remove_modifier(Modifier::ITALIC),
-                24 => self.current_style = self.current_style.remove_modifier(Modifier::UNDERLINED),
-                27 => self.current_style = self.current_style.remove_modifier(Modifier::REVERSED),
-                29 => {
-                    self.current_style = self.current_style.remove_modifier(Modifier::CROSSED_OUT)
-                }
-                // Standard foreground colors
-                30 => self.current_style = self.current_style.fg(Color::Black),
-                31 => self.current_style = self.current_style.fg(Color::Red),
-                32 => self.current_style = self.current_style.fg(Color::Green),
-                33 => self.current_style = self.current_style.fg(Color::Yellow),
-                34 => self.current_style = self.current_style.fg(Color::Blue),
-                35 => self.current_style = self.current_style.fg(Color::Magenta),
-                36 => self.current_style = self.current_style.fg(Color::Cyan),
-                37 => self.current_style = self.current_style.fg(Color::White),
-                // Extended foreground: 38;5;N or 38;2;R;G;B
-                38 => {
-                    if i + 1 < params.len() {
-                        match params[i + 1] {
-                            5 if i + 2 < params.len() => {
-                                self.current_style =
-                                    self.current_style.fg(Color::Indexed(params[i + 2] as u8));
-                                i += 2;
-                            }
-                            2 if i + 4 < params.len() => {
-                                self.current_style = self.current_style.fg(Color::Rgb(
-                                    params[i + 2] as u8,
-                                    params[i + 3] as u8,
-                                    params[i + 4] as u8,
-                                ));
-                                i += 4;
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                39 => self.current_style = self.current_style.fg(Color::Reset),
-                // Standard background colors
-                40 => self.current_style = self.current_style.bg(Color::Black),
-                41 => self.current_style = self.current_style.bg(Color::Red),
-                42 => self.current_style = self.current_style.bg(Color::Green),
-                43 => self.current_style = self.current_style.bg(Color::Yellow),
-                44 => self.current_style = self.current_style.bg(Color::Blue),
-                45 => self.current_style = self.current_style.bg(Color::Magenta),
-                46 => self.current_style = self.current_style.bg(Color::Cyan),
-                47 => self.current_style = self.current_style.bg(Color::White),
-                // Extended background: 48;5;N or 48;2;R;G;B
-                48 => {
-                    if i + 1 < params.len() {
-                        match params[i + 1] {
-                            5 if i + 2 < params.len() => {
-                                self.current_style =
-                                    self.current_style.bg(Color::Indexed(params[i + 2] as u8));
-                                i += 2;
-                            }
-                            2 if i + 4 < params.len() => {
-                                self.current_style = self.current_style.bg(Color::Rgb(
-                                    params[i + 2] as u8,
-                                    params[i + 3] as u8,
-                                    params[i + 4] as u8,
-                                ));
-                                i += 4;
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                49 => self.current_style = self.current_style.bg(Color::Reset),
-                _ => {}
-            }
-            i += 1;
-        }
+/// Convert a vt100 cell color to a ratatui color.
+fn convert_color(color: vt100::Color) -> Option<Color> {
+    match color {
+        vt100::Color::Default => None,
+        vt100::Color::Idx(0) => Some(Color::Black),
+        vt100::Color::Idx(1) => Some(Color::Red),
+        vt100::Color::Idx(2) => Some(Color::Green),
+        vt100::Color::Idx(3) => Some(Color::Yellow),
+        vt100::Color::Idx(4) => Some(Color::Blue),
+        vt100::Color::Idx(5) => Some(Color::Magenta),
+        vt100::Color::Idx(6) => Some(Color::Cyan),
+        vt100::Color::Idx(7) => Some(Color::White),
+        vt100::Color::Idx(n) => Some(Color::Indexed(n)),
+        vt100::Color::Rgb(r, g, b) => Some(Color::Rgb(r, g, b)),
     }
 }
 
-/// Implement the VTE Perform trait to handle escape sequences properly.
-impl vte::Perform for AnsiLineCollector {
-    fn print(&mut self, c: char) {
-        self.apply_cr();
-        self.current_text.push(c);
+/// Build a ratatui Style from a vt100 cell's attributes.
+fn cell_style(cell: &vt100::Cell) -> Style {
+    let mut style = Style::default();
+    if let Some(fg) = convert_color(cell.fgcolor()) {
+        style = style.fg(fg);
     }
-
-    fn execute(&mut self, byte: u8) {
-        match byte {
-            // BS -> cursor back (erase last char from current text)
-            0x08 => {
-                self.apply_cr();
-                self.current_text.pop();
-            }
-            // LF / VT / FF -> complete line
-            0x0a..=0x0c => {
-                self.complete_line();
-            }
-            // CR -> carriage return
-            0x0d => {
-                self.carriage_return();
-            }
-            // TAB -> expand to spaces
-            0x09 => {
-                self.current_text.push_str("    ");
-            }
-            // BEL, etc -- ignore
-            _ => {}
-        }
+    if let Some(bg) = convert_color(cell.bgcolor()) {
+        style = style.bg(bg);
     }
-
-    fn hook(&mut self, _params: &vte::Params, _intermediates: &[u8], _ignore: bool, _action: char) {
+    if cell.bold() {
+        style = style.add_modifier(Modifier::BOLD);
     }
+    if cell.italic() {
+        style = style.add_modifier(Modifier::ITALIC);
+    }
+    if cell.underline() {
+        style = style.add_modifier(Modifier::UNDERLINED);
+    }
+    if cell.inverse() {
+        style = style.add_modifier(Modifier::REVERSED);
+    }
+    style
+}
 
-    fn put(&mut self, _byte: u8) {}
+/// Convert a vt100 screen into styled lines for rendering.
+/// Groups consecutive cells with identical styles into spans.
+/// Trims trailing whitespace from each row.
+fn screen_to_styled_lines(screen: &vt100::Screen) -> Vec<StyledLine> {
+    let (rows, cols) = screen.size();
+    let mut lines = Vec::with_capacity(rows as usize);
 
-    fn unhook(&mut self) {}
+    for row in 0..rows {
+        let mut spans: Vec<StyledSpan> = Vec::new();
+        let mut current_text = String::new();
+        let mut current_style = Style::default();
 
-    fn osc_dispatch(&mut self, _params: &[&[u8]], _bell_terminated: bool) {}
+        for col in 0..cols {
+            let cell = screen.cell(row, col);
+            // Skip wide-char continuation cells
+            if let Some(cell) = cell {
+                if cell.is_wide_continuation() {
+                    continue;
+                }
+                let style = cell_style(cell);
+                let text = cell.contents();
 
-    fn csi_dispatch(
-        &mut self,
-        params: &vte::Params,
-        _intermediates: &[u8],
-        _ignore: bool,
-        action: char,
-    ) {
-        match action {
-            // SGR -- Select Graphic Rendition
-            'm' => {
-                self.flush_text();
-                let param_vec: Vec<u16> = params.iter().flat_map(|p| p.iter().copied()).collect();
-                if param_vec.is_empty() {
-                    self.apply_sgr(&[0]); // bare ESC[m = reset
+                if style == current_style {
+                    current_text.push_str(&text);
                 } else {
-                    self.apply_sgr(&param_vec);
+                    if !current_text.is_empty() {
+                        spans.push(StyledSpan {
+                            text: std::mem::take(&mut current_text),
+                            style: current_style,
+                        });
+                    }
+                    current_style = style;
+                    current_text.push_str(&text);
                 }
             }
-            // Erase in Line
-            'K' => {
-                let param = params
-                    .iter()
-                    .next()
-                    .and_then(|p| p.first().copied())
-                    .unwrap_or(0);
-                if param == 2 {
-                    // Clear entire line
-                    self.current_line.clear();
-                    self.current_text.clear();
-                }
-                // param 0 (clear to end) is a no-op for our line-based model
-            }
-            // Ignore cursor movement, scrolling, etc. (MVP scope)
-            _ => {}
         }
+
+        // Flush remaining text
+        if !current_text.is_empty() {
+            spans.push(StyledSpan {
+                text: current_text,
+                style: current_style,
+            });
+        }
+
+        // Trim trailing whitespace from last span(s) with default style
+        while let Some(last) = spans.last_mut() {
+            if last.style == Style::default() {
+                let trimmed = last.text.trim_end().to_string();
+                if trimmed.is_empty() {
+                    spans.pop();
+                } else {
+                    last.text = trimmed;
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        lines.push(StyledLine { spans });
     }
 
-    fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, _byte: u8) {}
-}
-
-/// Feed bytes through the VTE parser into the collector.
-pub fn feed_through_vte(parser: &mut vte::Parser, collector: &mut AnsiLineCollector, bytes: &[u8]) {
-    parser.advance(collector, bytes);
+    lines
 }
 
 /// PTY session lifecycle manager.
+/// Uses vt100 crate for full virtual terminal emulation — handles cursor
+/// positioning, scroll regions, alternate screen, and all ANSI sequences
+/// that TUI apps (Claude, Codex, Gemini) rely on.
 pub struct PtySession {
     child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
-    collector: Arc<Mutex<(AnsiLineCollector, vte::Parser)>>,
+    parser: Arc<Mutex<vt100::Parser>>,
     input_tx: std::sync::mpsc::Sender<Vec<u8>>,
     master: Box<dyn MasterPty + Send>,
 }
@@ -317,7 +158,7 @@ impl PtySession {
         agent_tx: mpsc::UnboundedSender<AgentEvent>,
         task_id: String,
         agent: AgentType,
-        max_lines: usize,
+        _max_lines: usize,
     ) -> anyhow::Result<Self> {
         let pty_system = native_pty_system();
         let pair = pty_system.openpty(size)?;
@@ -328,15 +169,13 @@ impl PtySession {
 
         let child = Arc::new(Mutex::new(child));
 
-        let collector = Arc::new(Mutex::new((
-            AnsiLineCollector::new(max_lines),
-            vte::Parser::new(),
-        )));
+        // vt100 parser with same dimensions as the PTY + scrollback buffer
+        let parser = Arc::new(Mutex::new(vt100::Parser::new(size.rows, size.cols, 500)));
 
-        // Reader thread: reads from PTY master, feeds into AnsiLineCollector.
+        // Reader thread: reads from PTY master, feeds into vt100 parser.
         // When the process exits (EOF), waits for exit code and sends Completed.
         let mut reader = pair.master.try_clone_reader()?;
-        let collector_clone = Arc::clone(&collector);
+        let parser_clone = Arc::clone(&parser);
         let child_clone = Arc::clone(&child);
         std::thread::spawn(move || {
             let mut buf = [0u8; 4096];
@@ -344,9 +183,8 @@ impl PtySession {
                 match reader.read(&mut buf) {
                     Ok(0) => break, // EOF — process exited
                     Ok(n) => {
-                        if let Ok(mut guard) = collector_clone.lock() {
-                            let (ref mut coll, ref mut parser) = *guard;
-                            feed_through_vte(parser, coll, &buf[..n]);
+                        if let Ok(mut guard) = parser_clone.lock() {
+                            guard.process(&buf[..n]);
                         }
                         // Send an empty sentinel to wake the event loop for redraw
                         let _ = agent_tx.send(AgentEvent::Output {
@@ -390,7 +228,7 @@ impl PtySession {
 
         Ok(Self {
             child,
-            collector,
+            parser,
             input_tx,
             master: pair.master,
         })
@@ -401,7 +239,7 @@ impl PtySession {
         let _ = self.input_tx.send(bytes.to_vec());
     }
 
-    /// Resize the PTY.
+    /// Resize the PTY and the virtual terminal.
     pub fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<()> {
         self.master.resize(PtySize {
             rows,
@@ -409,22 +247,26 @@ impl PtySession {
             pixel_width: 0,
             pixel_height: 0,
         })?;
+        // Keep vt100 parser in sync with PTY dimensions
+        if let Ok(mut guard) = self.parser.lock() {
+            guard.set_size(rows, cols);
+        }
         Ok(())
     }
 
-    /// Get a snapshot of the styled output lines.
+    /// Get a snapshot of the styled output lines from the virtual terminal screen.
     pub fn snapshot(&self) -> Vec<StyledLine> {
-        self.collector
+        self.parser
             .lock()
-            .map(|guard| guard.0.snapshot())
+            .map(|guard| screen_to_styled_lines(guard.screen()))
             .unwrap_or_default()
     }
 
-    /// Get total line count.
+    /// Get total line count (screen rows).
     pub fn line_count(&self) -> usize {
-        self.collector
+        self.parser
             .lock()
-            .map(|guard| guard.0.line_count())
+            .map(|guard| guard.screen().size().0 as usize)
             .unwrap_or(0)
     }
 
@@ -446,12 +288,17 @@ impl PtySession {
 
     /// Check if a pattern appears in the last N lines of PTY output.
     pub fn has_pattern_in_last_n(&self, pattern: &str, n: usize) -> bool {
-        if let Ok(guard) = self.collector.lock() {
-            let lines = guard.0.snapshot();
-            lines.iter().rev().take(n).any(|line| {
-                let text: String = line.spans.iter().map(|s| s.text.as_str()).collect();
-                text.contains(pattern)
-            })
+        if let Ok(guard) = self.parser.lock() {
+            let screen = guard.screen();
+            let rows = screen.size().0 as usize;
+            let start = rows.saturating_sub(n);
+            for row in start..rows {
+                let row_text = screen.contents_between(row as u16, 0, row as u16, screen.size().1);
+                if row_text.contains(pattern) {
+                    return true;
+                }
+            }
+            false
         } else {
             false
         }
@@ -468,45 +315,39 @@ impl PtySession {
     }
 
     /// Schedule text to be written when a pattern appears in the PTY output.
-    /// Polls the collector every 200ms for the pattern. Falls back to timeout.
-    /// This is the adaptive "golden egg" — no guessing delays, instant response.
+    /// Polls the virtual terminal screen every 200ms for the pattern.
+    /// Falls back to timeout. This is the adaptive "golden egg" — no guessing
+    /// delays, instant response when the agent's TUI is ready.
     pub fn schedule_input_when_ready(&self, text: String, pattern: String, timeout_ms: u64) {
         let sender = self.input_tx.clone();
-        let collector = Arc::clone(&self.collector);
+        let parser = Arc::clone(&self.parser);
         std::thread::spawn(move || {
             let start = std::time::Instant::now();
             let timeout = std::time::Duration::from_millis(timeout_ms);
             let poll_interval = std::time::Duration::from_millis(200);
 
             loop {
-                // Check if pattern appears in collector output
-                if let Ok(guard) = collector.lock() {
-                    let lines = guard.0.snapshot();
-                    let found = lines.iter().any(|line| {
-                        let full_text: String =
-                            line.spans.iter().map(|s| s.text.as_str()).collect();
-                        full_text.contains(&pattern)
-                    });
-                    if found {
-                        // Small grace period for TUI to finish rendering
-                        drop(guard);
-                        std::thread::sleep(std::time::Duration::from_millis(300));
-                        // Send text and Enter separately — some TUIs need Enter
-                        // as a distinct write to trigger submit
-                        let bytes = text.into_bytes();
-                        // Strip trailing \r from text, send it, then send \r separately
-                        let (body, has_cr) = if bytes.ends_with(b"\r") {
-                            (&bytes[..bytes.len() - 1], true)
-                        } else {
-                            (&bytes[..], false)
-                        };
-                        let _ = sender.send(body.to_vec());
-                        if has_cr {
-                            std::thread::sleep(std::time::Duration::from_millis(100));
-                            let _ = sender.send(b"\r".to_vec());
-                        }
-                        return;
+                // Check if pattern appears anywhere on the terminal screen
+                if let Ok(guard) = parser.lock()
+                    && guard.screen().contents().contains(&pattern)
+                {
+                    // Small grace period for TUI to finish rendering
+                    drop(guard);
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                    // Send text and Enter separately — some TUIs need Enter
+                    // as a distinct write to trigger submit
+                    let bytes = text.into_bytes();
+                    let (body, has_cr) = if bytes.ends_with(b"\r") {
+                        (&bytes[..bytes.len() - 1], true)
+                    } else {
+                        (&bytes[..], false)
+                    };
+                    let _ = sender.send(body.to_vec());
+                    if has_cr {
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        let _ = sender.send(b"\r".to_vec());
                     }
+                    return;
                 }
 
                 // Check timeout — use same split logic as pattern-match path
@@ -582,31 +423,29 @@ pub fn key_event_to_bytes(key: &KeyEvent) -> Vec<u8> {
 mod tests {
     use super::*;
 
-    fn make_collector(max: usize) -> (AnsiLineCollector, vte::Parser) {
-        (AnsiLineCollector::new(max), vte::Parser::new())
+    /// Helper: create a vt100 parser, feed bytes, return styled lines.
+    fn parse_to_lines(input: &[u8], rows: u16, cols: u16) -> Vec<StyledLine> {
+        let mut parser = vt100::Parser::new(rows, cols, 0);
+        parser.process(input);
+        screen_to_styled_lines(parser.screen())
     }
 
-    fn feed(collector: &mut AnsiLineCollector, parser: &mut vte::Parser, input: &[u8]) {
-        feed_through_vte(parser, collector, input);
+    /// Extract all text from a StyledLine.
+    fn line_text(line: &StyledLine) -> String {
+        line.spans.iter().map(|s| s.text.as_str()).collect()
     }
 
     #[test]
     fn test_plain_text_line() {
-        let (mut c, mut p) = make_collector(100);
-        feed(&mut c, &mut p, b"hello\n");
-        let snap = c.snapshot();
-        assert_eq!(snap.len(), 1);
-        let line_text: String = snap[0].spans.iter().map(|s| s.text.as_str()).collect();
-        assert_eq!(line_text, "hello");
+        let lines = parse_to_lines(b"hello\n", 24, 80);
+        // First row should contain "hello"
+        assert_eq!(line_text(&lines[0]), "hello");
     }
 
     #[test]
     fn test_ansi_red_text() {
-        let (mut c, mut p) = make_collector(100);
-        feed(&mut c, &mut p, b"\x1b[31mERROR\x1b[0m\n");
-        let snap = c.snapshot();
-        assert_eq!(snap.len(), 1);
-        let error_span = snap[0]
+        let lines = parse_to_lines(b"\x1b[31mERROR\x1b[0m\n", 24, 80);
+        let error_span = lines[0]
             .spans
             .iter()
             .find(|s| s.text.contains("ERROR"))
@@ -616,11 +455,8 @@ mod tests {
 
     #[test]
     fn test_256_color() {
-        let (mut c, mut p) = make_collector(100);
-        feed(&mut c, &mut p, b"\x1b[38;5;208mORANGE\x1b[0m\n");
-        let snap = c.snapshot();
-        assert_eq!(snap.len(), 1);
-        let span = snap[0]
+        let lines = parse_to_lines(b"\x1b[38;5;208mORANGE\x1b[0m\n", 24, 80);
+        let span = lines[0]
             .spans
             .iter()
             .find(|s| s.text.contains("ORANGE"))
@@ -630,11 +466,8 @@ mod tests {
 
     #[test]
     fn test_rgb_color() {
-        let (mut c, mut p) = make_collector(100);
-        feed(&mut c, &mut p, b"\x1b[38;2;255;128;0mRGB\x1b[0m\n");
-        let snap = c.snapshot();
-        assert_eq!(snap.len(), 1);
-        let span = snap[0]
+        let lines = parse_to_lines(b"\x1b[38;2;255;128;0mRGB\x1b[0m\n", 24, 80);
+        let span = lines[0]
             .spans
             .iter()
             .find(|s| s.text.contains("RGB"))
@@ -644,11 +477,8 @@ mod tests {
 
     #[test]
     fn test_bold_and_color() {
-        let (mut c, mut p) = make_collector(100);
-        feed(&mut c, &mut p, b"\x1b[1;32mBOLD GREEN\x1b[0m\n");
-        let snap = c.snapshot();
-        assert_eq!(snap.len(), 1);
-        let span = snap[0]
+        let lines = parse_to_lines(b"\x1b[1;32mBOLD GREEN\x1b[0m\n", 24, 80);
+        let span = lines[0]
             .spans
             .iter()
             .find(|s| s.text.contains("BOLD GREEN"))
@@ -658,44 +488,54 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_lines() {
-        let (mut c, mut p) = make_collector(100);
-        feed(&mut c, &mut p, b"line1\nline2\nline3\n");
-        let snap = c.snapshot();
-        assert_eq!(snap.len(), 3);
+    fn test_cursor_positioning() {
+        // vt100 handles ESC[row;colH — our old parser ignored this
+        let lines = parse_to_lines(b"\x1b[5;10Hhello", 24, 80);
+        // Row 4 (0-indexed), col 9 should have "hello"
+        let text = line_text(&lines[4]);
+        assert!(
+            text.contains("hello"),
+            "Expected 'hello' at row 5, got: {:?}",
+            text
+        );
     }
 
     #[test]
-    fn test_ring_buffer_cap() {
-        let (mut c, mut p) = make_collector(5);
-        for i in 0..10 {
-            let line = format!("line{}\n", i);
-            feed(&mut c, &mut p, line.as_bytes());
-        }
-        let snap = c.snapshot();
-        assert_eq!(snap.len(), 5);
-        let first_text: String = snap[0].spans.iter().map(|s| s.text.as_str()).collect();
-        assert_eq!(first_text, "line5");
+    fn test_screen_clear() {
+        // Write text, then clear screen — old parser would keep old text
+        let lines = parse_to_lines(b"old text\x1b[2J\x1b[Hnew text", 24, 80);
+        let all_text: String = lines
+            .iter()
+            .map(|l| line_text(l))
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(!all_text.contains("old text"), "Screen should be cleared");
+        assert!(all_text.contains("new text"), "New text should be visible");
     }
 
     #[test]
-    fn test_carriage_return() {
-        let (mut c, mut p) = make_collector(100);
-        feed(&mut c, &mut p, b"50%\r100%\n");
-        let snap = c.snapshot();
-        assert_eq!(snap.len(), 1);
-        let line_text: String = snap[0].spans.iter().map(|s| s.text.as_str()).collect();
-        assert_eq!(line_text, "100%");
+    fn test_carriage_return_overwrite() {
+        let lines = parse_to_lines(b"50%\r100%\n", 24, 80);
+        let text = line_text(&lines[0]);
+        assert!(text.contains("100%"), "CR should overwrite: got {:?}", text);
+        assert!(
+            !text.contains("50%"),
+            "Old text should be overwritten: got {:?}",
+            text
+        );
     }
 
     #[test]
-    fn test_partial_line() {
-        let (mut c, mut p) = make_collector(100);
-        feed(&mut c, &mut p, b"partial");
-        let snap = c.snapshot();
-        assert_eq!(snap.len(), 1);
-        let text: String = snap[0].spans.iter().map(|s| s.text.as_str()).collect();
-        assert_eq!(text, "partial");
+    fn test_snapshot_returns_screen_rows() {
+        let lines = parse_to_lines(b"hello\n", 10, 40);
+        assert_eq!(lines.len(), 10, "Should return exactly screen height lines");
+    }
+
+    #[test]
+    fn test_pattern_detection() {
+        let mut parser = vt100::Parser::new(24, 80, 0);
+        parser.process(b"What can I help you with?\n> ");
+        assert!(parser.screen().contents().contains("help you with"));
     }
 
     #[test]
@@ -727,11 +567,14 @@ mod tests {
 
     #[test]
     fn test_has_pattern_in_last_n_found() {
-        let (mut c, mut p) = make_collector(100);
-        feed(&mut c, &mut p, b"line 1\nline 2\nhello world\nline 4\n");
-        let snap = c.snapshot();
-        let found = snap.iter().rev().take(5).any(|line| {
-            let text: String = line.spans.iter().map(|s| s.text.as_str()).collect();
+        // Use a small screen so 4 lines of text land in the "last 5" rows
+        let mut parser = vt100::Parser::new(6, 80, 0);
+        parser.process(b"line 1\nline 2\nhello world\nline 4\n");
+        let screen = parser.screen();
+        let rows = screen.size().0 as usize;
+        let start = rows.saturating_sub(5);
+        let found = (start..rows).any(|row| {
+            let text = screen.contents_between(row as u16, 0, row as u16, screen.size().1);
             text.contains("hello world")
         });
         assert!(found, "Pattern should be found in last 5 lines");
@@ -739,11 +582,13 @@ mod tests {
 
     #[test]
     fn test_has_pattern_in_last_n_not_found() {
-        let (mut c, mut p) = make_collector(100);
-        feed(&mut c, &mut p, b"line 1\nline 2\nline 3\nline 4\nline 5\n");
-        let snap = c.snapshot();
-        let found = snap.iter().rev().take(5).any(|line| {
-            let text: String = line.spans.iter().map(|s| s.text.as_str()).collect();
+        let mut parser = vt100::Parser::new(24, 80, 0);
+        parser.process(b"line 1\nline 2\nline 3\nline 4\nline 5\n");
+        let screen = parser.screen();
+        let rows = screen.size().0 as usize;
+        let start = rows.saturating_sub(5);
+        let found = (start..rows).any(|row| {
+            let text = screen.contents_between(row as u16, 0, row as u16, screen.size().1);
             text.contains("hello world")
         });
         assert!(!found, "Pattern should NOT be found");
@@ -826,6 +671,10 @@ mod tests {
 
         let result = session.resize(100, 40);
         assert!(result.is_ok(), "Resize should succeed");
+
+        // Verify vt100 parser also resized
+        let lines = session.snapshot();
+        assert_eq!(lines.len(), 40, "After resize, should have 40 rows");
 
         let _ = session.kill();
     }

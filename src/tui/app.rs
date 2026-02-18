@@ -238,7 +238,7 @@ impl App {
             pty_mode: false,
             attached_pane: None,
             shell_pty: None,
-            terminal_size: (80, 24),
+            terminal_size: crossterm::terminal::size().unwrap_or((80, 24)),
             awaiting_completion: HashMap::new(),
             spinner_frame: 0,
         };
@@ -391,7 +391,7 @@ impl App {
             }
             AgentEvent::Output { agent, line, .. } => {
                 // DX-024: In PTY mode, skip agent_outputs insertion —
-                // output is captured by the PTY session's AnsiLineCollector.
+                // output is captured by the PTY session's vt100 terminal emulator.
                 // The empty sentinel line just wakes the event loop to redraw.
                 if self.pty_mode && self.pty_sessions.contains_key(&agent) {
                     // DX-050: Update last_output_at for completion detection

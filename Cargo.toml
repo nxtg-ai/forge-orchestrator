@@ -54,8 +54,8 @@ rand = "0.9"
 
 # PTY allocation (WezTerm-proven, cross-platform)
 portable-pty = "0.9"
-# ANSI escape sequence parser (alacritty's VTE)
-vte = "0.14"
+# Full virtual terminal emulator (proper cursor, scroll regions, alt screen)
+vt100 = "0.15"
 
 # File watching (future: detect completions)
 # notify = "7"
