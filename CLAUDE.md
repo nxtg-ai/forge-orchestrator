@@ -150,3 +150,14 @@ forge-orchestrator          ──headless──►   runs CLI or TUI dashboard 
 - **Tests:** 244 (222 unit + 10 CLI + 12 MCP integration)
 - **Version:** 1.2.0
 - **Repo:** github.com/nxtg-ai/forge-orchestrator
+
+## ASIF Governance
+
+This project is part of NXTG-Forge (P-03) in the ASIF portfolio (Developer Tools vertical).
+
+On every session:
+1. Read `../.asif/NEXUS.md` — check for `## CoS Directives` section
+2. Execute any PENDING directives before other work (unless Asif overrides)
+3. Write your response inline under each directive
+4. Update initiative statuses in NEXUS if your work changes them
+5. If you have questions for the CoS, add them under `## Team Questions` in NEXUS
