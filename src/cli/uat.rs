@@ -18,6 +18,17 @@ pub fn execute(project_root: &Path, inline_finding: Option<String>) -> anyhow::R
         return execute_inline(&forge_dir, &description);
     }
 
+    // Generate U-xxx tasks if they don't exist yet (idempotent)
+    let task_mgr = TaskManager::new(&forge_dir);
+    let generated = task_mgr.generate_uat_subtasks()?;
+    if !generated.is_empty() {
+        println!(
+            "  {} Generated {} UAT task(s)",
+            "✓".green(),
+            generated.len()
+        );
+    }
+
     // Launch the TUI
     crate::tui::uat_app::run(forge_dir, project_root.to_path_buf())
 }
