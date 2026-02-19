@@ -168,10 +168,8 @@ fn render_task_board(f: &mut Frame, app: &App, area: Rect) {
         Cell::from("Title").style(Style::default().add_modifier(Modifier::BOLD)),
     ]);
 
-    // Sort tasks hierarchically: parents first, then children indented
-    let sorted_tasks = hierarchical_sort(&app.tasks);
-
-    let rows: Vec<Row> = sorted_tasks
+    // Tasks are already sorted hierarchically in App::reload_tasks()
+    let rows: Vec<Row> = app.tasks
         .iter()
         .enumerate()
         .map(|(i, task)| {
@@ -224,7 +222,7 @@ fn render_task_board(f: &mut Frame, app: &App, area: Rect) {
 
     // Calculate visible rows (area height minus borders and header)
     let visible_rows = area.height.saturating_sub(3) as usize; // 2 borders + 1 header
-    let total = sorted_tasks.len();
+    let total = app.tasks.len();
 
     // Scroll so selected_index is always visible
     let scroll_offset =

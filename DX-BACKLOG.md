@@ -101,7 +101,31 @@
 - **Problem:** Rule-based task routing is static. Should learn from outcomes.
 - **Solution:** Lightweight classifier trained on past task outcomes. RL loop for provider+model selection.
 
-## Completed Items (36 of 51)
+### DX-051: Three-Tier Validation (T→V→U Pipeline)
+- **Priority:** HIGH (v1.4.0)
+- **Where:** `src/tui/uat_app.rs` + `src/tui/uat_ui.rs` + `src/core/task.rs` + plan generation
+- **Problem:** Current UAT board shows ALL tasks (T+V) with no hierarchy. Human UAT is conflated with AI verification. The AI can't validate UX/DX alignment with product vision — only a human can.
+- **Solution:** Three-tier validation pipeline:
+  - **T-xxx** (Build): AI implements the feature
+  - **V-xxx** (Verify): AI validates technically (tests, code quality)
+  - **U-xxx** (UAT): Human validates UX/DX (feel, flow, vision alignment)
+  - Plan phase auto-generates U-xxx tasks for UI/UX/DX-facing outcomes with human-testable acceptance criteria ("Can user navigate login→dashboard in <3 clicks?")
+  - UAT board filters to U-xxx by default, shows T→V→U hierarchy with AI validation results inline
+  - Detail panel shows: U-task criteria, V-task AI validation summary + which AI ran it, T-task build context
+- **DX Impact:** Makes `forge uat` the human-in-the-loop checkpoint in the agentic dev pipeline. AI handles T+V autonomously, human focuses only on what AI literally can't judge.
+- **Source:** Dogfood Session 24 (2026-02-18)
+
+### DX-052: UAT Board Improvements (Shipped Fixes)
+- **Priority:** SHIPPED (v1.2.0+uat)
+- **What shipped:** Persistent pass/fail status (.forge/uat-status.json), scrollable task list (ListState), description fallback when no acceptance criteria, `u` key unmark, report generation (.forge/uat-report.md), tighter related-task matching (stop words + 5-char min + cap at 5)
+- **Source:** Dogfood Session 24 (2026-02-18)
+
+## Completed Items (38 of 53)
+
+| DX | Description | Version |
+|----|-------------|---------|
+| DX-050 | Builder Mode (TUI dispatch, completion detection, idle TUI spawn) | v1.2.0 |
+| DX-052 | UAT Board Improvements (persist, scroll, report, unmark) | v1.2.0 |
 
 | DX | Description | Version |
 |----|-------------|---------|

@@ -152,9 +152,12 @@ impl ToolAdapter for ClaudeAdapter {
     }
 
     /// Provide the task prompt to be typed into the Claude TUI after it initializes.
+    /// Newlines are flattened to spaces — raw \n in a PTY can trigger premature
+    /// submission or put Claude's TUI into multi-line mode where \r adds a line
+    /// instead of submitting.
     fn initial_input(&self, task: &Task) -> Option<String> {
         let task_type = task.task_type.as_deref().unwrap_or("");
-        let prompt = build_prompt(task, task_type);
+        let prompt = build_prompt(task, task_type).replace('\n', " ");
         // \r = Enter to submit the prompt
         Some(format!("{}\r", prompt))
     }

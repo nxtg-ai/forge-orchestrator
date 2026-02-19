@@ -33,6 +33,17 @@ pub enum FindingType {
     Positive,
 }
 
+impl std::fmt::Display for FindingType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FindingType::Bug => write!(f, "bug"),
+            FindingType::Missing => write!(f, "missing"),
+            FindingType::Enhancement => write!(f, "enhancement"),
+            FindingType::Positive => write!(f, "positive"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Finding {
     pub id: String,
@@ -155,19 +166,36 @@ pub fn classify_finding(description: &str) -> (FindingSeverity, FindingType) {
     (severity, finding_type)
 }
 
+/// Stop words that match too many tasks and produce noisy relations.
+const RELATION_STOP_WORDS: &[&str] = &[
+    "test", "testing", "that", "this", "with", "from", "have", "does",
+    "should", "could", "would", "when", "what", "where", "which", "their",
+    "there", "these", "those", "about", "after", "before", "between",
+    "implement", "update", "create", "build", "make", "work", "working",
+    "capture", "inline", "finding", "issue", "input", "output",
+];
+
 /// Find related tasks by matching keywords from the description against task titles.
+/// Requires words with 5+ chars and filters common stop words to reduce false positives.
 pub fn find_related_tasks(description: &str, tasks: &[crate::core::task::Task]) -> Vec<String> {
     let lower = description.to_lowercase();
+    let keywords: Vec<&str> = lower
+        .split_whitespace()
+        .filter(|w| w.len() >= 5)
+        .filter(|w| !RELATION_STOP_WORDS.contains(w))
+        .collect();
+
+    if keywords.is_empty() {
+        return Vec::new();
+    }
+
     tasks
         .iter()
         .filter(|t| {
             let title_lower = t.title.to_lowercase();
-            // Check if any significant word from the description appears in the task title
-            lower
-                .split_whitespace()
-                .filter(|w| w.len() > 3) // skip short words
-                .any(|w| title_lower.contains(w))
+            keywords.iter().any(|w| title_lower.contains(w))
         })
+        .take(5) // cap at 5 related tasks max
         .map(|t| t.id.clone())
         .collect()
 }

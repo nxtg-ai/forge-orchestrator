@@ -46,6 +46,9 @@ pub struct AwaitingCompletion {
     pub task_id: String,
     pub dispatched_at: Instant,
     pub last_output_at: Instant,
+    /// The ready-pattern must disappear (agent started working) before reappearance
+    /// counts as completion. Prevents false positives when prompt text sits unsubmitted.
+    pub pattern_disappeared: bool,
 }
 
 /// Per-agent rate limit backoff tracking.
@@ -248,7 +251,10 @@ impl App {
 
     pub fn reload_tasks(&mut self) -> anyhow::Result<()> {
         let task_mgr = TaskManager::new(&self.forge_dir);
-        self.tasks = task_mgr.list_tasks()?;
+        let raw_tasks = task_mgr.list_tasks()?;
+        // Sort hierarchically so self.tasks matches the display order in the UI.
+        // This ensures selected_index always points to the visually highlighted row.
+        self.tasks = crate::tui::ui::hierarchical_sort(&raw_tasks);
         self.completed_task_ids = task_mgr.get_completed_task_ids()?;
         Ok(())
     }
@@ -957,7 +963,7 @@ impl App {
         let mut completed: Vec<AgentType> = Vec::new();
         let signals_dir = self.forge_dir.join("signals");
 
-        for (agent, awaiting) in &self.awaiting_completion {
+        for (agent, awaiting) in &mut self.awaiting_completion {
             // Method 1: Check for signal file (instant, no timing requirements)
             let signal_file = signals_dir.join(format!("{}.complete", awaiting.task_id));
             if signal_file.exists() {
@@ -967,7 +973,26 @@ impl App {
                 continue;
             }
 
-            // Method 2: Heuristic — ready-pattern + timing
+            // Get the agent's ready pattern
+            let pattern = match agent {
+                AgentType::Claude | AgentType::Any => ClaudeAdapter.ready_pattern(),
+                AgentType::Codex => CodexAdapter.ready_pattern(),
+                AgentType::Gemini => GeminiAdapter.ready_pattern(),
+            };
+
+            // Track pattern disappearance — agent started working when prompt vanishes
+            if !awaiting.pattern_disappeared {
+                if let Some(session) = self.pty_sessions.get(agent)
+                    && let Some(pat) = pattern
+                    && !session.has_pattern_in_last_n(pat, 10)
+                {
+                    awaiting.pattern_disappeared = true;
+                }
+                // Can't complete until pattern has disappeared and reappeared
+                continue;
+            }
+
+            // Method 2: Heuristic — ready-pattern REAPPEARANCE + timing
             // Must have been working for at least 10s
             if now.duration_since(awaiting.dispatched_at) < Duration::from_secs(10) {
                 continue;
@@ -976,18 +1001,12 @@ impl App {
             if now.duration_since(awaiting.last_output_at) < Duration::from_secs(3) {
                 continue;
             }
-            // Check if ready-pattern appears in last 10 lines of snapshot
-            if let Some(session) = self.pty_sessions.get(agent) {
-                let pattern = match agent {
-                    AgentType::Claude | AgentType::Any => ClaudeAdapter.ready_pattern(),
-                    AgentType::Codex => CodexAdapter.ready_pattern(),
-                    AgentType::Gemini => GeminiAdapter.ready_pattern(),
-                };
-                if let Some(pat) = pattern
-                    && session.has_pattern_in_last_n(pat, 10)
-                {
-                    completed.push(agent.clone());
-                }
+            // Check if ready-pattern reappears (agent returned to prompt)
+            if let Some(session) = self.pty_sessions.get(agent)
+                && let Some(pat) = pattern
+                && session.has_pattern_in_last_n(pat, 10)
+            {
+                completed.push(agent.clone());
             }
         }
 
@@ -1036,6 +1055,12 @@ impl App {
         self.check_backoff_timers(agent_tx);
         if self.pty_mode {
             self.check_pty_completion(agent_tx);
+        }
+        // Periodic scheduling: pick up tasks that were delayed by pacing cooldowns.
+        // schedule_unblocked_tasks() is normally only called on completion/error events,
+        // so pacing-delayed tasks would never get dispatched without this.
+        if !self.watch_mode && !self.all_complete {
+            self.schedule_unblocked_tasks(agent_tx);
         }
         self.spinner_frame = (self.spinner_frame + 1) % 10;
         if !self.watch_mode
@@ -1429,13 +1454,14 @@ impl App {
         }
         quota.0 += 1;
 
-        // Track completion detection
+        // Track completion detection — pattern must disappear then reappear
         self.awaiting_completion.insert(
             agent.clone(),
             AwaitingCompletion {
                 task_id: task_id.clone(),
                 dispatched_at: now,
                 last_output_at: now,
+                pattern_disappeared: false,
             },
         );
 
@@ -1749,6 +1775,7 @@ impl App {
                 task_id: task.id.clone(),
                 dispatched_at: now,
                 last_output_at: now,
+                pattern_disappeared: false,
             },
         );
 
@@ -1993,6 +2020,7 @@ impl App {
                         task_id: task.id.clone(),
                         dispatched_at: Instant::now(),
                         last_output_at: Instant::now(),
+                        pattern_disappeared: false,
                     },
                 );
 
@@ -3596,6 +3624,7 @@ mod tests {
                 task_id: "T-001".to_string(),
                 dispatched_at: Instant::now(),
                 last_output_at: Instant::now(),
+                pattern_disappeared: false,
             },
         );
 
@@ -3621,6 +3650,7 @@ mod tests {
                 task_id: "T-001".to_string(),
                 dispatched_at: now - Duration::from_secs(15),
                 last_output_at: now - Duration::from_secs(5),
+                pattern_disappeared: true,
             },
         );
 
@@ -3642,6 +3672,7 @@ mod tests {
                 task_id: "T-001".to_string(),
                 dispatched_at: Instant::now(),
                 last_output_at: Instant::now(),
+                pattern_disappeared: false,
             },
         );
         assert!(!app.awaiting_completion.is_empty());

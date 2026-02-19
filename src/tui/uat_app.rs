@@ -1,11 +1,14 @@
 use crate::core::finding::{Finding, FindingManager, classify_finding, find_related_tasks};
 use crate::core::task::{Task, TaskManager, TaskPhase, TaskStatus};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use ratatui::widgets::ListState;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
 /// UAT status for each task
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum UatStatus {
     Untested,
     Passed,
@@ -24,6 +27,7 @@ pub struct UatApp {
     pub tasks: Vec<UatTask>,
     pub findings: Vec<Finding>,
     pub selected_task: usize,
+    pub list_state: ListState,
     pub input_buffer: String,
     pub input_active: bool,
     pub should_quit: bool,
@@ -33,6 +37,33 @@ pub struct UatApp {
     pub finding_mgr: FindingManager,
 }
 
+/// Persisted UAT status map (task_id → status).
+fn uat_status_path(forge_dir: &std::path::Path) -> PathBuf {
+    forge_dir.join("uat-status.json")
+}
+
+fn load_uat_status(forge_dir: &std::path::Path) -> HashMap<String, UatStatus> {
+    let path = uat_status_path(forge_dir);
+    if path.exists()
+        && let Ok(content) = std::fs::read_to_string(&path)
+        && let Ok(map) = serde_json::from_str(&content)
+    {
+        return map;
+    }
+    HashMap::new()
+}
+
+fn save_uat_status(forge_dir: &std::path::Path, tasks: &[UatTask]) {
+    let map: HashMap<String, UatStatus> = tasks
+        .iter()
+        .filter(|t| t.uat_status != UatStatus::Untested)
+        .map(|t| (t.task.id.clone(), t.uat_status))
+        .collect();
+    if let Ok(content) = serde_json::to_string_pretty(&map) {
+        let _ = std::fs::write(uat_status_path(forge_dir), content);
+    }
+}
+
 impl UatApp {
     pub fn new(forge_dir: PathBuf, project_root: PathBuf) -> anyhow::Result<Self> {
         let task_mgr = TaskManager::new(&forge_dir);
@@ -40,6 +71,9 @@ impl UatApp {
 
         let all_tasks = task_mgr.list_tasks()?;
         let findings = finding_mgr.list_findings()?;
+
+        // Load persisted UAT status from previous sessions
+        let persisted_status = load_uat_status(&forge_dir);
 
         // Filter: only completed build/fix phase tasks (NOT V-xxx verify subtasks)
         let uat_tasks: Vec<UatTask> = all_tasks
@@ -52,11 +86,16 @@ impl UatApp {
                     .iter()
                     .filter(|f| f.related_tasks.contains(&t.id))
                     .count();
-                let uat_status = if finding_count > 0 {
+
+                // Restore persisted status, or derive from findings
+                let uat_status = if let Some(status) = persisted_status.get(&t.id) {
+                    *status
+                } else if finding_count > 0 {
                     UatStatus::HasFindings
                 } else {
                     UatStatus::Untested
                 };
+
                 UatTask {
                     task: t,
                     uat_status,
@@ -65,12 +104,18 @@ impl UatApp {
             })
             .collect();
 
+        let mut list_state = ListState::default();
+        if !uat_tasks.is_empty() {
+            list_state.select(Some(0));
+        }
+
         Ok(Self {
             forge_dir,
             project_root,
             tasks: uat_tasks,
             findings,
             selected_task: 0,
+            list_state,
             input_buffer: String::new(),
             input_active: false,
             should_quit: false,
@@ -103,18 +148,30 @@ impl UatApp {
             KeyCode::Up | KeyCode::Char('k') => {
                 if self.selected_task > 0 {
                     self.selected_task -= 1;
+                    self.list_state.select(Some(self.selected_task));
                 }
             }
             KeyCode::Down | KeyCode::Char('j') => {
                 if self.selected_task + 1 < self.tasks.len() {
                     self.selected_task += 1;
+                    self.list_state.select(Some(self.selected_task));
                 }
             }
             KeyCode::Char('p') => {
-                // Mark selected task as passed
+                // Mark selected task as passed — persists to disk
                 if let Some(task) = self.tasks.get_mut(self.selected_task) {
                     task.uat_status = UatStatus::Passed;
                     self.status_message = Some(format!("{} marked as UAT passed", task.task.id));
+                    save_uat_status(&self.forge_dir, &self.tasks);
+                }
+            }
+            KeyCode::Char('u') => {
+                // Un-mark: reset back to Untested
+                if let Some(task) = self.tasks.get_mut(self.selected_task) {
+                    task.uat_status = UatStatus::Untested;
+                    self.status_message =
+                        Some(format!("{} reset to untested", task.task.id));
+                    save_uat_status(&self.forge_dir, &self.tasks);
                 }
             }
             KeyCode::Char('f') | KeyCode::Enter => {
@@ -185,6 +242,7 @@ impl UatApp {
             if let Some(task) = self.tasks.get_mut(self.selected_task) {
                 task.uat_status = UatStatus::HasFindings;
                 task.finding_count += 1;
+                save_uat_status(&self.forge_dir, &self.tasks);
             }
 
             self.findings.push(finding);
@@ -212,6 +270,73 @@ impl UatApp {
             .filter(|t| t.uat_status == UatStatus::Untested)
             .count();
         (total, passed, with_findings, untested)
+    }
+
+    /// Generate a UAT report file at `.forge/uat-report.md`.
+    pub fn generate_report(&self) -> anyhow::Result<PathBuf> {
+        let (total, passed, with_findings, untested) = self.stats();
+        let bugs: Vec<&Finding> = self
+            .findings
+            .iter()
+            .filter(|f| !matches!(f.severity, crate::core::finding::FindingSeverity::Positive))
+            .collect();
+
+        let project_name = {
+            let state_mgr = crate::core::state::StateManager::new(&self.forge_dir);
+            state_mgr
+                .load()
+                .map(|s| s.project_name.clone())
+                .unwrap_or_else(|_| "Unknown".to_string())
+        };
+
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M");
+        let mut report = String::new();
+        report.push_str(&format!("# UAT Report — {project_name}\n\n"));
+        report.push_str(&format!("**Date:** {now}\n\n"));
+        report.push_str("## Summary\n\n");
+        report.push_str("| Metric | Count |\n");
+        report.push_str("|--------|-------|\n");
+        report.push_str(&format!("| Total tasks | {total} |\n"));
+        report.push_str(&format!("| Passed | {passed} |\n"));
+        report.push_str(&format!("| With findings | {with_findings} |\n"));
+        report.push_str(&format!("| Untested | {untested} |\n"));
+        report.push_str(&format!("| Total findings | {} |\n", self.findings.len()));
+        report.push_str(&format!("| Issues (non-positive) | {} |\n\n", bugs.len()));
+
+        // Task results table
+        report.push_str("## Task Results\n\n");
+        report.push_str("| Task | Title | Status |\n");
+        report.push_str("|------|-------|--------|\n");
+        for t in &self.tasks {
+            let status = match t.uat_status {
+                UatStatus::Passed => "Passed",
+                UatStatus::HasFindings => "Has Findings",
+                UatStatus::Untested => "Untested",
+            };
+            report.push_str(&format!("| {} | {} | {} |\n", t.task.id, t.task.title, status));
+        }
+
+        // Findings detail
+        if !self.findings.is_empty() {
+            report.push_str("\n## Findings\n\n");
+            for f in &self.findings {
+                report.push_str(&format!(
+                    "### {} — {} ({})\n\n",
+                    f.id, f.severity, f.finding_type
+                ));
+                report.push_str(&format!("{}\n\n", f.description));
+                if !f.related_tasks.is_empty() {
+                    report.push_str(&format!(
+                        "**Related:** {}\n\n",
+                        f.related_tasks.join(", ")
+                    ));
+                }
+            }
+        }
+
+        let path = self.forge_dir.join("uat-report.md");
+        std::fs::write(&path, report)?;
+        Ok(path)
     }
 }
 
@@ -243,7 +368,7 @@ pub fn run(forge_dir: PathBuf, project_root: PathBuf) -> anyhow::Result<()> {
 
     // Main loop
     loop {
-        terminal.draw(|f| crate::tui::uat_ui::render(f, &app))?;
+        terminal.draw(|f| crate::tui::uat_ui::render(f, &mut app))?;
 
         if crossterm::event::poll(Duration::from_millis(100))?
             && let Event::Key(key) = event::read()?
@@ -282,6 +407,19 @@ pub fn run(forge_dir: PathBuf, project_root: PathBuf) -> anyhow::Result<()> {
         app.findings.len(),
         bugs
     );
+
+    // Generate report file
+    match app.generate_report() {
+        Ok(path) => {
+            println!(
+                "  Report saved to {}",
+                path.display().to_string().cyan()
+            );
+        }
+        Err(e) => {
+            println!("  {} Failed to save report: {e}", "!".yellow());
+        }
+    }
 
     if bugs > 0 {
         println!(
@@ -358,6 +496,48 @@ mod tests {
 
         app.handle_key(KeyEvent::from(KeyCode::Char('p')));
         assert_eq!(app.tasks[0].uat_status, UatStatus::Passed);
+    }
+
+    #[test]
+    fn test_uat_pass_persists_across_sessions() {
+        let tmp = tempfile::tempdir().unwrap();
+        let forge_dir = tmp.path().to_path_buf();
+        std::fs::create_dir_all(forge_dir.join("tasks")).unwrap();
+
+        let mut t = Task::new("T-001", "Test persistence", "desc");
+        t.status = TaskStatus::Completed;
+        TaskManager::new(&forge_dir).create_task(&t).unwrap();
+
+        // Session 1: mark as passed
+        {
+            let mut app = UatApp::new(forge_dir.clone(), tmp.path().to_path_buf()).unwrap();
+            app.handle_key(KeyEvent::from(KeyCode::Char('p')));
+            assert_eq!(app.tasks[0].uat_status, UatStatus::Passed);
+        }
+
+        // Session 2: should restore Passed status
+        {
+            let app = UatApp::new(forge_dir, tmp.path().to_path_buf()).unwrap();
+            assert_eq!(app.tasks[0].uat_status, UatStatus::Passed);
+        }
+    }
+
+    #[test]
+    fn test_uat_unmark_resets_to_untested() {
+        let tmp = tempfile::tempdir().unwrap();
+        let forge_dir = tmp.path().to_path_buf();
+        std::fs::create_dir_all(forge_dir.join("tasks")).unwrap();
+
+        let mut t = Task::new("T-001", "Test", "desc");
+        t.status = TaskStatus::Completed;
+        TaskManager::new(&forge_dir).create_task(&t).unwrap();
+
+        let mut app = UatApp::new(forge_dir, tmp.path().to_path_buf()).unwrap();
+        app.handle_key(KeyEvent::from(KeyCode::Char('p')));
+        assert_eq!(app.tasks[0].uat_status, UatStatus::Passed);
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('u')));
+        assert_eq!(app.tasks[0].uat_status, UatStatus::Untested);
     }
 
     #[test]
@@ -489,5 +669,51 @@ mod tests {
         let result = truncate_chars(s, 15);
         assert!(result.chars().count() <= 15);
         assert!(result.ends_with("..."));
+    }
+
+    #[test]
+    fn test_uat_report_generation() {
+        let tmp = tempfile::tempdir().unwrap();
+        let forge_dir = tmp.path().to_path_buf();
+        std::fs::create_dir_all(forge_dir.join("tasks")).unwrap();
+
+        let mut t = Task::new("T-001", "Auth module", "desc");
+        t.status = TaskStatus::Completed;
+        TaskManager::new(&forge_dir).create_task(&t).unwrap();
+
+        let mut app = UatApp::new(forge_dir.clone(), tmp.path().to_path_buf()).unwrap();
+        app.handle_key(KeyEvent::from(KeyCode::Char('p')));
+
+        let path = app.generate_report().unwrap();
+        assert!(path.exists());
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("# UAT Report"));
+        assert!(content.contains("| Passed | 1 |"));
+        assert!(content.contains("T-001"));
+    }
+
+    #[test]
+    fn test_uat_list_state_syncs_with_selection() {
+        let tmp = tempfile::tempdir().unwrap();
+        let forge_dir = tmp.path().to_path_buf();
+        std::fs::create_dir_all(forge_dir.join("tasks")).unwrap();
+
+        let task_mgr = TaskManager::new(&forge_dir);
+        for i in 1..=5 {
+            let mut t = Task::new(&format!("T-{i:03}"), &format!("Task {i}"), "desc");
+            t.status = TaskStatus::Completed;
+            task_mgr.create_task(&t).unwrap();
+        }
+
+        let mut app = UatApp::new(forge_dir, tmp.path().to_path_buf()).unwrap();
+        assert_eq!(app.list_state.selected(), Some(0));
+
+        app.handle_key(KeyEvent::from(KeyCode::Down));
+        assert_eq!(app.list_state.selected(), Some(1));
+
+        app.handle_key(KeyEvent::from(KeyCode::Down));
+        app.handle_key(KeyEvent::from(KeyCode::Down));
+        assert_eq!(app.list_state.selected(), Some(3));
     }
 }

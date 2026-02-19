@@ -3,9 +3,9 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
 
-pub fn render(f: &mut Frame, app: &UatApp) {
+pub fn render(f: &mut Frame, app: &mut UatApp) {
     let chunks = Layout::vertical([
         Constraint::Length(3), // Header
         Constraint::Fill(1),   // Main content (task list + criteria)
@@ -46,7 +46,7 @@ fn render_header(f: &mut Frame, app: &UatApp, area: Rect) {
     f.render_widget(block, area);
 }
 
-fn render_main(f: &mut Frame, app: &UatApp, area: Rect) {
+fn render_main(f: &mut Frame, app: &mut UatApp, area: Rect) {
     let main_chunks = Layout::horizontal([
         Constraint::Percentage(40), // Task list
         Constraint::Percentage(60), // Criteria + findings
@@ -54,10 +54,10 @@ fn render_main(f: &mut Frame, app: &UatApp, area: Rect) {
     .split(area);
 
     render_task_list(f, app, main_chunks[0]);
-    render_criteria(f, app, main_chunks[1]);
+    render_detail_panel(f, app, main_chunks[1]);
 }
 
-fn render_task_list(f: &mut Frame, app: &UatApp, area: Rect) {
+fn render_task_list(f: &mut Frame, app: &mut UatApp, area: Rect) {
     let items: Vec<ListItem> = app
         .tasks
         .iter()
@@ -89,28 +89,57 @@ fn render_task_list(f: &mut Frame, app: &UatApp, area: Rect) {
                 Span::raw(title),
             ]);
 
-            if i == app.selected_task {
-                ListItem::new(line).style(Style::default().bg(Color::DarkGray))
-            } else {
-                ListItem::new(line)
-            }
+            ListItem::new(line)
         })
         .collect();
 
-    let list = List::new(items).block(
-        Block::default()
-            .title(" Tasks ")
-            .borders(Borders::ALL)
-            .style(Style::default().fg(Color::White)),
-    );
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .title(" Tasks ")
+                .borders(Borders::ALL)
+                .style(Style::default().fg(Color::White)),
+        )
+        .highlight_style(Style::default().bg(Color::DarkGray));
 
-    f.render_widget(list, area);
+    // Use stateful rendering for auto-scroll
+    f.render_stateful_widget(list, area, &mut app.list_state);
 }
 
-fn render_criteria(f: &mut Frame, app: &UatApp, area: Rect) {
+fn render_detail_panel(f: &mut Frame, app: &UatApp, area: Rect) {
     let mut lines: Vec<Line> = Vec::new();
 
     if let Some(selected) = app.tasks.get(app.selected_task) {
+        // Task description (always available)
+        lines.push(Line::styled(
+            format!(" {} \u{2014} {}", selected.task.id, selected.task.title),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+        lines.push(Line::raw(""));
+
+        // Show description
+        if !selected.task.description.is_empty()
+            && selected.task.description != "desc"
+            && selected.task.description != selected.task.title
+        {
+            lines.push(Line::styled(
+                " Description:",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            // Wrap long descriptions
+            for desc_line in selected.task.description.lines() {
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(desc_line, Style::default().fg(Color::Gray)),
+                ]));
+            }
+            lines.push(Line::raw(""));
+        }
+
         // Acceptance criteria
         if !selected.task.acceptance_criteria.is_empty() {
             lines.push(Line::styled(
@@ -122,16 +151,22 @@ fn render_criteria(f: &mut Frame, app: &UatApp, area: Rect) {
             lines.push(Line::raw(""));
 
             for criterion in &selected.task.acceptance_criteria {
-                lines.push(Line::from(vec![
-                    Span::styled("  [ ] ", Style::default().fg(Color::DarkGray)),
-                    Span::raw(criterion.as_str()),
-                ]));
+                let check = if selected.uat_status == UatStatus::Passed {
+                    Span::styled("  [\u{2713}] ", Style::default().fg(Color::Green))
+                } else {
+                    Span::styled("  [ ] ", Style::default().fg(Color::DarkGray))
+                };
+                lines.push(Line::from(vec![check, Span::raw(criterion.as_str())]));
             }
-        } else {
-            lines.push(Line::styled(
-                " No acceptance criteria defined",
-                Style::default().fg(Color::DarkGray),
-            ));
+        }
+
+        // Agent info
+        if let Some(agent) = &selected.task.assigned_to {
+            lines.push(Line::raw(""));
+            lines.push(Line::from(vec![
+                Span::styled(" Agent: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(format!("{agent}"), Style::default().fg(Color::Yellow)),
+            ]));
         }
 
         // Findings for this task
@@ -176,12 +211,14 @@ fn render_criteria(f: &mut Frame, app: &UatApp, area: Rect) {
         }
     }
 
-    let paragraph = Paragraph::new(lines).block(
-        Block::default()
-            .title(" Criteria & Findings ")
-            .borders(Borders::ALL)
-            .style(Style::default().fg(Color::White)),
-    );
+    let paragraph = Paragraph::new(lines)
+        .block(
+            Block::default()
+                .title(" Details ")
+                .borders(Borders::ALL)
+                .style(Style::default().fg(Color::White)),
+        )
+        .wrap(Wrap { trim: false });
 
     f.render_widget(paragraph, area);
 }
@@ -212,10 +249,12 @@ fn render_footer(f: &mut Frame, app: &UatApp, area: Rect) {
     let footer = Line::from(vec![
         Span::styled(" \u{2191}\u{2193} ", Style::default().fg(Color::Yellow)),
         Span::raw("navigate "),
-        Span::styled(" Enter/f ", Style::default().fg(Color::Yellow)),
-        Span::raw("capture "),
+        Span::styled(" f ", Style::default().fg(Color::Yellow)),
+        Span::raw("finding "),
         Span::styled(" p ", Style::default().fg(Color::Yellow)),
         Span::raw("pass "),
+        Span::styled(" u ", Style::default().fg(Color::Yellow)),
+        Span::raw("unmark "),
         Span::styled(" q ", Style::default().fg(Color::Yellow)),
         Span::raw("quit "),
         Span::raw(" | "),

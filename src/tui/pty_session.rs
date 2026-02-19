@@ -344,7 +344,9 @@ impl PtySession {
                     };
                     let _ = sender.send(body.to_vec());
                     if has_cr {
-                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        // Longer delay so the TUI can finish processing the pasted text
+                        // before we send Enter. 100ms was too fast for Claude Code's TUI.
+                        std::thread::sleep(std::time::Duration::from_millis(500));
                         let _ = sender.send(b"\r".to_vec());
                     }
                     return;
@@ -360,7 +362,7 @@ impl PtySession {
                     };
                     let _ = sender.send(body.to_vec());
                     if has_cr {
-                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        std::thread::sleep(std::time::Duration::from_millis(500));
                         let _ = sender.send(b"\r".to_vec());
                     }
                     return;
