@@ -292,6 +292,7 @@ impl App {
                 t.status == TaskStatus::Pending
                     && !t.is_blocked(&self.completed_task_ids)
                     && !self.running_task_ids.contains(&t.id)
+                    && t.phase != Some(TaskPhase::Uat) // UAT tasks are human-only
             })
             .filter(|t| {
                 // Skip tasks whose agent is in backoff
@@ -1546,6 +1547,7 @@ impl App {
     pub fn is_all_done(&self) -> bool {
         self.tasks
             .iter()
+            .filter(|t| t.phase != Some(TaskPhase::Uat))
             .all(|t| t.status == TaskStatus::Completed || t.status == TaskStatus::Failed)
     }
 
@@ -1610,6 +1612,7 @@ impl App {
                     // No verify tasks were generated — go straight to Complete
                     self.phase = DashboardPhase::Complete;
                     self.push_event("Phase 2 (VERIFY) complete — no verify tasks found");
+                    self.generate_uat_tasks();
                     return true;
                 }
 
@@ -1620,12 +1623,34 @@ impl App {
                 if all_verify_done {
                     self.phase = DashboardPhase::Complete;
                     self.push_event("Phase 2 (VERIFY) complete — all verification done");
+                    self.generate_uat_tasks();
                     return true;
                 }
                 false
             }
             DashboardPhase::Complete => false,
         }
+    }
+
+    /// Generate UAT subtasks for user-facing T-xxx tasks during Verify→Complete transition.
+    fn generate_uat_tasks(&mut self) {
+        let task_mgr = TaskManager::new(&self.forge_dir);
+        match task_mgr.generate_uat_subtasks() {
+            Ok(generated) => {
+                if generated.is_empty() {
+                    self.push_event("No UAT tasks generated (no user-facing tasks)");
+                } else {
+                    self.push_event(&format!(
+                        "Generated {} UAT task(s) — run `forge uat`",
+                        generated.len()
+                    ));
+                }
+            }
+            Err(e) => {
+                self.push_event(&format!("Failed to generate UAT tasks: {e}"));
+            }
+        }
+        self.reload_tasks().ok();
     }
 
     /// When a verify task fails, generate fix + re-verify pair (up to 3 retries).

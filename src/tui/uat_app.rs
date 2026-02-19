@@ -15,6 +15,15 @@ pub enum UatStatus {
     HasFindings,
 }
 
+/// View mode for the UAT TUI
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UatViewMode {
+    /// Show only U-xxx UAT tasks (default when U-xxx tasks exist)
+    UatTasks,
+    /// Show all completed T-xxx tasks (legacy view)
+    AllCompleted,
+}
+
 pub struct UatTask {
     pub task: Task,
     pub uat_status: UatStatus,
@@ -25,6 +34,7 @@ pub struct UatApp {
     pub forge_dir: PathBuf,
     pub project_root: PathBuf,
     pub tasks: Vec<UatTask>,
+    pub all_tasks: Vec<Task>,
     pub findings: Vec<Finding>,
     pub selected_task: usize,
     pub list_state: ListState,
@@ -35,6 +45,7 @@ pub struct UatApp {
     pub finding_scroll: usize,
     pub task_mgr: TaskManager,
     pub finding_mgr: FindingManager,
+    pub view_mode: UatViewMode,
 }
 
 /// Persisted UAT status map (task_id → status).
@@ -75,34 +86,15 @@ impl UatApp {
         // Load persisted UAT status from previous sessions
         let persisted_status = load_uat_status(&forge_dir);
 
-        // Filter: only completed build/fix phase tasks (NOT V-xxx verify subtasks)
-        let uat_tasks: Vec<UatTask> = all_tasks
-            .into_iter()
-            .filter(|t| {
-                t.status == TaskStatus::Completed && !matches!(t.phase, Some(TaskPhase::Verify))
-            })
-            .map(|t| {
-                let finding_count = findings
-                    .iter()
-                    .filter(|f| f.related_tasks.contains(&t.id))
-                    .count();
+        // Check if U-xxx tasks exist → default to UatTasks view
+        let has_uat_tasks = all_tasks.iter().any(|t| t.phase == Some(TaskPhase::Uat));
+        let view_mode = if has_uat_tasks {
+            UatViewMode::UatTasks
+        } else {
+            UatViewMode::AllCompleted
+        };
 
-                // Restore persisted status, or derive from findings
-                let uat_status = if let Some(status) = persisted_status.get(&t.id) {
-                    *status
-                } else if finding_count > 0 {
-                    UatStatus::HasFindings
-                } else {
-                    UatStatus::Untested
-                };
-
-                UatTask {
-                    task: t,
-                    uat_status,
-                    finding_count,
-                }
-            })
-            .collect();
+        let uat_tasks = Self::build_task_list(&all_tasks, &findings, &persisted_status, view_mode);
 
         let mut list_state = ListState::default();
         if !uat_tasks.is_empty() {
@@ -113,6 +105,7 @@ impl UatApp {
             forge_dir,
             project_root,
             tasks: uat_tasks,
+            all_tasks,
             findings,
             selected_task: 0,
             list_state,
@@ -123,7 +116,47 @@ impl UatApp {
             finding_scroll: 0,
             task_mgr,
             finding_mgr,
+            view_mode,
         })
+    }
+
+    /// Build the task list based on the current view mode.
+    fn build_task_list(
+        all_tasks: &[Task],
+        findings: &[Finding],
+        persisted_status: &HashMap<String, UatStatus>,
+        view_mode: UatViewMode,
+    ) -> Vec<UatTask> {
+        all_tasks
+            .iter()
+            .filter(|t| match view_mode {
+                UatViewMode::UatTasks => t.phase == Some(TaskPhase::Uat),
+                UatViewMode::AllCompleted => {
+                    t.status == TaskStatus::Completed
+                        && !matches!(t.phase, Some(TaskPhase::Verify) | Some(TaskPhase::Uat))
+                }
+            })
+            .map(|t| {
+                let finding_count = findings
+                    .iter()
+                    .filter(|f| f.related_tasks.contains(&t.id))
+                    .count();
+
+                let uat_status = if let Some(status) = persisted_status.get(&t.id) {
+                    *status
+                } else if finding_count > 0 {
+                    UatStatus::HasFindings
+                } else {
+                    UatStatus::Untested
+                };
+
+                UatTask {
+                    task: t.clone(),
+                    uat_status,
+                    finding_count,
+                }
+            })
+            .collect()
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
@@ -169,10 +202,30 @@ impl UatApp {
                 // Un-mark: reset back to Untested
                 if let Some(task) = self.tasks.get_mut(self.selected_task) {
                     task.uat_status = UatStatus::Untested;
-                    self.status_message =
-                        Some(format!("{} reset to untested", task.task.id));
+                    self.status_message = Some(format!("{} reset to untested", task.task.id));
                     save_uat_status(&self.forge_dir, &self.tasks);
                 }
+            }
+            KeyCode::Char('t') => {
+                // Toggle view mode
+                let persisted_status = load_uat_status(&self.forge_dir);
+                self.view_mode = match self.view_mode {
+                    UatViewMode::UatTasks => UatViewMode::AllCompleted,
+                    UatViewMode::AllCompleted => UatViewMode::UatTasks,
+                };
+                self.tasks = Self::build_task_list(
+                    &self.all_tasks,
+                    &self.findings,
+                    &persisted_status,
+                    self.view_mode,
+                );
+                self.selected_task = 0;
+                self.list_state
+                    .select(if self.tasks.is_empty() { None } else { Some(0) });
+                self.status_message = Some(match self.view_mode {
+                    UatViewMode::UatTasks => "View: U-xxx UAT tasks".to_string(),
+                    UatViewMode::AllCompleted => "View: All completed tasks".to_string(),
+                });
             }
             KeyCode::Char('f') | KeyCode::Enter => {
                 // Enter finding input mode
@@ -313,7 +366,10 @@ impl UatApp {
                 UatStatus::HasFindings => "Has Findings",
                 UatStatus::Untested => "Untested",
             };
-            report.push_str(&format!("| {} | {} | {} |\n", t.task.id, t.task.title, status));
+            report.push_str(&format!(
+                "| {} | {} | {} |\n",
+                t.task.id, t.task.title, status
+            ));
         }
 
         // Findings detail
@@ -326,10 +382,7 @@ impl UatApp {
                 ));
                 report.push_str(&format!("{}\n\n", f.description));
                 if !f.related_tasks.is_empty() {
-                    report.push_str(&format!(
-                        "**Related:** {}\n\n",
-                        f.related_tasks.join(", ")
-                    ));
+                    report.push_str(&format!("**Related:** {}\n\n", f.related_tasks.join(", ")));
                 }
             }
         }
@@ -411,10 +464,7 @@ pub fn run(forge_dir: PathBuf, project_root: PathBuf) -> anyhow::Result<()> {
     // Generate report file
     match app.generate_report() {
         Ok(path) => {
-            println!(
-                "  Report saved to {}",
-                path.display().to_string().cyan()
-            );
+            println!("  Report saved to {}", path.display().to_string().cyan());
         }
         Err(e) => {
             println!("  {} Failed to save report: {e}", "!".yellow());

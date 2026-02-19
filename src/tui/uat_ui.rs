@@ -1,4 +1,5 @@
-use crate::tui::uat_app::{UatApp, UatStatus};
+use crate::core::task::TaskPhase;
+use crate::tui::uat_app::{UatApp, UatStatus, UatTask, UatViewMode};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -33,10 +34,17 @@ fn render_header(f: &mut Frame, app: &UatApp, area: Rect) {
             .unwrap_or_default()
     };
 
+    let mode_indicator = match app.view_mode {
+        UatViewMode::UatTasks => "[U-xxx]",
+        UatViewMode::AllCompleted => "[All]",
+    };
+
     let title = if project_name.is_empty() {
-        format!(" FORGE UAT \u{2014} {tested}/{total} tested ")
+        format!(" FORGE UAT {mode_indicator} \u{2014} {tested}/{total} tested ")
     } else {
-        format!(" FORGE UAT \u{2014} {project_name} \u{2014} {tested}/{total} tested ")
+        format!(
+            " FORGE UAT {mode_indicator} \u{2014} {project_name} \u{2014} {tested}/{total} tested "
+        )
     };
 
     let block = Block::default()
@@ -110,7 +118,9 @@ fn render_detail_panel(f: &mut Frame, app: &UatApp, area: Rect) {
     let mut lines: Vec<Line> = Vec::new();
 
     if let Some(selected) = app.tasks.get(app.selected_task) {
-        // Task description (always available)
+        let is_uat_task = selected.task.phase == Some(TaskPhase::Uat);
+
+        // Task header
         lines.push(Line::styled(
             format!(" {} \u{2014} {}", selected.task.id, selected.task.title),
             Style::default()
@@ -119,95 +129,12 @@ fn render_detail_panel(f: &mut Frame, app: &UatApp, area: Rect) {
         ));
         lines.push(Line::raw(""));
 
-        // Show description
-        if !selected.task.description.is_empty()
-            && selected.task.description != "desc"
-            && selected.task.description != selected.task.title
-        {
-            lines.push(Line::styled(
-                " Description:",
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ));
-            // Wrap long descriptions
-            for desc_line in selected.task.description.lines() {
-                lines.push(Line::from(vec![
-                    Span::raw("  "),
-                    Span::styled(desc_line, Style::default().fg(Color::Gray)),
-                ]));
-            }
-            lines.push(Line::raw(""));
-        }
-
-        // Acceptance criteria
-        if !selected.task.acceptance_criteria.is_empty() {
-            lines.push(Line::styled(
-                " Acceptance Criteria:",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ));
-            lines.push(Line::raw(""));
-
-            for criterion in &selected.task.acceptance_criteria {
-                let check = if selected.uat_status == UatStatus::Passed {
-                    Span::styled("  [\u{2713}] ", Style::default().fg(Color::Green))
-                } else {
-                    Span::styled("  [ ] ", Style::default().fg(Color::DarkGray))
-                };
-                lines.push(Line::from(vec![check, Span::raw(criterion.as_str())]));
-            }
-        }
-
-        // Agent info
-        if let Some(agent) = &selected.task.assigned_to {
-            lines.push(Line::raw(""));
-            lines.push(Line::from(vec![
-                Span::styled(" Agent: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(format!("{agent}"), Style::default().fg(Color::Yellow)),
-            ]));
-        }
-
-        // Findings for this task
-        let task_findings: Vec<_> = app
-            .findings
-            .iter()
-            .filter(|f| f.related_tasks.contains(&selected.task.id))
-            .collect();
-
-        if !task_findings.is_empty() {
-            lines.push(Line::raw(""));
-            lines.push(Line::styled(
-                format!(" Findings ({}):", task_findings.len()),
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-            ));
-            lines.push(Line::raw(""));
-
-            for finding in task_findings {
-                let sev_color = match finding.severity {
-                    crate::core::finding::FindingSeverity::Critical => Color::Red,
-                    crate::core::finding::FindingSeverity::High => Color::LightRed,
-                    crate::core::finding::FindingSeverity::Medium => Color::Yellow,
-                    crate::core::finding::FindingSeverity::Low => Color::DarkGray,
-                    crate::core::finding::FindingSeverity::Positive => Color::Green,
-                };
-
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        format!("  {} ", finding.id),
-                        Style::default().fg(Color::Cyan),
-                    ),
-                    Span::raw(truncate_chars(&finding.description, 40)),
-                ]));
-                lines.push(Line::from(vec![
-                    Span::raw("    "),
-                    Span::styled(
-                        format!("severity: {}", finding.severity),
-                        Style::default().fg(sev_color),
-                    ),
-                ]));
-            }
+        if is_uat_task {
+            // Three-tier hierarchy view for U-xxx tasks
+            render_uat_hierarchy(&mut lines, selected, app);
+        } else {
+            // Legacy view for non-U-xxx tasks
+            render_legacy_detail(&mut lines, selected, app);
         }
     }
 
@@ -221,6 +148,195 @@ fn render_detail_panel(f: &mut Frame, app: &UatApp, area: Rect) {
         .wrap(Wrap { trim: false });
 
     f.render_widget(paragraph, area);
+}
+
+/// Render three-tier hierarchy for U-xxx UAT tasks: UAT criteria → V-xxx summary → T-xxx context
+fn render_uat_hierarchy<'a>(lines: &mut Vec<Line<'a>>, selected: &'a UatTask, app: &'a UatApp) {
+    // 1. UAT Criteria (Yellow)
+    if !selected.task.acceptance_criteria.is_empty() {
+        lines.push(Line::styled(
+            " UAT Criteria (human-testable):",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ));
+        lines.push(Line::raw(""));
+
+        for criterion in &selected.task.acceptance_criteria {
+            let check = if selected.uat_status == UatStatus::Passed {
+                Span::styled("  [\u{2713}] ", Style::default().fg(Color::Green))
+            } else {
+                Span::styled("  [ ] ", Style::default().fg(Color::DarkGray))
+            };
+            lines.push(Line::from(vec![check, Span::raw(criterion.clone())]));
+        }
+        lines.push(Line::raw(""));
+    }
+
+    // Find parent T-xxx task
+    let parent_t = selected
+        .task
+        .parent_task
+        .as_deref()
+        .and_then(|parent_id| app.all_tasks.iter().find(|t| t.id == parent_id));
+
+    // Find corresponding V-xxx task (child of same T-xxx parent)
+    let verify_task = if let Some(parent_id) = selected.task.parent_task.as_deref() {
+        app.all_tasks.iter().find(|t| {
+            t.parent_task.as_deref() == Some(parent_id) && t.phase == Some(TaskPhase::Verify)
+        })
+    } else {
+        None
+    };
+
+    // 2. AI Verification summary (Cyan)
+    if let Some(v_task) = verify_task {
+        lines.push(Line::styled(
+            format!(" AI Verification ({}):", v_task.id),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+        let status_str = format!("{:?}", v_task.status);
+        lines.push(Line::from(vec![
+            Span::styled("  Status: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(status_str, Style::default().fg(Color::White)),
+        ]));
+        if let Some(agent) = &v_task.assigned_to {
+            lines.push(Line::from(vec![
+                Span::styled("  Agent: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(format!("{agent}"), Style::default().fg(Color::Yellow)),
+            ]));
+        }
+        lines.push(Line::raw(""));
+    }
+
+    // 3. Build Context (DarkGray)
+    if let Some(t_task) = parent_t {
+        lines.push(Line::styled(
+            format!(" Build Context ({}):", t_task.id),
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        ));
+        if !t_task.description.is_empty() && t_task.description != "desc" {
+            for desc_line in t_task.description.lines().take(3) {
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(desc_line, Style::default().fg(Color::DarkGray)),
+                ]));
+            }
+        }
+        if !t_task.locked_files.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled("  Files: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    t_task.locked_files.join(", "),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]));
+        }
+    }
+
+    // Findings for this task
+    render_findings(lines, selected, app);
+}
+
+/// Render legacy detail view for non-U-xxx tasks
+fn render_legacy_detail<'a>(lines: &mut Vec<Line<'a>>, selected: &'a UatTask, app: &'a UatApp) {
+    // Show description
+    if !selected.task.description.is_empty()
+        && selected.task.description != "desc"
+        && selected.task.description != selected.task.title
+    {
+        lines.push(Line::styled(
+            " Description:",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ));
+        for desc_line in selected.task.description.lines() {
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(desc_line, Style::default().fg(Color::Gray)),
+            ]));
+        }
+        lines.push(Line::raw(""));
+    }
+
+    // Acceptance criteria
+    if !selected.task.acceptance_criteria.is_empty() {
+        lines.push(Line::styled(
+            " Acceptance Criteria:",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ));
+        lines.push(Line::raw(""));
+
+        for criterion in &selected.task.acceptance_criteria {
+            let check = if selected.uat_status == UatStatus::Passed {
+                Span::styled("  [\u{2713}] ", Style::default().fg(Color::Green))
+            } else {
+                Span::styled("  [ ] ", Style::default().fg(Color::DarkGray))
+            };
+            lines.push(Line::from(vec![check, Span::raw(criterion.clone())]));
+        }
+    }
+
+    // Agent info
+    if let Some(agent) = &selected.task.assigned_to {
+        lines.push(Line::raw(""));
+        lines.push(Line::from(vec![
+            Span::styled(" Agent: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(format!("{agent}"), Style::default().fg(Color::Yellow)),
+        ]));
+    }
+
+    render_findings(lines, selected, app);
+}
+
+/// Render findings section (shared by both views)
+fn render_findings<'a>(lines: &mut Vec<Line<'a>>, selected: &'a UatTask, app: &'a UatApp) {
+    let task_findings: Vec<_> = app
+        .findings
+        .iter()
+        .filter(|f| f.related_tasks.contains(&selected.task.id))
+        .collect();
+
+    if !task_findings.is_empty() {
+        lines.push(Line::raw(""));
+        lines.push(Line::styled(
+            format!(" Findings ({}):", task_findings.len()),
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        ));
+        lines.push(Line::raw(""));
+
+        for finding in task_findings {
+            let sev_color = match finding.severity {
+                crate::core::finding::FindingSeverity::Critical => Color::Red,
+                crate::core::finding::FindingSeverity::High => Color::LightRed,
+                crate::core::finding::FindingSeverity::Medium => Color::Yellow,
+                crate::core::finding::FindingSeverity::Low => Color::DarkGray,
+                crate::core::finding::FindingSeverity::Positive => Color::Green,
+            };
+
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("  {} ", finding.id),
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::raw(truncate_chars(&finding.description, 40)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::raw("    "),
+                Span::styled(
+                    format!("severity: {}", finding.severity),
+                    Style::default().fg(sev_color),
+                ),
+            ]));
+        }
+    }
 }
 
 fn render_input(f: &mut Frame, app: &UatApp, area: Rect) {
@@ -255,6 +371,8 @@ fn render_footer(f: &mut Frame, app: &UatApp, area: Rect) {
         Span::raw("pass "),
         Span::styled(" u ", Style::default().fg(Color::Yellow)),
         Span::raw("unmark "),
+        Span::styled(" t ", Style::default().fg(Color::Yellow)),
+        Span::raw("toggle "),
         Span::styled(" q ", Style::default().fg(Color::Yellow)),
         Span::raw("quit "),
         Span::raw(" | "),

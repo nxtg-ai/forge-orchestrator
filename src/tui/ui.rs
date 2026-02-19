@@ -169,7 +169,8 @@ fn render_task_board(f: &mut Frame, app: &App, area: Rect) {
     ]);
 
     // Tasks are already sorted hierarchically in App::reload_tasks()
-    let rows: Vec<Row> = app.tasks
+    let rows: Vec<Row> = app
+        .tasks
         .iter()
         .enumerate()
         .map(|(i, task)| {

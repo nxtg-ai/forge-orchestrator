@@ -5,6 +5,104 @@ use crate::core::task::{AgentType, Task};
 /// This is the free tier / fallback brain.
 pub struct RuleBasedBrain;
 
+const UAT_KEYWORDS: &[&str] = &[
+    "ui",
+    "ux",
+    "dashboard",
+    "component",
+    "layout",
+    "style",
+    "page",
+    "view",
+    "button",
+    "form",
+    "navigation",
+    "terminal",
+    "interaction",
+    "responsive",
+    "animation",
+    "accessibility",
+    "dialog",
+    "modal",
+    "tooltip",
+    "menu",
+    "sidebar",
+    "header",
+    "footer",
+    "theme",
+    "color",
+    "font",
+    "icon",
+];
+
+/// Returns true if the task is user-facing based on keyword analysis.
+/// Uses word-boundary matching to avoid false positives (e.g. "form" in "performance").
+pub fn is_user_facing(title: &str, description: &str) -> bool {
+    let text = format!("{} {}", title.to_lowercase(), description.to_lowercase());
+    UAT_KEYWORDS.iter().any(|kw| contains_word(&text, kw))
+}
+
+/// Check if `text` contains `word` as a whole word (bounded by non-alphanumeric or string edges).
+fn contains_word(text: &str, word: &str) -> bool {
+    for (i, _) in text.match_indices(word) {
+        let before_ok = i == 0 || !text.as_bytes()[i - 1].is_ascii_alphanumeric();
+        let after = i + word.len();
+        let after_ok = after >= text.len() || !text.as_bytes()[after].is_ascii_alphanumeric();
+        if before_ok && after_ok {
+            return true;
+        }
+    }
+    false
+}
+
+/// Generate human-testable acceptance criteria from task title and existing criteria.
+pub fn generate_uat_criteria(title: &str, acceptance_criteria: &[String]) -> Vec<String> {
+    let title_lower = title.to_lowercase();
+    let mut criteria = Vec::new();
+
+    // Keyword-driven human-testable criteria (word-boundary matching)
+    if contains_word(&title_lower, "navigation") || contains_word(&title_lower, "menu") {
+        criteria.push("Can reach target in 3 clicks or fewer".to_string());
+    }
+    if contains_word(&title_lower, "button") || contains_word(&title_lower, "form") {
+        criteria.push("Interactive elements respond within 200ms".to_string());
+    }
+    if contains_word(&title_lower, "layout") || contains_word(&title_lower, "responsive") {
+        criteria.push("Layout correct at 1920x1080 and 1366x768".to_string());
+    }
+    if contains_word(&title_lower, "terminal") {
+        criteria.push("Terminal output readable with no rendering glitches".to_string());
+    }
+    if contains_word(&title_lower, "accessibility") {
+        criteria.push("All interactive elements are keyboard-navigable".to_string());
+    }
+    if contains_word(&title_lower, "animation") {
+        criteria.push("Animations are smooth with no visual jank".to_string());
+    }
+
+    // Generic fallback if no specific criteria matched
+    if criteria.is_empty() {
+        criteria.push("Feature works as expected from user perspective".to_string());
+    }
+
+    // Append non-technical original criteria prefixed with "Verify: "
+    for ac in acceptance_criteria {
+        let lower = ac.to_lowercase();
+        // Skip purely technical criteria
+        let is_technical = lower.contains("compile")
+            || lower.contains("tests pass")
+            || lower.contains("test pass")
+            || lower.contains("coverage")
+            || lower.contains("lint")
+            || lower.contains("no error");
+        if !is_technical {
+            criteria.push(format!("Verify: {ac}"));
+        }
+    }
+
+    criteria
+}
+
 /// Classify a task's type from its title and description using keyword heuristics.
 pub fn classify_task_type(title: &str, description: &str) -> Option<String> {
     let text = format!("{} {}", title.to_lowercase(), description.to_lowercase());
@@ -360,5 +458,58 @@ mod tests {
             .unwrap();
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].id, "T-010");
+    }
+
+    #[test]
+    fn test_is_user_facing_positive() {
+        assert!(is_user_facing(
+            "Add dashboard sidebar",
+            "Create navigation component"
+        ));
+        assert!(is_user_facing("Fix button styles", "Update CSS"));
+        assert!(is_user_facing(
+            "Terminal improvements",
+            "Improve terminal output"
+        ));
+        assert!(is_user_facing("Create login form", "Authentication form"));
+        assert!(is_user_facing(
+            "Layout restructure",
+            "Refactor the page layout"
+        ));
+    }
+
+    #[test]
+    fn test_is_user_facing_negative() {
+        assert!(!is_user_facing(
+            "Optimize database queries",
+            "Improve SQL performance"
+        ));
+        assert!(!is_user_facing(
+            "Refactor auth module",
+            "Clean up internal code"
+        ));
+        assert!(!is_user_facing("Add caching layer", "Redis integration"));
+        assert!(!is_user_facing("Write unit tests", "Test coverage for API"));
+    }
+
+    #[test]
+    fn test_uat_criteria_skips_technical() {
+        let criteria = generate_uat_criteria(
+            "Add navigation menu",
+            &[
+                "Menu items are visible".to_string(),
+                "All tests pass".to_string(), // technical → skip
+                "Code compiles without errors".to_string(), // technical → skip
+                "Links work correctly".to_string(),
+            ],
+        );
+
+        // Should have: "Can reach target in 3 clicks" + "Verify: Menu items are visible" + "Verify: Links work correctly"
+        assert!(criteria.iter().any(|c| c.contains("3 clicks")));
+        assert!(criteria.iter().any(|c| c.starts_with("Verify: Menu items")));
+        assert!(criteria.iter().any(|c| c.starts_with("Verify: Links work")));
+        // Should NOT have technical criteria
+        assert!(!criteria.iter().any(|c| c.contains("tests pass")));
+        assert!(!criteria.iter().any(|c| c.contains("compiles")));
     }
 }

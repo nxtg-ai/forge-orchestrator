@@ -8,6 +8,7 @@ pub enum TaskPhase {
     Build,
     Verify,
     Fix,
+    Uat,
 }
 
 impl std::fmt::Display for TaskPhase {
@@ -16,6 +17,7 @@ impl std::fmt::Display for TaskPhase {
             TaskPhase::Build => write!(f, "build"),
             TaskPhase::Verify => write!(f, "verify"),
             TaskPhase::Fix => write!(f, "fix"),
+            TaskPhase::Uat => write!(f, "uat"),
         }
     }
 }
@@ -317,6 +319,99 @@ impl TaskManager {
         Ok(max_id + 1)
     }
 
+    /// Find the highest existing UAT task ID number (U-NNN) and return the next one.
+    pub fn next_uat_number(&self) -> anyhow::Result<u32> {
+        let tasks_dir = self.forge_dir.join("tasks");
+        if !tasks_dir.exists() {
+            return Ok(1);
+        }
+        let mut max_id: u32 = 0;
+        for entry in std::fs::read_dir(&tasks_dir)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            if let Some(num_str) = name
+                .strip_prefix("U-")
+                .and_then(|s| s.strip_suffix(".json"))
+                && let Ok(num) = num_str.parse::<u32>()
+            {
+                max_id = max_id.max(num);
+            }
+        }
+        Ok(max_id + 1)
+    }
+
+    /// Generate UAT subtasks for completed user-facing T-xxx tasks.
+    /// U-xxx tasks are human-only validation checkpoints — never dispatched to AI.
+    pub fn generate_uat_subtasks(&self) -> anyhow::Result<Vec<Task>> {
+        use crate::brain::rule_based::{generate_uat_criteria, is_user_facing};
+
+        let tasks = self.list_tasks()?;
+        let mut next_u = self.next_uat_number()?;
+        let mut generated = Vec::new();
+
+        for task in &tasks {
+            // Only completed T-xxx build tasks (skip V-xxx, U-xxx, Fix)
+            if task.status != TaskStatus::Completed {
+                continue;
+            }
+            if task.phase == Some(TaskPhase::Verify)
+                || task.phase == Some(TaskPhase::Uat)
+                || task.phase == Some(TaskPhase::Fix)
+            {
+                continue;
+            }
+            // Must start with T- (skip V-, U- by ID prefix too)
+            if !task.id.starts_with("T-") {
+                continue;
+            }
+
+            // Skip non-user-facing tasks
+            if !is_user_facing(&task.title, &task.description) {
+                continue;
+            }
+
+            // Skip if already has a U-xxx child (idempotent)
+            let has_uat = tasks.iter().any(|t| {
+                t.parent_task.as_deref() == Some(&task.id) && t.phase == Some(TaskPhase::Uat)
+            });
+            if has_uat {
+                continue;
+            }
+
+            // Find corresponding V-xxx if exists
+            let verify_id = tasks
+                .iter()
+                .find(|t| {
+                    t.parent_task.as_deref() == Some(&task.id) && t.phase == Some(TaskPhase::Verify)
+                })
+                .map(|t| t.id.clone());
+
+            // Generate human-testable acceptance criteria
+            let criteria = generate_uat_criteria(&task.title, &task.acceptance_criteria);
+
+            let uat_id = format!("U-{next_u:03}");
+            let mut uat_task = Task::new(
+                &uat_id,
+                format!("UAT: {}", task.title),
+                format!(
+                    "Human validation for task {}.\nVerify user-facing behavior meets expectations.",
+                    task.id,
+                ),
+            );
+            uat_task.parent_task = Some(task.id.clone());
+            uat_task.phase = Some(TaskPhase::Uat);
+            uat_task.task_type = Some("uat".to_string());
+            uat_task.depends_on = vec![verify_id.unwrap_or_else(|| task.id.clone())];
+            uat_task.assigned_to = None; // Human-only
+            uat_task.acceptance_criteria = criteria;
+
+            self.create_task(&uat_task)?;
+            generated.push(uat_task);
+            next_u += 1;
+        }
+        Ok(generated)
+    }
+
     /// Generate verify subtasks for each completed implement/test task that lacks one.
     pub fn generate_verify_subtasks(&self) -> anyhow::Result<Vec<Task>> {
         let tasks = self.list_tasks()?;
@@ -376,10 +471,11 @@ impl TaskManager {
 
     pub fn get_next_available(&self) -> anyhow::Result<Option<Task>> {
         let completed = self.get_completed_task_ids()?;
-        Ok(self
-            .list_tasks()?
-            .into_iter()
-            .find(|t| t.status == TaskStatus::Pending && !t.is_blocked(&completed)))
+        Ok(self.list_tasks()?.into_iter().find(|t| {
+            t.status == TaskStatus::Pending
+                && !t.is_blocked(&completed)
+                && t.phase != Some(TaskPhase::Uat)
+        }))
     }
 }
 
@@ -500,6 +596,117 @@ mod tests {
         assert_eq!(TaskPhase::Build.to_string(), "build");
         assert_eq!(TaskPhase::Verify.to_string(), "verify");
         assert_eq!(TaskPhase::Fix.to_string(), "fix");
+        assert_eq!(TaskPhase::Uat.to_string(), "uat");
+    }
+
+    #[test]
+    fn test_task_phase_uat_display() {
+        assert_eq!(TaskPhase::Uat.to_string(), "uat");
+    }
+
+    #[test]
+    fn test_next_uat_number_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+        assert_eq!(mgr.next_uat_number().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_next_uat_number_existing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+        for i in [1, 3] {
+            let mut task = Task::new(format!("U-{i:03}"), "UAT task", "desc");
+            task.phase = Some(TaskPhase::Uat);
+            mgr.create_task(&task).unwrap();
+        }
+        assert_eq!(mgr.next_uat_number().unwrap(), 4);
+    }
+
+    #[test]
+    fn test_generate_uat_for_ui_task() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        let mut task = Task::new(
+            "T-001",
+            "Add dashboard sidebar",
+            "Create navigation sidebar component",
+        );
+        task.task_type = Some("implement".to_string());
+        task.status = TaskStatus::Completed;
+        task.phase = Some(TaskPhase::Build);
+        mgr.create_task(&task).unwrap();
+
+        let generated = mgr.generate_uat_subtasks().unwrap();
+        assert_eq!(generated.len(), 1);
+        assert_eq!(generated[0].id, "U-001");
+        assert_eq!(generated[0].parent_task, Some("T-001".to_string()));
+        assert_eq!(generated[0].phase, Some(TaskPhase::Uat));
+        assert_eq!(generated[0].task_type, Some("uat".to_string()));
+        assert!(generated[0].assigned_to.is_none()); // Human-only
+        assert!(!generated[0].acceptance_criteria.is_empty());
+    }
+
+    #[test]
+    fn test_generate_uat_skips_backend() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        let mut task = Task::new(
+            "T-001",
+            "Optimize database queries",
+            "Improve SQL performance",
+        );
+        task.task_type = Some("implement".to_string());
+        task.status = TaskStatus::Completed;
+        task.phase = Some(TaskPhase::Build);
+        mgr.create_task(&task).unwrap();
+
+        let generated = mgr.generate_uat_subtasks().unwrap();
+        assert_eq!(generated.len(), 0); // No UAT keywords
+    }
+
+    #[test]
+    fn test_generate_uat_depends_on_verify() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        // Create T-001 (completed build task with UI keyword)
+        let mut t1 = Task::new("T-001", "Add dashboard layout", "Create main layout");
+        t1.task_type = Some("implement".to_string());
+        t1.status = TaskStatus::Completed;
+        t1.phase = Some(TaskPhase::Build);
+        mgr.create_task(&t1).unwrap();
+
+        // Create V-001 (verify subtask of T-001)
+        let mut v1 = Task::new("V-001", "Verify: Add dashboard layout", "desc");
+        v1.phase = Some(TaskPhase::Verify);
+        v1.parent_task = Some("T-001".to_string());
+        v1.status = TaskStatus::Completed;
+        mgr.create_task(&v1).unwrap();
+
+        let generated = mgr.generate_uat_subtasks().unwrap();
+        assert_eq!(generated.len(), 1);
+        assert_eq!(generated[0].depends_on, vec!["V-001".to_string()]);
+    }
+
+    #[test]
+    fn test_generate_uat_idempotent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        let mut task = Task::new("T-001", "Add sidebar component", "UI sidebar");
+        task.task_type = Some("implement".to_string());
+        task.status = TaskStatus::Completed;
+        task.phase = Some(TaskPhase::Build);
+        mgr.create_task(&task).unwrap();
+
+        let gen1 = mgr.generate_uat_subtasks().unwrap();
+        assert_eq!(gen1.len(), 1);
+
+        let gen2 = mgr.generate_uat_subtasks().unwrap();
+        assert_eq!(gen2.len(), 0); // Idempotent
     }
 
     #[test]

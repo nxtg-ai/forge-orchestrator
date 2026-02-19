@@ -5,7 +5,7 @@ use crate::core::governance::GovernanceChecker;
 use crate::core::knowledge::{KnowledgeEntry, KnowledgeManager};
 use crate::core::plan::PlanManager;
 use crate::core::state::StateManager;
-use crate::core::task::{AgentType, TaskManager, TaskStatus};
+use crate::core::task::{AgentType, TaskManager, TaskPhase, TaskStatus};
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -288,6 +288,11 @@ fn handle_claim_task(args: &Value, forge_dir: &Path) -> CallToolResult {
         Ok(t) => t,
         Err(e) => return CallToolResult::error(format!("Task not found: {e}")),
     };
+
+    // UAT tasks are for human validation only
+    if task.phase == Some(TaskPhase::Uat) {
+        return CallToolResult::error("UAT tasks are for human validation only");
+    }
 
     // Check if already claimed
     if task.status != TaskStatus::Pending {
