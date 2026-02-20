@@ -3,6 +3,7 @@ use crate::adapters::claude::ClaudeAdapter;
 use crate::adapters::codex::CodexAdapter;
 use crate::adapters::gemini::GeminiAdapter;
 use crate::core::event::{EventLogger, EventType, ForgeEvent};
+use crate::core::quality_gate::{self, GateResult};
 use crate::core::state::StateManager;
 use crate::core::task::{AgentType, Task, TaskManager, TaskPhase, TaskStatus};
 use crate::tui::pty_session::{PtySession, key_event_to_bytes};
@@ -180,6 +181,12 @@ pub struct App {
     pub awaiting_completion: HashMap<AgentType, AwaitingCompletion>,
     /// DX-050: Spinner animation frame counter (cycles 0..9 on each tick).
     pub spinner_frame: usize,
+    /// DX-052: Quality gate results receiver (from background thread).
+    pub quality_gate_rx: Option<std::sync::mpsc::Receiver<Vec<GateResult>>>,
+    /// DX-052: True while quality gates are running in background.
+    pub quality_gate_pending: bool,
+    /// DX-052: Number of gate retry attempts (max 3 before force-transition).
+    pub quality_gate_attempts: u32,
 }
 
 impl App {
@@ -244,6 +251,9 @@ impl App {
             terminal_size: crossterm::terminal::size().unwrap_or((80, 24)),
             awaiting_completion: HashMap::new(),
             spinner_frame: 0,
+            quality_gate_rx: None,
+            quality_gate_pending: false,
+            quality_gate_attempts: 0,
         };
 
         (app, rx, tx)
@@ -1556,6 +1566,16 @@ impl App {
     fn check_phase_transition(&mut self) -> bool {
         match self.phase {
             DashboardPhase::Build => {
+                // DX-052: Check for pending quality gate results first
+                if self.quality_gate_pending {
+                    if let Some(ref rx) = self.quality_gate_rx
+                        && let Ok(results) = rx.try_recv()
+                    {
+                        return self.handle_gate_results(results);
+                    }
+                    return false; // Still waiting for gate results
+                }
+
                 // Build tasks: phase is None or Build
                 let build_tasks: Vec<&Task> = self
                     .tasks
@@ -1572,29 +1592,27 @@ impl App {
                     .all(|t| t.status == TaskStatus::Completed || t.status == TaskStatus::Failed);
 
                 if all_build_done {
-                    self.phase = DashboardPhase::Verify;
-                    self.push_event("Phase 1 (BUILD) complete — transitioning to VERIFY");
-
-                    // Generate verify subtasks
-                    let task_mgr = TaskManager::new(&self.forge_dir);
-                    match task_mgr.generate_verify_subtasks() {
-                        Ok(generated) => {
-                            if generated.is_empty() {
-                                self.push_event("No verify subtasks needed");
-                            } else {
-                                self.push_event(&format!(
-                                    "Generated {} verify subtask(s)",
-                                    generated.len()
-                                ));
-                            }
-                        }
-                        Err(e) => {
-                            self.push_event(&format!("Failed to generate verify subtasks: {}", e));
-                        }
+                    // DX-052: Run quality gates before transitioning to Verify
+                    let gates = quality_gate::detect_gates(&self.project_root);
+                    if gates.is_empty() {
+                        self.push_event("No quality gates detected — skipping gate check");
+                        return self.transition_to_verify();
                     }
-                    // Reload to include newly generated tasks
-                    self.reload_tasks().ok();
-                    return true;
+
+                    self.push_event(&format!("Running {} quality gate(s)...", gates.len()));
+                    for g in &gates {
+                        self.push_event(&format!("  Gate: {}", g.name));
+                    }
+
+                    let project_root = self.project_root.clone();
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    std::thread::spawn(move || {
+                        let results = quality_gate::run_gates(&project_root, &gates);
+                        let _ = tx.send(results);
+                    });
+                    self.quality_gate_rx = Some(rx);
+                    self.quality_gate_pending = true;
+                    return false; // Wait for results on next tick
                 }
                 false
             }
@@ -1630,6 +1648,90 @@ impl App {
             }
             DashboardPhase::Complete => false,
         }
+    }
+
+    /// DX-052: Execute the Build→Verify transition (generate verify subtasks + reload).
+    fn transition_to_verify(&mut self) -> bool {
+        self.phase = DashboardPhase::Verify;
+        self.push_event("Phase 1 (BUILD) complete — transitioning to VERIFY");
+
+        let task_mgr = TaskManager::new(&self.forge_dir);
+        match task_mgr.generate_verify_subtasks() {
+            Ok(generated) => {
+                if generated.is_empty() {
+                    self.push_event("No verify subtasks needed");
+                } else {
+                    self.push_event(&format!("Generated {} verify subtask(s)", generated.len()));
+                }
+            }
+            Err(e) => {
+                self.push_event(&format!("Failed to generate verify subtasks: {e}"));
+            }
+        }
+        self.reload_tasks().ok();
+        true
+    }
+
+    /// DX-052: Process quality gate results — either transition or generate fix tasks.
+    fn handle_gate_results(&mut self, results: Vec<GateResult>) -> bool {
+        self.quality_gate_pending = false;
+        self.quality_gate_rx = None;
+        self.quality_gate_attempts += 1;
+
+        let failed: Vec<&GateResult> = results.iter().filter(|r| !r.passed).collect();
+        let passed: Vec<&GateResult> = results.iter().filter(|r| r.passed).collect();
+
+        // Log event for the audit trail
+        let event_logger = EventLogger::new(&self.forge_dir);
+        for r in &passed {
+            self.push_event(&format!(
+                "✓ Gate passed: {} ({}ms)",
+                r.gate_name, r.duration_ms
+            ));
+            let _ = event_logger.log(&ForgeEvent::new(
+                EventType::QualityGatePassed,
+                format!("{} passed", r.gate_name),
+            ));
+        }
+
+        if failed.is_empty() {
+            self.push_event("All quality gates passed!");
+            return self.transition_to_verify();
+        }
+
+        for r in &failed {
+            self.push_event(&format!(
+                "✗ Gate FAILED: {} (exit {})",
+                r.gate_name, r.exit_code
+            ));
+            let _ = event_logger.log(&ForgeEvent::new(
+                EventType::QualityGateFailed,
+                format!("{} failed (exit {})", r.gate_name, r.exit_code),
+            ));
+        }
+
+        if self.quality_gate_attempts >= 3 {
+            self.push_event("Quality gates failed 3 times — force-transitioning to VERIFY");
+            return self.transition_to_verify();
+        }
+
+        // Generate fix tasks for each failed gate
+        let task_mgr = TaskManager::new(&self.forge_dir);
+        let fail_vec: Vec<GateResult> = results.into_iter().filter(|r| !r.passed).collect();
+        match task_mgr.generate_gate_fix_tasks(&fail_vec) {
+            Ok(fix_tasks) => {
+                self.push_event(&format!(
+                    "Generated {} fix task(s) for failed gates (attempt {}/3)",
+                    fix_tasks.len(),
+                    self.quality_gate_attempts
+                ));
+            }
+            Err(e) => {
+                self.push_event(&format!("Failed to generate fix tasks: {e}"));
+            }
+        }
+        self.reload_tasks().ok();
+        false // Stay in Build — fix tasks will be dispatched
     }
 
     /// Generate UAT subtasks for user-facing T-xxx tasks during Verify→Complete transition.

@@ -20,6 +20,8 @@ pub enum EventType {
     GovernanceCheck,
     StateReconciled,
     ToolDetected,
+    QualityGatePassed,
+    QualityGateFailed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -462,21 +462,53 @@ impl TaskManager {
             verify_task.locked_files = task.locked_files.clone();
 
             // Enrich acceptance criteria with verification-specific checks
-            let mut enriched: Vec<String> = task.acceptance_criteria
+            let mut enriched: Vec<String> = task
+                .acceptance_criteria
                 .iter()
                 .map(|c| format!("Verify: {}", c))
                 .collect();
-            enriched.push("All project tests pass (run the test suite, don't just read code)".to_string());
-            enriched.push("Type checker passes with zero errors (e.g. tsc --noEmit, mypy, clippy)".to_string());
+            enriched.push(
+                "All project tests pass (run the test suite, don't just read code)".to_string(),
+            );
+            enriched.push(
+                "Type checker passes with zero errors (e.g. tsc --noEmit, mypy, clippy)"
+                    .to_string(),
+            );
             enriched.push("No new lint warnings introduced".to_string());
-            enriched.push("All new files have corresponding test files with meaningful assertions".to_string());
+            enriched.push(
+                "All new files have corresponding test files with meaningful assertions"
+                    .to_string(),
+            );
 
             // If the task touches auth/routing/middleware, add cross-cutting checks
-            let combined_text = format!("{} {}", task.title.to_lowercase(), task.description.to_lowercase());
-            let cross_cutting_keywords = ["auth", "jwt", "login", "route", "guard", "middleware", "interceptor", "session", "token", "cors", "permission"];
-            if cross_cutting_keywords.iter().any(|kw| combined_text.contains(kw)) {
-                enriched.push("E2E tests still pass (auth/routing changes are cross-cutting)".to_string());
-                enriched.push("Test mocks and fixtures updated to match new auth/routing state".to_string());
+            let combined_text = format!(
+                "{} {}",
+                task.title.to_lowercase(),
+                task.description.to_lowercase()
+            );
+            let cross_cutting_keywords = [
+                "auth",
+                "jwt",
+                "login",
+                "route",
+                "guard",
+                "middleware",
+                "interceptor",
+                "session",
+                "token",
+                "cors",
+                "permission",
+            ];
+            if cross_cutting_keywords
+                .iter()
+                .any(|kw| combined_text.contains(kw))
+            {
+                enriched.push(
+                    "E2E tests still pass (auth/routing changes are cross-cutting)".to_string(),
+                );
+                enriched.push(
+                    "Test mocks and fixtures updated to match new auth/routing state".to_string(),
+                );
             }
 
             verify_task.acceptance_criteria = enriched;
@@ -500,6 +532,56 @@ impl TaskManager {
                 && !t.is_blocked(&completed)
                 && t.phase != Some(TaskPhase::Uat)
         }))
+    }
+
+    /// Generate fix tasks for failed quality gates.
+    /// Fix tasks have phase=Build and task_type="fix" so they get dispatched to agents
+    /// but do NOT generate V-xxx verify subtasks (generate_verify_subtasks skips "fix").
+    pub fn generate_gate_fix_tasks(
+        &self,
+        failed_gates: &[crate::core::quality_gate::GateResult],
+    ) -> anyhow::Result<Vec<Task>> {
+        let mut next_t = self.next_task_number()?;
+        let mut generated = Vec::new();
+
+        for gate in failed_gates {
+            let task_id = format!("T-{next_t:03}");
+            let stderr_tail = truncate_output(&gate.stderr, 1500);
+            let stdout_tail = truncate_output(&gate.stdout, 1500);
+
+            let mut fix_task = Task::new(
+                &task_id,
+                format!("Fix: {} failures", gate.gate_name),
+                format!(
+                    "The quality gate '{}' failed with exit code {}.\n\
+                     Fix ALL errors reported below. Run the gate command to verify your fix.\n\n\
+                     STDERR:\n{}\n\n\
+                     STDOUT:\n{}",
+                    gate.gate_name, gate.exit_code, stderr_tail, stdout_tail,
+                ),
+            );
+            fix_task.phase = Some(TaskPhase::Build);
+            fix_task.task_type = Some("fix".to_string());
+            fix_task.acceptance_criteria = vec![
+                format!("{} passes with exit code 0", gate.gate_name),
+                "No regressions introduced by the fix".to_string(),
+            ];
+            fix_task.assigned_to = Some(AgentType::Claude);
+
+            self.create_task(&fix_task)?;
+            generated.push(fix_task);
+            next_t += 1;
+        }
+        Ok(generated)
+    }
+}
+
+/// Keep the last `max` characters of output for task descriptions.
+fn truncate_output(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("...truncated...\n{}", &s[s.len() - max..])
     }
 }
 
@@ -841,10 +923,18 @@ mod tests {
         let generated = mgr.generate_verify_subtasks().unwrap();
         assert_eq!(generated.len(), 1);
         let criteria = &generated[0].acceptance_criteria;
-        assert!(criteria.iter().any(|c| c.contains("All project tests pass")));
+        assert!(
+            criteria
+                .iter()
+                .any(|c| c.contains("All project tests pass"))
+        );
         assert!(criteria.iter().any(|c| c.contains("Type checker passes")));
         assert!(criteria.iter().any(|c| c.contains("No new lint warnings")));
-        assert!(criteria.iter().any(|c| c.contains("corresponding test files")));
+        assert!(
+            criteria
+                .iter()
+                .any(|c| c.contains("corresponding test files"))
+        );
     }
 
     #[test]
@@ -862,7 +952,11 @@ mod tests {
         assert_eq!(generated.len(), 1);
         let criteria = &generated[0].acceptance_criteria;
         assert!(criteria.iter().any(|c| c.contains("E2E tests still pass")));
-        assert!(criteria.iter().any(|c| c.contains("Test mocks and fixtures updated")));
+        assert!(
+            criteria
+                .iter()
+                .any(|c| c.contains("Test mocks and fixtures updated"))
+        );
     }
 
     #[test]
@@ -870,7 +964,11 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mgr = TaskManager::new(tmp.path());
 
-        let mut task = Task::new("T-001", "Optimize query performance", "Speed up SQL queries");
+        let mut task = Task::new(
+            "T-001",
+            "Optimize query performance",
+            "Speed up SQL queries",
+        );
         task.task_type = Some("implement".to_string());
         task.status = TaskStatus::Completed;
         task.acceptance_criteria = vec!["Query runs under 100ms".to_string()];
@@ -881,7 +979,11 @@ mod tests {
         let criteria = &generated[0].acceptance_criteria;
         // Should NOT have cross-cutting criteria
         assert!(!criteria.iter().any(|c| c.contains("E2E tests still pass")));
-        assert!(!criteria.iter().any(|c| c.contains("Test mocks and fixtures")));
+        assert!(
+            !criteria
+                .iter()
+                .any(|c| c.contains("Test mocks and fixtures"))
+        );
     }
 
     #[test]
@@ -901,7 +1003,101 @@ mod tests {
         let generated = mgr.generate_verify_subtasks().unwrap();
         assert_eq!(generated.len(), 1);
         let criteria = &generated[0].acceptance_criteria;
-        assert!(criteria.iter().any(|c| c == "Verify: Returns 200 on success"));
-        assert!(criteria.iter().any(|c| c == "Verify: Returns 404 for missing resource"));
+        assert!(
+            criteria
+                .iter()
+                .any(|c| c == "Verify: Returns 200 on success")
+        );
+        assert!(
+            criteria
+                .iter()
+                .any(|c| c == "Verify: Returns 404 for missing resource")
+        );
+    }
+
+    #[test]
+    fn test_generate_gate_fix_tasks() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        let failed = vec![crate::core::quality_gate::GateResult {
+            gate_name: "TypeCheck".to_string(),
+            passed: false,
+            exit_code: 2,
+            stdout: String::new(),
+            stderr: "TS2345: Argument of type 'string' is not assignable".to_string(),
+            duration_ms: 500,
+        }];
+
+        let generated = mgr.generate_gate_fix_tasks(&failed).unwrap();
+        assert_eq!(generated.len(), 1);
+        let fix = &generated[0];
+        assert_eq!(fix.title, "Fix: TypeCheck failures");
+        assert_eq!(fix.phase, Some(TaskPhase::Build));
+        assert_eq!(fix.task_type.as_deref(), Some("fix"));
+        assert_eq!(fix.assigned_to, Some(AgentType::Claude));
+        assert!(fix.description.contains("TS2345"));
+        assert!(fix.acceptance_criteria[0].contains("TypeCheck passes"));
+    }
+
+    #[test]
+    fn test_gate_fix_task_multiple_gates() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        let failed = vec![
+            crate::core::quality_gate::GateResult {
+                gate_name: "TypeCheck".to_string(),
+                passed: false,
+                exit_code: 2,
+                stdout: String::new(),
+                stderr: "type error".to_string(),
+                duration_ms: 100,
+            },
+            crate::core::quality_gate::GateResult {
+                gate_name: "Lint".to_string(),
+                passed: false,
+                exit_code: 1,
+                stdout: String::new(),
+                stderr: "unused import".to_string(),
+                duration_ms: 50,
+            },
+        ];
+
+        let generated = mgr.generate_gate_fix_tasks(&failed).unwrap();
+        assert_eq!(generated.len(), 2);
+        assert_eq!(generated[0].title, "Fix: TypeCheck failures");
+        assert_eq!(generated[1].title, "Fix: Lint failures");
+        // Should have sequential task IDs
+        assert_eq!(generated[0].id, "T-001");
+        assert_eq!(generated[1].id, "T-002");
+    }
+
+    #[test]
+    fn test_gate_fix_task_not_verified() {
+        // Fix tasks with task_type="fix" should NOT generate verify subtasks
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        let failed = vec![crate::core::quality_gate::GateResult {
+            gate_name: "Test Suite".to_string(),
+            passed: false,
+            exit_code: 1,
+            stdout: "FAIL src/foo.test.ts".to_string(),
+            stderr: String::new(),
+            duration_ms: 200,
+        }];
+
+        let generated = mgr.generate_gate_fix_tasks(&failed).unwrap();
+        assert_eq!(generated.len(), 1);
+
+        // Mark fix task as completed
+        let mut fix = generated[0].clone();
+        fix.status = TaskStatus::Completed;
+        mgr.update_task(&fix).unwrap();
+
+        // generate_verify_subtasks should skip "fix" type tasks
+        let verify = mgr.generate_verify_subtasks().unwrap();
+        assert!(verify.is_empty(), "fix tasks should NOT generate V-xxx");
     }
 }
