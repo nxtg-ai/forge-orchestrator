@@ -8,27 +8,64 @@ pub struct CodexAdapter;
 
 impl CodexAdapter {
     /// Build the task prompt text (shared between headless and initial_input).
-    fn task_prompt(task: &Task) -> String {
-        format!(
-            "Complete task {id}: {title}\n\nDescription: {desc}\n\n\
-             {criteria}\
-             When done, summarize what you did.",
-            id = task.id,
-            title = task.title,
-            desc = task.description,
-            criteria = if task.acceptance_criteria.is_empty() {
-                String::new()
-            } else {
-                format!(
-                    "Acceptance criteria:\n{}\n\n",
-                    task.acceptance_criteria
-                        .iter()
-                        .map(|c| format!("- {c}"))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                )
-            },
-        )
+    pub(crate) fn task_prompt(task: &Task, task_type: &str) -> String {
+        let criteria = if task.acceptance_criteria.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "Acceptance criteria:\n{}\n\n",
+                task.acceptance_criteria
+                    .iter()
+                    .map(|c| format!("- {c}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
+        };
+
+        match task_type {
+            "verify" => format!(
+                "You are working on task {id}: {title}\n\n\
+                 This is a VERIFICATION task. You must ACTIVELY TEST the code, not just read it.\n\n\
+                 Description: {desc}\n\n\
+                 {criteria}\
+                 Required verification steps:\n\
+                 1. Run the project's test suite (e.g. `npm test`, `pytest`, `cargo test`)\n\
+                 2. Run the type checker (e.g. `tsc --noEmit`, `mypy`, `cargo clippy`)\n\
+                 3. Check that all new/modified files have corresponding test files\n\
+                 4. Verify test mocks match production code shapes (interceptors, constructors, etc.)\n\
+                 5. Run the linter (e.g. `eslint`, `ruff`, `cargo fmt --check`)\n\
+                 6. If this task touches auth/routing/middleware, also run E2E tests\n\n\
+                 Report your findings: what passed, what failed, what's missing.\n\
+                 If tests fail or coverage is missing, report the specific failures.",
+                id = task.id,
+                title = task.title,
+                desc = task.description,
+            ),
+            "review" => format!(
+                "You are working on task {id}: {title}\n\n\
+                 This is a REVIEW task. Analyze the code without making changes.\n\n\
+                 Description: {desc}\n\n\
+                 {criteria}\
+                 Do NOT modify files — this is a read-only review.\n\
+                 When done, summarize your findings.",
+                id = task.id,
+                title = task.title,
+                desc = task.description,
+            ),
+            _ => format!(
+                "Complete task {id}: {title}\n\nDescription: {desc}\n\n\
+                 {criteria}\
+                 IMPORTANT: Before marking this task complete:\n\
+                 - Write unit tests for any new files you create\n\
+                 - Run the existing test suite to verify nothing breaks\n\
+                 - Run the type checker if the project has one\n\
+                 - If you modify a file that has a corresponding .test file, update the test mocks\n\n\
+                 When done, summarize what you did.",
+                id = task.id,
+                title = task.title,
+                desc = task.description,
+            ),
+        }
     }
 }
 
@@ -104,7 +141,8 @@ impl ToolAdapter for CodexAdapter {
         auth_mode: &str,
         permissions: &str,
     ) -> Command {
-        let prompt = Self::task_prompt(task);
+        let task_type = task.task_type.as_deref().unwrap_or("");
+        let prompt = Self::task_prompt(task, task_type);
 
         let mut cmd = Command::new("codex");
         if permissions == "yolo" {
@@ -146,8 +184,8 @@ impl ToolAdapter for CodexAdapter {
 
     /// Provide the task prompt to be typed into the Codex TUI after it initializes.
     fn initial_input(&self, task: &Task) -> Option<String> {
-        let desc = task.description.replace('\n', " ");
-        let prompt = format!("Complete task {}: {}. {}", task.id, task.title, desc);
+        let task_type = task.task_type.as_deref().unwrap_or("");
+        let prompt = Self::task_prompt(task, task_type).replace('\n', " ");
         // \r = Enter to submit the prompt
         Some(format!("{}\r", prompt))
     }
@@ -155,5 +193,50 @@ impl ToolAdapter for CodexAdapter {
     /// Codex TUI shows "What can I help you with?" when ready for input.
     fn ready_pattern(&self) -> Option<&str> {
         Some("help you with")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_task(task_type: &str) -> Task {
+        let mut task = Task::new("T-001", "Add login form", "Implement the login UI");
+        task.task_type = Some(task_type.to_string());
+        task.acceptance_criteria = vec!["Form validates email".to_string()];
+        task
+    }
+
+    #[test]
+    fn test_codex_verify_prompt() {
+        let task = make_task("verify");
+        let prompt = CodexAdapter::task_prompt(&task, "verify");
+        assert!(prompt.contains("VERIFICATION task"));
+        assert!(prompt.contains("ACTIVELY TEST"));
+        assert!(prompt.contains("Run the project's test suite"));
+    }
+
+    #[test]
+    fn test_codex_implement_prompt_has_test_requirement() {
+        let task = make_task("implement");
+        let prompt = CodexAdapter::task_prompt(&task, "implement");
+        assert!(prompt.contains("Write unit tests"));
+        assert!(prompt.contains("Run the existing test suite"));
+    }
+
+    #[test]
+    fn test_codex_review_prompt_is_readonly() {
+        let task = make_task("review");
+        let prompt = CodexAdapter::task_prompt(&task, "review");
+        assert!(prompt.contains("REVIEW task"));
+        assert!(prompt.contains("Do NOT modify files"));
+    }
+
+    #[test]
+    fn test_codex_default_prompt() {
+        let task = make_task("something");
+        let prompt = CodexAdapter::task_prompt(&task, "something");
+        assert!(prompt.contains("T-001"));
+        assert!(prompt.contains("Write unit tests"));
     }
 }

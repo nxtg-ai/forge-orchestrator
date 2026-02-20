@@ -440,7 +440,12 @@ impl TaskManager {
                 &verify_id,
                 format!("Verify: {}", task.title),
                 format!(
-                    "Run automated tests for task {}.\nReview changes and verify acceptance criteria.\nOriginal: {}\nCriteria:\n{}",
+                    "VERIFY task {} by RUNNING tests, type checker, and linter.\n\
+                     Do NOT just read the code — actively execute verification commands.\n\n\
+                     Original task: {}\n\n\
+                     Original criteria:\n{}\n\n\
+                     Your job: Confirm these criteria are met by running the actual test suite, \
+                     type checker, and linter. Report specific pass/fail results.",
                     task.id,
                     task.description,
                     task.acceptance_criteria
@@ -452,10 +457,29 @@ impl TaskManager {
             );
             verify_task.parent_task = Some(task.id.clone());
             verify_task.phase = Some(TaskPhase::Verify);
-            verify_task.task_type = Some("review".to_string());
+            verify_task.task_type = Some("verify".to_string());
             verify_task.depends_on = vec![task.id.clone()];
             verify_task.locked_files = task.locked_files.clone();
-            verify_task.acceptance_criteria = task.acceptance_criteria.clone();
+
+            // Enrich acceptance criteria with verification-specific checks
+            let mut enriched: Vec<String> = task.acceptance_criteria
+                .iter()
+                .map(|c| format!("Verify: {}", c))
+                .collect();
+            enriched.push("All project tests pass (run the test suite, don't just read code)".to_string());
+            enriched.push("Type checker passes with zero errors (e.g. tsc --noEmit, mypy, clippy)".to_string());
+            enriched.push("No new lint warnings introduced".to_string());
+            enriched.push("All new files have corresponding test files with meaningful assertions".to_string());
+
+            // If the task touches auth/routing/middleware, add cross-cutting checks
+            let combined_text = format!("{} {}", task.title.to_lowercase(), task.description.to_lowercase());
+            let cross_cutting_keywords = ["auth", "jwt", "login", "route", "guard", "middleware", "interceptor", "session", "token", "cors", "permission"];
+            if cross_cutting_keywords.iter().any(|kw| combined_text.contains(kw)) {
+                enriched.push("E2E tests still pass (auth/routing changes are cross-cutting)".to_string());
+                enriched.push("Test mocks and fixtures updated to match new auth/routing state".to_string());
+            }
+
+            verify_task.acceptance_criteria = enriched;
             verify_task.assigned_to = Some(match task_type {
                 "document" => AgentType::Gemini,
                 "design" => AgentType::Claude,
@@ -801,5 +825,83 @@ mod tests {
 
         let generated = mgr.generate_verify_subtasks().unwrap();
         assert_eq!(generated[0].assigned_to, Some(AgentType::Codex));
+    }
+
+    #[test]
+    fn test_generate_verify_enriched_criteria() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        let mut task = Task::new("T-001", "Add caching layer", "Implement Redis cache");
+        task.task_type = Some("implement".to_string());
+        task.status = TaskStatus::Completed;
+        task.acceptance_criteria = vec!["Cache invalidation works".to_string()];
+        mgr.create_task(&task).unwrap();
+
+        let generated = mgr.generate_verify_subtasks().unwrap();
+        assert_eq!(generated.len(), 1);
+        let criteria = &generated[0].acceptance_criteria;
+        assert!(criteria.iter().any(|c| c.contains("All project tests pass")));
+        assert!(criteria.iter().any(|c| c.contains("Type checker passes")));
+        assert!(criteria.iter().any(|c| c.contains("No new lint warnings")));
+        assert!(criteria.iter().any(|c| c.contains("corresponding test files")));
+    }
+
+    #[test]
+    fn test_generate_verify_cross_cutting_auth() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        let mut task = Task::new("T-001", "JWT auth middleware", "Add JWT token validation");
+        task.task_type = Some("implement".to_string());
+        task.status = TaskStatus::Completed;
+        task.acceptance_criteria = vec!["Tokens validated correctly".to_string()];
+        mgr.create_task(&task).unwrap();
+
+        let generated = mgr.generate_verify_subtasks().unwrap();
+        assert_eq!(generated.len(), 1);
+        let criteria = &generated[0].acceptance_criteria;
+        assert!(criteria.iter().any(|c| c.contains("E2E tests still pass")));
+        assert!(criteria.iter().any(|c| c.contains("Test mocks and fixtures updated")));
+    }
+
+    #[test]
+    fn test_generate_verify_non_cross_cutting() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        let mut task = Task::new("T-001", "Optimize query performance", "Speed up SQL queries");
+        task.task_type = Some("implement".to_string());
+        task.status = TaskStatus::Completed;
+        task.acceptance_criteria = vec!["Query runs under 100ms".to_string()];
+        mgr.create_task(&task).unwrap();
+
+        let generated = mgr.generate_verify_subtasks().unwrap();
+        assert_eq!(generated.len(), 1);
+        let criteria = &generated[0].acceptance_criteria;
+        // Should NOT have cross-cutting criteria
+        assert!(!criteria.iter().any(|c| c.contains("E2E tests still pass")));
+        assert!(!criteria.iter().any(|c| c.contains("Test mocks and fixtures")));
+    }
+
+    #[test]
+    fn test_generate_verify_prefixed_criteria() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        let mut task = Task::new("T-001", "Build API endpoint", "Create REST endpoint");
+        task.task_type = Some("implement".to_string());
+        task.status = TaskStatus::Completed;
+        task.acceptance_criteria = vec![
+            "Returns 200 on success".to_string(),
+            "Returns 404 for missing resource".to_string(),
+        ];
+        mgr.create_task(&task).unwrap();
+
+        let generated = mgr.generate_verify_subtasks().unwrap();
+        assert_eq!(generated.len(), 1);
+        let criteria = &generated[0].acceptance_criteria;
+        assert!(criteria.iter().any(|c| c == "Verify: Returns 200 on success"));
+        assert!(criteria.iter().any(|c| c == "Verify: Returns 404 for missing resource"));
     }
 }

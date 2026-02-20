@@ -96,7 +96,7 @@ impl ToolAdapter for ClaudeAdapter {
                 "implement" => {
                     cmd.args(["--allowedTools", "Write,Edit,Read,Glob,Grep,Bash"]);
                 }
-                "review" | "test" => {
+                "review" | "test" | "verify" => {
                     cmd.args(["--allowedTools", "Read,Glob,Grep,Bash"]);
                 }
                 "document" => {
@@ -111,7 +111,7 @@ impl ToolAdapter for ClaudeAdapter {
 
         // Task-type-aware turn limits
         match task_type {
-            "review" | "test" => {
+            "review" | "test" | "verify" => {
                 cmd.args(["--max-turns", "20"]);
             }
             "design" => {
@@ -170,7 +170,8 @@ impl ToolAdapter for ClaudeAdapter {
 }
 
 /// Build a task-type-aware prompt for Claude.
-fn build_prompt(task: &Task, task_type: &str) -> String {
+/// Exposed for testing via `pub(crate)`.
+pub(crate) fn build_prompt(task: &Task, task_type: &str) -> String {
     let criteria = if task.acceptance_criteria.is_empty() {
         String::new()
     } else {
@@ -223,6 +224,24 @@ fn build_prompt(task: &Task, task_type: &str) -> String {
             title = task.title,
             desc = task.description,
         ),
+        "verify" => format!(
+            "You are working on task {id}: {title}\n\n\
+             This is a VERIFICATION task. You must ACTIVELY TEST the code, not just read it.\n\n\
+             Description: {desc}\n\n\
+             {criteria}{files}\
+             Required verification steps:\n\
+             1. Run the project's test suite (e.g. `npm test`, `pytest`, `cargo test`)\n\
+             2. Run the type checker (e.g. `tsc --noEmit`, `mypy`, `cargo clippy`)\n\
+             3. Check that all new/modified files have corresponding test files\n\
+             4. Verify test mocks match production code shapes (interceptors, constructors, etc.)\n\
+             5. Run the linter (e.g. `eslint`, `ruff`, `cargo fmt --check`)\n\
+             6. If this task touches auth/routing/middleware, also run E2E tests\n\n\
+             Report your findings: what passed, what failed, what's missing.\n\
+             If tests fail or coverage is missing, report the specific failures.",
+            id = task.id,
+            title = task.title,
+            desc = task.description,
+        ),
         "test" => format!(
             "You are working on task {id}: {title}\n\n\
              This is a TESTING task. Focus on test coverage and quality.\n\n\
@@ -250,10 +269,127 @@ fn build_prompt(task: &Task, task_type: &str) -> String {
             "You are working on task {id}: {title}\n\n\
              Description: {desc}\n\n\
              {criteria}{files}\
+             IMPORTANT: Before marking this task complete:\n\
+             - Write unit tests for any new files you create\n\
+             - Run the existing test suite to verify nothing breaks\n\
+             - Run the type checker if the project has one\n\
+             - If you modify a file that has a corresponding .test file, update the test mocks\n\n\
              Complete this task. When done, summarize what you did.",
             id = task.id,
             title = task.title,
             desc = task.description,
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_task(task_type: &str) -> Task {
+        let mut task = Task::new("T-001", "Add login form", "Implement the login UI");
+        task.task_type = Some(task_type.to_string());
+        task.acceptance_criteria = vec!["Form validates email".to_string()];
+        task.locked_files = vec!["src/login.rs".to_string()];
+        task
+    }
+
+    #[test]
+    fn test_verify_prompt_contains_verification_task() {
+        let task = make_task("verify");
+        let prompt = build_prompt(&task, "verify");
+        assert!(
+            prompt.contains("VERIFICATION task"),
+            "verify prompt must contain 'VERIFICATION task'"
+        );
+    }
+
+    #[test]
+    fn test_verify_prompt_contains_test_suite_instruction() {
+        let task = make_task("verify");
+        let prompt = build_prompt(&task, "verify");
+        assert!(
+            prompt.contains("Run the project's test suite"),
+            "verify prompt must instruct running the test suite"
+        );
+    }
+
+    #[test]
+    fn test_verify_prompt_contains_actively_test() {
+        let task = make_task("verify");
+        let prompt = build_prompt(&task, "verify");
+        assert!(
+            prompt.contains("ACTIVELY TEST"),
+            "verify prompt must say ACTIVELY TEST"
+        );
+    }
+
+    #[test]
+    fn test_implement_prompt_contains_write_unit_tests() {
+        let task = make_task("implement");
+        let prompt = build_prompt(&task, "implement");
+        assert!(
+            prompt.contains("Write unit tests"),
+            "implement/default prompt must contain 'Write unit tests'"
+        );
+    }
+
+    #[test]
+    fn test_implement_prompt_contains_run_test_suite() {
+        let task = make_task("implement");
+        let prompt = build_prompt(&task, "implement");
+        assert!(
+            prompt.contains("Run the existing test suite"),
+            "implement/default prompt must instruct running tests"
+        );
+    }
+
+    #[test]
+    fn test_default_prompt_works_for_unknown_type() {
+        let task = make_task("something_unknown");
+        let prompt = build_prompt(&task, "something_unknown");
+        assert!(prompt.contains("T-001"));
+        assert!(prompt.contains("Add login form"));
+        assert!(prompt.contains("Write unit tests"));
+    }
+
+    #[test]
+    fn test_review_prompt_unchanged() {
+        let task = make_task("review");
+        let prompt = build_prompt(&task, "review");
+        assert!(
+            prompt.contains("REVIEW task"),
+            "review prompt must still say REVIEW task"
+        );
+        assert!(
+            prompt.contains("Do NOT modify files"),
+            "review prompt must still be read-only"
+        );
+        assert!(
+            !prompt.contains("VERIFICATION"),
+            "review prompt must NOT contain VERIFICATION"
+        );
+    }
+
+    #[test]
+    fn test_verify_prompt_includes_criteria_and_files() {
+        let task = make_task("verify");
+        let prompt = build_prompt(&task, "verify");
+        assert!(
+            prompt.contains("Form validates email"),
+            "verify prompt must include acceptance criteria"
+        );
+        assert!(
+            prompt.contains("src/login.rs"),
+            "verify prompt must include locked files"
+        );
+    }
+
+    #[test]
+    fn test_design_prompt_unchanged() {
+        let task = make_task("design");
+        let prompt = build_prompt(&task, "design");
+        assert!(prompt.contains("DESIGN task"));
+        assert!(!prompt.contains("VERIFICATION"));
     }
 }
