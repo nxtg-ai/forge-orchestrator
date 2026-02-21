@@ -235,7 +235,10 @@ pub(crate) fn build_prompt(task: &Task, task_type: &str) -> String {
              3. Check that all new/modified files have corresponding test files\n\
              4. Verify test mocks match production code shapes (interceptors, constructors, etc.)\n\
              5. Run the linter (e.g. `eslint`, `ruff`, `cargo fmt --check`)\n\
-             6. If this task touches auth/routing/middleware, also run E2E tests\n\n\
+             6. If this task touches auth/routing/middleware, also run E2E tests\n\
+             7. If Playwright/E2E tests exist, run them and check for browser console errors:\n\
+                - Use `page.on('console', ...)` and `page.on('pageerror', ...)` to capture errors\n\
+                - Zero uncaught exceptions and pageerrors = pass\n\n\
              Report your findings: what passed, what failed, what's missing.\n\
              If tests fail or coverage is missing, report the specific failures.",
             id = task.id,

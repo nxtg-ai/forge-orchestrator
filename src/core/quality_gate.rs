@@ -93,6 +93,17 @@ pub fn detect_gates(project_root: &Path) -> Vec<QualityGate> {
         });
     }
 
+    // Playwright E2E tests
+    if project_root.join("playwright.config.ts").exists()
+        || project_root.join("playwright.config.js").exists()
+    {
+        gates.push(QualityGate {
+            name: "Playwright E2E".into(),
+            command: "npx".into(),
+            args: vec!["playwright".into(), "test".into(), "--reporter=list".into()],
+        });
+    }
+
     gates
 }
 
@@ -233,6 +244,32 @@ mod tests {
         let gates = detect_gates(dir.path());
         assert_eq!(gates.len(), 1);
         assert_eq!(gates[0].name, "Pytest");
+    }
+
+    #[test]
+    fn test_detect_gates_playwright() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("playwright.config.ts"), "export default {}").unwrap();
+
+        let gates = detect_gates(dir.path());
+        assert_eq!(gates.len(), 1);
+        assert_eq!(gates[0].name, "Playwright E2E");
+        assert_eq!(gates[0].command, "npx");
+        assert_eq!(gates[0].args, vec!["playwright", "test", "--reporter=list"]);
+    }
+
+    #[test]
+    fn test_detect_gates_playwright_js() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("playwright.config.js"),
+            "module.exports = {}",
+        )
+        .unwrap();
+
+        let gates = detect_gates(dir.path());
+        assert_eq!(gates.len(), 1);
+        assert_eq!(gates[0].name, "Playwright E2E");
     }
 
     #[test]

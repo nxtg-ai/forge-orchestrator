@@ -511,6 +511,33 @@ impl TaskManager {
                 );
             }
 
+            // If the task touches UI/frontend, add Playwright-aware checks
+            let ui_keywords = [
+                "component",
+                "page",
+                "dashboard",
+                "ui",
+                "frontend",
+                "render",
+                "view",
+                "layout",
+                "button",
+                "form",
+                "modal",
+                "dialog",
+                "navigation",
+                "sidebar",
+            ];
+            if ui_keywords.iter().any(|kw| combined_text.contains(kw)) {
+                enriched.push(
+                    "Playwright E2E tests pass with zero console errors (use page.on('console') and page.on('pageerror') to capture browser errors)".to_string(),
+                );
+                enriched.push(
+                    "No uncaught exceptions or unhandled promise rejections in browser console"
+                        .to_string(),
+                );
+            }
+
             verify_task.acceptance_criteria = enriched;
             verify_task.assigned_to = Some(match task_type {
                 "document" => AgentType::Gemini,
@@ -1099,5 +1126,59 @@ mod tests {
         // generate_verify_subtasks should skip "fix" type tasks
         let verify = mgr.generate_verify_subtasks().unwrap();
         assert!(verify.is_empty(), "fix tasks should NOT generate V-xxx");
+    }
+
+    #[test]
+    fn test_generate_verify_ui_task_has_playwright_checks() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        let mut task = Task::new(
+            "T-001",
+            "Build dashboard component",
+            "Create a React dashboard page with charts",
+        );
+        task.task_type = Some("implement".to_string());
+        task.status = TaskStatus::Completed;
+        task.acceptance_criteria = vec!["Dashboard renders charts".to_string()];
+        mgr.create_task(&task).unwrap();
+
+        let generated = mgr.generate_verify_subtasks().unwrap();
+        assert_eq!(generated.len(), 1);
+        let criteria = &generated[0].acceptance_criteria;
+        assert!(
+            criteria
+                .iter()
+                .any(|c| c.contains("Playwright") && c.contains("console errors")),
+            "UI tasks should have Playwright console error check, got: {criteria:?}"
+        );
+        assert!(
+            criteria.iter().any(|c| c.contains("uncaught exceptions")),
+            "UI tasks should check for uncaught exceptions"
+        );
+    }
+
+    #[test]
+    fn test_generate_verify_non_ui_task_no_playwright() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        let mut task = Task::new(
+            "T-001",
+            "Optimize database queries",
+            "Speed up the batch processing pipeline",
+        );
+        task.task_type = Some("implement".to_string());
+        task.status = TaskStatus::Completed;
+        task.acceptance_criteria = vec!["Queries under 100ms".to_string()];
+        mgr.create_task(&task).unwrap();
+
+        let generated = mgr.generate_verify_subtasks().unwrap();
+        assert_eq!(generated.len(), 1);
+        let criteria = &generated[0].acceptance_criteria;
+        assert!(
+            !criteria.iter().any(|c| c.contains("Playwright")),
+            "Non-UI tasks should NOT have Playwright checks"
+        );
     }
 }
