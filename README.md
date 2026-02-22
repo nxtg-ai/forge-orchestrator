@@ -16,10 +16,10 @@ Plan work. Assign it to the right AI. Track progress. Prevent conflicts. Capture
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.93+-orange.svg)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/Tests-139_passing-brightgreen.svg)](#)
-[![MCP](https://img.shields.io/badge/MCP-9_tools-purple.svg)](#mcp-server)
-[![Binary](https://img.shields.io/badge/Binary-3.7_MB-lightgrey.svg)](#)
-[![Version](https://img.shields.io/badge/Version-1.0.0-blue.svg)](#)
+[![Tests](https://img.shields.io/badge/Tests-293_passing-brightgreen.svg)](#)
+[![MCP](https://img.shields.io/badge/MCP-10_tools-purple.svg)](#mcp-server)
+[![Binary](https://img.shields.io/badge/Binary-4.0_MB-lightgrey.svg)](#)
+[![Version](https://img.shields.io/badge/Version-1.2.0-blue.svg)](#)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/nxtg-ai/forge-orchestrator/pulls)
 
 [Quick Start](#quick-start) | [Why Forge?](#why-forge) | [MCP Server](#mcp-server) | [Architecture](#architecture) | [Contributing](#contributing)
@@ -156,7 +156,7 @@ You write SPEC.md
 
 Forge includes a built-in [Model Context Protocol](https://modelcontextprotocol.io) server. Any MCP-compatible AI tool can query and update orchestration state in real-time.
 
-### 9 Tools
+### 10 Tools
 
 | Tool | Description |
 |:-----|:------------|
@@ -169,6 +169,7 @@ Forge includes a built-in [Model Context Protocol](https://modelcontextprotocol.
 | `forge_get_knowledge` | Search the knowledge base, generate SKILL.md files |
 | `forge_check_drift` | Compare completed work against SPEC.md vision |
 | `forge_get_health` | 5-dimension governance health check (0-100 score) |
+| `forge_set_project` | Switch the active project root for multi-project setups |
 
 ### Connecting AI Tools
 
@@ -331,11 +332,11 @@ Returns a **health score out of 100** with actionable findings.
 | Metric | Value |
 |:-------|:------|
 | Language | Rust (2024 edition) |
-| Binary size | 3.7 MB (includes TLS) |
+| Binary size | 4.0 MB (includes TLS) |
 | Source lines | ~10,650 |
-| Tests | 139 (117 unit + 10 CLI + 12 MCP) |
+| Tests | 293 (271 unit + 10 CLI + 12 MCP) |
 | External runtime deps | Zero (single binary) |
-| MCP tools | 9 |
+| MCP tools | 10 |
 | Supported AI tools | Claude Code, Codex CLI, Gemini CLI |
 
 ## Development
@@ -424,7 +425,7 @@ Forge is MIT-licensed and contributions are welcome.
 **Before submitting a PR:**
 
 ```bash
-cargo test          # All 139 tests must pass
+cargo test          # All 293 tests must pass
 cargo clippy        # No warnings
 cargo fmt --check   # Formatted
 ```
