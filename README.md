@@ -107,7 +107,7 @@ Add to your project's `.mcp.json`:
 }
 ```
 
-Restart Claude Code. Now Claude can call `forge_get_tasks()`, `forge_claim_task()`, `forge_check_drift()` — all 9 tools are native.
+Restart Claude Code. Now Claude can call `forge_get_tasks()`, `forge_claim_task()`, `forge_check_drift()` — all 10 tools are native.
 
 ## How It Works
 
@@ -234,7 +234,7 @@ gemini --context GEMINI.md
 │  KnowledgeManager | GovernanceChecker                       │
 ├─────────────────────────────────────────────────────────────┤
 │  MCP Server (JSON-RPC 2.0 / stdio)                          │
-│  9 tools for real-time AI-tool integration                  │
+│  10 tools for real-time AI-tool integration                 │
 ├─────────────────────────────────────────────────────────────┤
 │  Adapters                                                   │
 │  ClaudeAdapter | CodexAdapter | GeminiAdapter               │
@@ -394,7 +394,7 @@ src/
 ├── mcp/                 # MCP server
 │   ├── server.rs        # JSON-RPC 2.0 dispatcher
 │   ├── protocol.rs      # MCP protocol types
-│   └── tools.rs         # 9 tool implementations
+│   └── tools.rs         # 10 tool implementations
 └── detect/              # AI tool auto-detection
     └── mod.rs
 ```
@@ -411,6 +411,8 @@ Forge is three repos that work together:
 
 The **orchestrator** plans and coordinates. The **plugin** adds governance to Claude Code. The **dashboard** adds visual oversight for teams.
 
+> **Evaluating Forge?** See the [UAT Guide](https://github.com/nxtg-ai/forge-orchestrator/blob/main/UAT-Guide.md) for a guided walkthrough.
+
 ## Contributing
 
 Forge is MIT-licensed and contributions are welcome.
@@ -418,7 +420,6 @@ Forge is MIT-licensed and contributions are welcome.
 **Good first issues:**
 - Add a `ClaudeBrain` implementation (Claude API for plan decomposition)
 - Add `forge worktree` command (git worktree per task for parallel agent isolation)
-- Add `forge uat` command (interactive acceptance testing checklist)
 - Add `forge report` command (session summary from events.jsonl)
 - Embedded interactive agent TUIs (PTY bridge per pane — "Stargate" mode)
 
@@ -438,7 +439,7 @@ MIT -- [LICENSE](LICENSE)
 
 <div align="center">
 
-Built by [NXTG](https://github.com/nxtg-ai) with Claude Opus 4.6
+Built by [NXTG.AI](https://nxtg.ai) with Claude Opus 4.6
 
 **Star this repo if your AI tools deserve a tech lead.**
 
