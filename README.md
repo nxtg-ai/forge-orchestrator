@@ -6,7 +6,7 @@
 
 **Multi-tool coordination in a single Rust binary.**
 
-This is Level 2 of Forge. The coordination layer.
+This is L2: The Delivery Engine.
 
 Multi-agent inside a single tool works fine. Claude Code runs 20 subagents and they stay aligned because the tool manages that coordination internally. The problem is multi-tool: Claude Code, Codex CLI, and Gemini CLI on the same repo with no shared state. That's what the orchestrator solves.
 
@@ -49,7 +49,7 @@ forge status                   # Current state summary
 
 ## Architecture
 
-The orchestrator is the policy core of Forge. All governance rules, file locks, and coordination logic live here. The plugin (Level 1) and UI (Level 3) are adapter surfaces. They present the orchestrator's state through different interfaces but don't make policy decisions.
+The orchestrator is the policy core of Forge. All governance rules, file locks, and coordination logic live here. The plugin (L1: The Safety Net) and UI (L3: Mission Control) are adapter surfaces. They present the orchestrator's state through different interfaces but don't make policy decisions.
 
 ```
 ┌──────────────────────────────────────┐
@@ -66,7 +66,7 @@ The orchestrator is the policy core of Forge. All governance rules, file locks, 
             │                  │
    ┌────────┴────────┐  ┌────┴────────┐
    │  forge-plugin   │  │  forge-ui   │
-   │  (Level 1)      │  │  (Level 3)  │
+   │  (L1 Safety)    │  │  (L3 MC)    │
    │  Claude Code    │  │  React      │
    │  adapter        │  │  dashboard  │
    └─────────────────┘  └─────────────┘
@@ -105,8 +105,8 @@ git clone https://github.com/nxtg-ai/forge-ui && npm install && npm run dev
 ## Links
 
 - [Forge Product Page](https://forge.nxtg.ai)
-- [Forge Plugin](https://github.com/nxtg-ai/forge-plugin) (Level 1)
-- [Forge UI](https://github.com/nxtg-ai/forge-ui) (Level 3)
+- [Forge Plugin](https://github.com/nxtg-ai/forge-plugin) (L1: The Safety Net)
+- [Forge UI](https://github.com/nxtg-ai/forge-ui) (L3: Mission Control)
 - [Documentation](https://forge.nxtg.ai/docs)
 
 ## License
