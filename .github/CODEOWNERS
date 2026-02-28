@@ -1,0 +1,12 @@
+* @awaliuddin
+/.github/ @awaliuddin
+/.github/workflows/ @awaliuddin
+/.claude/ @awaliuddin
+/.mcp.json @awaliuddin
+/scripts/ @awaliuddin
+/**/install*.sh @awaliuddin
+/Dockerfile* @awaliuddin
+/package.json @awaliuddin
+/pnpm-lock.yaml @awaliuddin
+/Cargo.toml @awaliuddin
+/Cargo.lock @awaliuddin
