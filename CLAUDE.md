@@ -1,6 +1,6 @@
 # CLAUDE.md — Forge Orchestrator
 
-Universal coordination engine for AI-powered development. Single Rust binary (`forge`) that decomposes specs into tasks, dispatches them to Claude/Codex/Gemini, and reconciles results.
+Universal orchestration engine for AI-powered development. Single Rust binary (`forge`) that decomposes specs into tasks, dispatches them to Claude/Codex/Gemini, and reconciles results.
 
 ## Quick Reference
 

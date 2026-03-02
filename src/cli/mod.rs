@@ -16,7 +16,7 @@ use clap::{Parser, Subcommand};
 #[command(
     name = "forge",
     version,
-    about = "NXTG-Forge Orchestrator — Universal coordination engine for AI-powered development",
+    about = "NXTG-Forge Orchestrator — Universal orchestration engine for AI-powered development",
     long_about = "Forge orchestrates Claude Code, Codex CLI, Gemini CLI, and future AI tools \
                   as a coordinated team with governance, knowledge capture, and conflict prevention."
 )]

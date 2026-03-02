@@ -2,7 +2,7 @@
 name = "forge-orchestrator"
 version = "1.2.0"
 edition = "2024"
-description = "Universal coordination engine for AI-powered development"
+description = "Universal orchestration engine for AI-powered development"
 license = "MIT"
 repository = "https://github.com/nxtg-ai/forge-orchestrator"
 keywords = ["ai", "orchestration", "claude", "codex", "gemini"]

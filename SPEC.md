@@ -9,7 +9,7 @@
 
 ## 1. Vision
 
-NXTG-Forge Orchestrator is a **universal coordination engine for AI-powered development**. It lets developers harness Claude Code, Codex CLI, Gemini CLI, and future AI tools as a coordinated team — with governance, knowledge capture, and conflict prevention.
+NXTG-Forge Orchestrator is a **universal orchestration engine for AI-powered development**. It lets developers harness Claude Code, Codex CLI, Gemini CLI, and future AI tools as a unified team — with governance, knowledge capture, and conflict prevention.
 
 **One-sentence pitch:** "The tech lead that never sleeps — plans work, assigns it to the right AI tool, tracks progress, captures knowledge, and ensures quality."
 

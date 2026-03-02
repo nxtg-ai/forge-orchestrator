@@ -4,15 +4,15 @@
 
 # forge-orchestrator
 
-**Multi-tool coordination in a single Rust binary.**
+**Multi-tool orchestration in a single Rust binary.**
 
 This is L2: Pro Builder.
 
-Multi-agent inside a single tool works fine. Claude Code runs 20 subagents and they stay aligned because the tool manages that coordination internally. The problem is multi-tool: Claude Code, Codex CLI, and Gemini CLI on the same repo with no shared state. That's what the orchestrator solves.
+Multi-agent inside a single tool works fine. Claude Code runs 20 subagents and they stay aligned because the tool manages that orchestration internally. The problem is multi-tool: Claude Code, Codex CLI, and Gemini CLI on the same repo with no shared state. That's what the orchestrator solves.
 
-It adds file locking, knowledge capture, task planning, drift detection, and multi-tool coordination to your development workflow. Three tools reading from and writing to a single state directory.
+It adds file locking, knowledge capture, task planning, drift detection, and multi-tool orchestration to your development workflow. Three tools reading from and writing to a single state directory.
 
-The orchestrator exists because I ran two AI tools on the same codebase and watched them fail in the same ways human teams fail. Claude refactored a module. Codex updated tests against the pre-refactor interface. Both saved. Tests failed. Neither tool knew the other existed. I'd spent 23 years watching this exact scenario with talented human teams. The solution was always the same: coordination infrastructure.
+The orchestrator exists because I ran two AI tools on the same codebase and watched them fail in the same ways human teams fail. Claude refactored a module. Codex updated tests against the pre-refactor interface. Both saved. Tests failed. Neither tool knew the other existed. I'd spent 23 years watching this exact scenario with talented human teams. The solution was always the same: orchestration infrastructure.
 
 ## Install
 
@@ -49,7 +49,7 @@ forge status                   # Current state summary
 
 ## Architecture
 
-The orchestrator is the policy core of Forge. All governance rules, file locks, and coordination logic live here. The plugin (L1: Vibe Coder) and UI (L3: Ship Lord) are adapter surfaces. They present the orchestrator's state through different interfaces but don't make policy decisions.
+The orchestrator is the policy core of Forge. All governance rules, file locks, and orchestration logic live here. The plugin (L1: Vibe Coder) and UI (L3: Ship Lord) are adapter surfaces. They present the orchestrator's state through different interfaces but don't make policy decisions.
 
 ```
 ┌──────────────────────────────────────┐
