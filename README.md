@@ -6,7 +6,7 @@
 
 **Multi-tool coordination in a single Rust binary.**
 
-This is L2: The Delivery Engine.
+This is L2: Pro Builder.
 
 Multi-agent inside a single tool works fine. Claude Code runs 20 subagents and they stay aligned because the tool manages that coordination internally. The problem is multi-tool: Claude Code, Codex CLI, and Gemini CLI on the same repo with no shared state. That's what the orchestrator solves.
 
@@ -49,7 +49,7 @@ forge status                   # Current state summary
 
 ## Architecture
 
-The orchestrator is the policy core of Forge. All governance rules, file locks, and coordination logic live here. The plugin (L1: The Safety Net) and UI (L3: Mission Control) are adapter surfaces. They present the orchestrator's state through different interfaces but don't make policy decisions.
+The orchestrator is the policy core of Forge. All governance rules, file locks, and coordination logic live here. The plugin (L1: Vibe Coder) and UI (L3: Ship Lord) are adapter surfaces. They present the orchestrator's state through different interfaces but don't make policy decisions.
 
 ```
 ┌──────────────────────────────────────┐
@@ -105,8 +105,8 @@ git clone https://github.com/nxtg-ai/forge-ui && npm install && npm run dev
 ## Links
 
 - [Forge Product Page](https://forge.nxtg.ai)
-- [Forge Plugin](https://github.com/nxtg-ai/forge-plugin) (L1: The Safety Net)
-- [Forge UI](https://github.com/nxtg-ai/forge-ui) (L3: Mission Control)
+- [Forge Plugin](https://github.com/nxtg-ai/forge-plugin) (L1: Vibe Coder)
+- [Forge UI](https://github.com/nxtg-ai/forge-ui) (L3: Ship Lord)
 - [Documentation](https://forge.nxtg.ai/docs)
 
 ## License

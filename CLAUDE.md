@@ -45,7 +45,7 @@ src/
 │   ├── claude.rs        #   Writes CLAUDE.md, smart --allowedTools by task type
 │   ├── codex.rs         #   Writes AGENTS.md, codex --task-mode
 │   └── gemini.rs        #   Writes GEMINI.md, gemini CLI
-├── mcp/                 # MCP server (stdio transport, 9 tools)
+├── mcp/                 # MCP server (stdio transport, 10 tools)
 │   ├── server.rs        #   JSON-RPC 2.0 dispatcher
 │   ├── tools.rs         #   Tool implementations
 │   └── protocol.rs      #   Type definitions
@@ -126,7 +126,7 @@ Each AI tool has an adapter implementing `ToolAdapter`:
 ## Cross-Repo Integration
 
 ```
-forge-plugin (Claude Code)  ──stdio MCP──►  forge-orchestrator (this repo, 9 tools)
+forge-plugin (Claude Code)  ──stdio MCP──►  forge-orchestrator (this repo, 10 tools)
 forge-plugin                ──spawns──►     forge-ui (http://localhost:5050)
 forge-orchestrator          ──headless──►   runs CLI or TUI dashboard independently
 ```
