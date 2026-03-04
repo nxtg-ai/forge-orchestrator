@@ -155,8 +155,9 @@ forge-orchestrator          ──headless──►   runs CLI or TUI dashboard 
 
 This project is part of NXTG-Forge (P-03) in the ASIF portfolio (Developer Tools vertical).
 
-On every session:
-1. Read `../.asif/NEXUS.md` — check for `## CoS Directives` section
+On every session (check BOTH your own NEXUS and the program NEXUS):
+1. Read `.asif/NEXUS.md` (your own) — check for `## CoS Directives` section
+1a. ALSO read `../.asif/NEXUS.md` (program-level) — check for directives targeting this repo
 2. Execute any PENDING directives before other work (unless Asif overrides)
 3. Write your response inline under each directive
 4. Update initiative statuses in NEXUS if your work changes them
