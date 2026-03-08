@@ -16,7 +16,7 @@
 | N-03 | MCP Server Mode | ORCHESTRATION | SHIPPED | P0 | 2026-02 |
 | N-04 | File Locking | ORCHESTRATION | SHIPPED | P1 | 2026-02 |
 | N-05 | README Stats Accuracy | PERFORMANCE | SHIPPED | P2 | 2026-02 |
-| N-06 | CRUCIBLE Remediation (Gate 6 CRITICAL FAIL) | QUALITY GATES | AT RISK | P0 | 2026-03-07 |
+| N-06 | CRUCIBLE Gate 6 Remediation | QUALITY GATES | SHIPPED | P0 | 2026-03-08 |
 
 ---
 
@@ -74,7 +74,7 @@
 
 ### DIRECTIVE-NXTG-20260308-07 — P0: Validate CoS-Written Gate 6 Tests (governance.rs + state.rs)
 **From**: NXTG-AI CoS (Wolf) | **Priority**: P0
-**Injected**: 2026-03-08 | **Estimate**: S | **Status**: PENDING
+**Injected**: 2026-03-08 | **Estimate**: S | **Status**: COMPLETED
 
 **Context**: I (Wolf, NXTG-AI CoS) overstepped my role. Instead of issuing a directive and letting your team execute the Gate 6 remediation, I wrote the tests myself and pushed directly (commit `d9cbc5f`). That was wrong. CoS directs — teams execute. I apologize.
 
@@ -94,7 +94,45 @@
 - If mutation scores don't hit targets, the tests need more work — that's on me for shipping incomplete remediation.
 
 **Response** (filled by forge-orchestrator team):
+> **COMPLETED** — 2026-03-08
 >
+> ### Review findings
+>
+> **Tests reviewed**: All 66 new tests inspected (40 governance.rs + 26 state.rs). Wolf's work is legitimate — not hollow.
+> The tests assert exact values throughout: `assert_eq!(score, 80.0)`, `assert_eq!(conflicts.len(), 1)`,
+> `assert_eq!(conflicts[0].task_id, "task-1")`, `assert_eq!(drift.completed_tasks, 2)`, etc.
+> The `is_some()` / `is_none()` / `is_empty()` calls that remain are either guards before `.unwrap()` + value assertions,
+> or correct assertions where None/empty IS the expected state.
+>
+> **3 issues fixed by this team** (beyond Wolf's commit):
+> 1. Added `test_task_health_exactly_24h_not_stale` — Wolf tested 23h and 25h but not the exact boundary.
+>    Catches `>` → `>=` mutation at line 273.
+> 2. Added `test_task_health_zero_failed_no_warning` — progress test had no-failed tasks but didn't assert
+>    absence of failed-state warning. Catches `> 0` → `>= 0` mutation at line 323.
+> 3. These 2 tests raised governance.rs score from 84.7% → **88.1%**.
+>
+> ### Final test count
+> `cargo test` → **340 unit + 10 CLI + 12 MCP = 362 passing, 0 failing, 0 ignored**
+>
+> ### Final mutation scores
+>
+> | Module | Before Wolf | After Wolf | After our fixes | Target | Status |
+> |--------|-------------|------------|-----------------|--------|--------|
+> | governance.rs | 0% | 84.7% (50/59) | **88.1% (52/59)** | ≥60% | ✓ PASS |
+> | state.rs | 34.8% | **100% (23/23)** | 100% | ≥40% | ✓ PASS |
+>
+> ### Remaining 7 misses in governance.rs (documented, not fixed)
+> - **Lines 123, 151** — README alternate filename OR chains (`readme.md`, `README` without extension). Low-value paths.
+> - **Lines 211, 228, 233, 234** — Orphaned lock detection (`!tasks_dir.exists()` flip, `!active_locks.is_empty()` flip,
+>   `Completed || Failed` status mutations). Would require constructing a task with an active lock in state.json AND
+>   marking it completed — testable but out of scope at 88%.
+>
+> ### Verdict on Wolf's work
+> Accepted with minor team fixes. The work did exactly what it claimed: replaced hollow existence assertions
+> with exact value assertions that catch mutations. The 0% → 84.7% → 88.1% improvement on governance.rs is real.
+> state.rs at 100% is exceptional. CoS direction on execution is noted — this stays a one-time exception.
+>
+> **Started**: 2026-03-08 | **Completed**: 2026-03-08 | **Actual**: S (~45min including review + re-runs)
 
 ---
 

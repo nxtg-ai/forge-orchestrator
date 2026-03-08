@@ -1025,6 +1025,31 @@ mod tests {
     }
 
     #[test]
+    fn test_task_health_exactly_24h_not_stale() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+
+        // Exactly 24 hours: threshold is > 24, not >= 24.
+        // A task that is exactly 24h old should NOT be flagged.
+        let updated_at = chrono::Utc::now() - chrono::Duration::hours(24);
+        let task = task_with_status_and_time(
+            "T-001",
+            crate::core::task::TaskStatus::InProgress,
+            updated_at,
+        );
+        write_task_json(&dir, &task);
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_task_health();
+
+        let stale_warnings: Vec<&Finding> = findings
+            .iter()
+            .filter(|f| f.severity == Severity::Warning && f.message.contains("T-001"))
+            .collect();
+        assert_eq!(stale_warnings.len(), 0);
+    }
+
+    #[test]
     fn test_task_health_not_stale_under_24h() {
         let dir = TempDir::new().unwrap();
         setup_initialized_project(&dir);
@@ -1124,6 +1149,28 @@ mod tests {
             .collect();
         assert_eq!(failed_findings.len(), 1);
         assert!(failed_findings[0].message.contains("2 task(s)"));
+    }
+
+    #[test]
+    fn test_task_health_zero_failed_no_warning() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+
+        // Tasks exist but none are Failed — failed_count is 0, no warning should fire.
+        let t1 = crate::core::task::Task::new("T-001", "Pending task", "Desc");
+        let mut t2 = crate::core::task::Task::new("T-002", "Completed task", "Desc");
+        t2.status = crate::core::task::TaskStatus::Completed;
+        write_task_json(&dir, &t1);
+        write_task_json(&dir, &t2);
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_task_health();
+
+        let failed_warnings: Vec<&Finding> = findings
+            .iter()
+            .filter(|f| f.message.contains("failed state"))
+            .collect();
+        assert_eq!(failed_warnings.len(), 0);
     }
 
     #[test]
