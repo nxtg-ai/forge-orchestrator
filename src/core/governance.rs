@@ -511,6 +511,10 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    // ---------------------------------------------------------------
+    // Helpers
+    // ---------------------------------------------------------------
+
     fn setup_initialized_project(dir: &TempDir) {
         let forge_dir = dir.path().join(".forge");
         std::fs::create_dir_all(forge_dir.join("tasks")).unwrap();
@@ -531,6 +535,875 @@ mod tests {
         std::fs::write(forge_dir.join("plan.md"), "# Test Plan\n").unwrap();
     }
 
+    /// Build a Finding with the given severity; category/message are
+    /// irrelevant for score tests so we use fixed placeholder values.
+    fn finding(severity: Severity) -> Finding {
+        Finding {
+            category: "test".into(),
+            severity,
+            message: "test finding".into(),
+            suggestion: None,
+        }
+    }
+
+    /// Build a DriftReport with the given vision_alignment score.
+    fn drift_report(vision_alignment: f32) -> DriftReport {
+        DriftReport {
+            vision_alignment,
+            explanation: "test drift".into(),
+            completed_tasks: 0,
+            total_tasks: 0,
+        }
+    }
+
+    /// Write a Task JSON into the temp project so TaskManager can read it.
+    fn write_task_json(dir: &TempDir, task: &crate::core::task::Task) {
+        let forge_dir = dir.path().join(".forge");
+        task.write_json(&forge_dir).unwrap();
+    }
+
+    /// Create a task with a specific status and updated_at timestamp.
+    fn task_with_status_and_time(
+        id: &str,
+        status: crate::core::task::TaskStatus,
+        updated_at: chrono::DateTime<chrono::Utc>,
+    ) -> crate::core::task::Task {
+        let mut task = crate::core::task::Task::new(id, "Test task", "Description");
+        task.status = status;
+        task.updated_at = updated_at;
+        task
+    }
+
+    // ---------------------------------------------------------------
+    // A. calculate_health_score — exact value assertions
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_health_score_no_findings_no_drift() {
+        let dir = TempDir::new().unwrap();
+        let checker = GovernanceChecker::new(dir.path());
+        let score = checker.calculate_health_score(&[], &None);
+        assert_eq!(score, 100.0);
+    }
+
+    #[test]
+    fn test_health_score_one_critical() {
+        let dir = TempDir::new().unwrap();
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = vec![finding(Severity::Critical)];
+        let score = checker.calculate_health_score(&findings, &None);
+        assert_eq!(score, 80.0); // 100 - 20
+    }
+
+    #[test]
+    fn test_health_score_one_warning() {
+        let dir = TempDir::new().unwrap();
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = vec![finding(Severity::Warning)];
+        let score = checker.calculate_health_score(&findings, &None);
+        assert_eq!(score, 95.0); // 100 - 5
+    }
+
+    #[test]
+    fn test_health_score_info_no_deduction() {
+        let dir = TempDir::new().unwrap();
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = vec![finding(Severity::Info)];
+        let score = checker.calculate_health_score(&findings, &None);
+        assert_eq!(score, 100.0); // Info does NOT deduct
+    }
+
+    #[test]
+    fn test_health_score_mixed_findings() {
+        let dir = TempDir::new().unwrap();
+        let checker = GovernanceChecker::new(dir.path());
+        // 2 critical (-40) + 3 warnings (-15) + 1 info (0) = 100 - 55 = 45
+        let findings = vec![
+            finding(Severity::Critical),
+            finding(Severity::Critical),
+            finding(Severity::Warning),
+            finding(Severity::Warning),
+            finding(Severity::Warning),
+            finding(Severity::Info),
+        ];
+        let score = checker.calculate_health_score(&findings, &None);
+        assert_eq!(score, 45.0);
+    }
+
+    #[test]
+    fn test_health_score_with_drift_only() {
+        let dir = TempDir::new().unwrap();
+        let checker = GovernanceChecker::new(dir.path());
+        // drift 0.5 → 100 - (0.5 * 30) = 85
+        let drift = Some(drift_report(0.5));
+        let score = checker.calculate_health_score(&[], &drift);
+        assert_eq!(score, 85.0);
+    }
+
+    #[test]
+    fn test_health_score_with_max_drift() {
+        let dir = TempDir::new().unwrap();
+        let checker = GovernanceChecker::new(dir.path());
+        // drift 1.0 → 100 - 30 = 70
+        let drift = Some(drift_report(1.0));
+        let score = checker.calculate_health_score(&[], &drift);
+        assert_eq!(score, 70.0);
+    }
+
+    #[test]
+    fn test_health_score_with_zero_drift() {
+        let dir = TempDir::new().unwrap();
+        let checker = GovernanceChecker::new(dir.path());
+        // drift 0.0 → 100 - 0 = 100
+        let drift = Some(drift_report(0.0));
+        let score = checker.calculate_health_score(&[], &drift);
+        assert_eq!(score, 100.0);
+    }
+
+    #[test]
+    fn test_health_score_findings_plus_drift() {
+        let dir = TempDir::new().unwrap();
+        let checker = GovernanceChecker::new(dir.path());
+        // 1 critical (-20) + drift 0.5 (-15) = 100 - 35 = 65
+        let findings = vec![finding(Severity::Critical)];
+        let drift = Some(drift_report(0.5));
+        let score = checker.calculate_health_score(&findings, &drift);
+        assert_eq!(score, 65.0);
+    }
+
+    #[test]
+    fn test_health_score_clamps_to_zero() {
+        let dir = TempDir::new().unwrap();
+        let checker = GovernanceChecker::new(dir.path());
+        // 6 critical = 100 - 120 → clamped to 0.0
+        let findings = vec![
+            finding(Severity::Critical),
+            finding(Severity::Critical),
+            finding(Severity::Critical),
+            finding(Severity::Critical),
+            finding(Severity::Critical),
+            finding(Severity::Critical),
+        ];
+        let score = checker.calculate_health_score(&findings, &None);
+        assert_eq!(score, 0.0);
+    }
+
+    #[test]
+    fn test_health_score_boundary_exactly_zero() {
+        let dir = TempDir::new().unwrap();
+        let checker = GovernanceChecker::new(dir.path());
+        // 5 critical = 100 - 100 = exactly 0.0
+        let findings = vec![
+            finding(Severity::Critical),
+            finding(Severity::Critical),
+            finding(Severity::Critical),
+            finding(Severity::Critical),
+            finding(Severity::Critical),
+        ];
+        let score = checker.calculate_health_score(&findings, &None);
+        assert_eq!(score, 0.0);
+    }
+
+    #[test]
+    fn test_health_score_does_not_exceed_100() {
+        let dir = TempDir::new().unwrap();
+        let checker = GovernanceChecker::new(dir.path());
+        // Empty findings, no drift → exactly 100, never above
+        let score = checker.calculate_health_score(&[], &None);
+        assert_eq!(score, 100.0);
+        assert!(score <= 100.0);
+    }
+
+    #[test]
+    fn test_health_score_twenty_warnings() {
+        let dir = TempDir::new().unwrap();
+        let checker = GovernanceChecker::new(dir.path());
+        // 20 warnings = 100 - 100 = exactly 0.0
+        let findings: Vec<Finding> = (0..20).map(|_| finding(Severity::Warning)).collect();
+        let score = checker.calculate_health_score(&findings, &None);
+        assert_eq!(score, 0.0);
+    }
+
+    #[test]
+    fn test_health_score_twenty_one_warnings_clamps() {
+        let dir = TempDir::new().unwrap();
+        let checker = GovernanceChecker::new(dir.path());
+        // 21 warnings = 100 - 105 → clamped to 0.0
+        let findings: Vec<Finding> = (0..21).map(|_| finding(Severity::Warning)).collect();
+        let score = checker.calculate_health_score(&findings, &None);
+        assert_eq!(score, 0.0);
+    }
+
+    // ---------------------------------------------------------------
+    // B. check_documentation — count and severity assertions
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_check_documentation_no_spec_no_readme() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_documentation();
+
+        // Should produce exactly 2 Warning findings (SPEC.md + README)
+        let doc_warnings: Vec<&Finding> = findings
+            .iter()
+            .filter(|f| f.category == "documentation" && f.severity == Severity::Warning)
+            .collect();
+        assert_eq!(doc_warnings.len(), 2);
+        assert!(doc_warnings.iter().any(|f| f.message.contains("SPEC.md")));
+        assert!(doc_warnings.iter().any(|f| f.message.contains("README")));
+    }
+
+    #[test]
+    fn test_check_documentation_with_spec_and_readme() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+        std::fs::write(dir.path().join("SPEC.md"), "# Vision").unwrap();
+        std::fs::write(dir.path().join("README.md"), "# Project").unwrap();
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_documentation();
+
+        // Zero documentation warnings
+        let doc_warnings: Vec<&Finding> = findings
+            .iter()
+            .filter(|f| f.category == "documentation" && f.severity == Severity::Warning)
+            .collect();
+        assert_eq!(doc_warnings.len(), 0);
+    }
+
+    #[test]
+    fn test_check_documentation_missing_readme() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_documentation();
+
+        // Should warn about missing README with Warning severity
+        let readme_findings: Vec<&Finding> = findings
+            .iter()
+            .filter(|f| f.message.contains("README") && f.severity == Severity::Warning)
+            .collect();
+        assert_eq!(readme_findings.len(), 1);
+        assert_eq!(readme_findings[0].category, "documentation");
+    }
+
+    #[test]
+    fn test_check_documentation_no_plan_info_finding() {
+        let dir = TempDir::new().unwrap();
+        // Set up project WITHOUT plan.md
+        let forge_dir = dir.path().join(".forge");
+        std::fs::create_dir_all(forge_dir.join("tasks")).unwrap();
+        std::fs::create_dir_all(forge_dir.join("knowledge")).unwrap();
+        let state = crate::core::state::ForgeState {
+            project_name: "TestProject".into(),
+            ..Default::default()
+        };
+        std::fs::write(
+            forge_dir.join("state.json"),
+            serde_json::to_string_pretty(&state).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(forge_dir.join("events.jsonl"), "").unwrap();
+        // No plan.md written
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_documentation();
+
+        // Should have Info finding about missing plan
+        let plan_info: Vec<&Finding> = findings
+            .iter()
+            .filter(|f| f.message.contains("No master plan") && f.severity == Severity::Info)
+            .collect();
+        assert_eq!(plan_info.len(), 1);
+    }
+
+    #[test]
+    fn test_check_documentation_all_tasks_completed_plan_stale() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+        std::fs::write(dir.path().join("SPEC.md"), "# Vision").unwrap();
+        std::fs::write(dir.path().join("README.md"), "# Project").unwrap();
+
+        // Create a completed task on disk
+        let mut task = crate::core::task::Task::new("T-001", "Task 1", "Do something");
+        task.status = crate::core::task::TaskStatus::Completed;
+        write_task_json(&dir, &task);
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_documentation();
+
+        // Should have Info finding about plan needing update
+        let plan_stale: Vec<&Finding> = findings
+            .iter()
+            .filter(|f| {
+                f.message.contains("plan may need updating") && f.severity == Severity::Info
+            })
+            .collect();
+        assert_eq!(plan_stale.len(), 1);
+        assert_eq!(plan_stale[0].category, "documentation");
+    }
+
+    // ---------------------------------------------------------------
+    // C. check_architecture — count, severity, early return
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_check_architecture_not_initialized() {
+        let dir = TempDir::new().unwrap();
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_architecture();
+
+        // No .forge/ → exactly 1 Critical finding, early return
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, Severity::Critical);
+        assert!(findings[0].message.contains(".forge/"));
+        assert_eq!(findings[0].category, "architecture");
+    }
+
+    #[test]
+    fn test_check_architecture_no_state_json() {
+        let dir = TempDir::new().unwrap();
+        let forge_dir = dir.path().join(".forge");
+        std::fs::create_dir_all(&forge_dir).unwrap();
+        // .forge/ exists but no state.json
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_architecture();
+
+        // Should have Critical for missing state.json
+        let state_critical: Vec<&Finding> = findings
+            .iter()
+            .filter(|f| {
+                f.severity == Severity::Critical && f.message.contains("state.json")
+            })
+            .collect();
+        assert_eq!(state_critical.len(), 1);
+    }
+
+    #[test]
+    fn test_check_architecture_no_events_jsonl() {
+        let dir = TempDir::new().unwrap();
+        let forge_dir = dir.path().join(".forge");
+        std::fs::create_dir_all(forge_dir.join("tasks")).unwrap();
+        // Write state.json but NO events.jsonl
+        let state = crate::core::state::ForgeState {
+            project_name: "TestProject".into(),
+            ..Default::default()
+        };
+        std::fs::write(
+            forge_dir.join("state.json"),
+            serde_json::to_string_pretty(&state).unwrap(),
+        )
+        .unwrap();
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_architecture();
+
+        // Should have Warning for missing events.jsonl
+        let events_warning: Vec<&Finding> = findings
+            .iter()
+            .filter(|f| {
+                f.severity == Severity::Warning && f.message.contains("events.jsonl")
+            })
+            .collect();
+        assert_eq!(events_warning.len(), 1);
+        assert_eq!(events_warning[0].category, "architecture");
+    }
+
+    #[test]
+    fn test_check_architecture_no_tasks_dir_info() {
+        let dir = TempDir::new().unwrap();
+        let forge_dir = dir.path().join(".forge");
+        std::fs::create_dir_all(&forge_dir).unwrap();
+        // state.json + events.jsonl but no tasks/ directory
+        let state = crate::core::state::ForgeState {
+            project_name: "TestProject".into(),
+            ..Default::default()
+        };
+        std::fs::write(
+            forge_dir.join("state.json"),
+            serde_json::to_string_pretty(&state).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(forge_dir.join("events.jsonl"), "").unwrap();
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_architecture();
+
+        // Should have Info about no tasks
+        let task_info: Vec<&Finding> = findings
+            .iter()
+            .filter(|f| f.severity == Severity::Info && f.message.contains("No tasks defined"))
+            .collect();
+        assert_eq!(task_info.len(), 1);
+    }
+
+    #[test]
+    fn test_check_architecture_initialized() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_architecture();
+
+        // Should have zero Critical findings
+        let critical_count = findings
+            .iter()
+            .filter(|f| f.severity == Severity::Critical)
+            .count();
+        assert_eq!(critical_count, 0);
+
+        // Should have Info about empty tasks (tasks/ exists but is empty)
+        let task_info_count = findings
+            .iter()
+            .filter(|f| f.severity == Severity::Info && f.message.contains("No tasks defined"))
+            .count();
+        assert_eq!(task_info_count, 1);
+    }
+
+    #[test]
+    fn test_check_architecture_early_return_on_missing_forge_dir() {
+        let dir = TempDir::new().unwrap();
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_architecture();
+
+        // Early return: exactly 1 finding, no state.json check, no events check
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("not initialized"));
+    }
+
+    // ---------------------------------------------------------------
+    // D. check_task_health — stale threshold, failed count, progress
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_task_health_empty_tasks() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_task_health();
+
+        // No tasks → no findings at all (returns early)
+        assert_eq!(findings.len(), 0);
+    }
+
+    #[test]
+    fn test_task_health_stale_task_over_24h() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+
+        // Create task updated 25 hours ago, status InProgress
+        let updated_at = chrono::Utc::now() - chrono::Duration::hours(25);
+        let task = task_with_status_and_time(
+            "T-001",
+            crate::core::task::TaskStatus::InProgress,
+            updated_at,
+        );
+        write_task_json(&dir, &task);
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_task_health();
+
+        // Should have a Warning about stale task
+        let stale_warnings: Vec<&Finding> = findings
+            .iter()
+            .filter(|f| {
+                f.severity == Severity::Warning
+                    && f.category == "task_health"
+                    && f.message.contains("T-001")
+            })
+            .collect();
+        assert_eq!(stale_warnings.len(), 1);
+        // Message should mention the hours (25)
+        assert!(stale_warnings[0].message.contains("25h"));
+    }
+
+    #[test]
+    fn test_task_health_not_stale_under_24h() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+
+        // Create task updated 23 hours ago — should NOT be flagged
+        let updated_at = chrono::Utc::now() - chrono::Duration::hours(23);
+        let task = task_with_status_and_time(
+            "T-001",
+            crate::core::task::TaskStatus::InProgress,
+            updated_at,
+        );
+        write_task_json(&dir, &task);
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_task_health();
+
+        // No stale warnings
+        let stale_warnings: Vec<&Finding> = findings
+            .iter()
+            .filter(|f| f.severity == Severity::Warning && f.message.contains("T-001"))
+            .collect();
+        assert_eq!(stale_warnings.len(), 0);
+    }
+
+    #[test]
+    fn test_task_health_assigned_task_stale() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+
+        // Assigned status also triggers stale check
+        let updated_at = chrono::Utc::now() - chrono::Duration::hours(30);
+        let task = task_with_status_and_time(
+            "T-002",
+            crate::core::task::TaskStatus::Assigned,
+            updated_at,
+        );
+        write_task_json(&dir, &task);
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_task_health();
+
+        let stale_warnings: Vec<&Finding> = findings
+            .iter()
+            .filter(|f| f.severity == Severity::Warning && f.message.contains("T-002"))
+            .collect();
+        assert_eq!(stale_warnings.len(), 1);
+        assert!(stale_warnings[0].message.contains("30h"));
+    }
+
+    #[test]
+    fn test_task_health_completed_task_not_stale() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+
+        // Completed tasks should NOT trigger stale warning
+        let updated_at = chrono::Utc::now() - chrono::Duration::hours(100);
+        let task = task_with_status_and_time(
+            "T-001",
+            crate::core::task::TaskStatus::Completed,
+            updated_at,
+        );
+        write_task_json(&dir, &task);
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_task_health();
+
+        let stale_warnings: Vec<&Finding> = findings
+            .iter()
+            .filter(|f| f.severity == Severity::Warning && f.message.contains("state for"))
+            .collect();
+        assert_eq!(stale_warnings.len(), 0);
+    }
+
+    #[test]
+    fn test_task_health_failed_count_in_message() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+
+        // Create 2 failed tasks
+        let mut t1 = crate::core::task::Task::new("T-001", "Task 1", "Desc");
+        t1.status = crate::core::task::TaskStatus::Failed;
+        let mut t2 = crate::core::task::Task::new("T-002", "Task 2", "Desc");
+        t2.status = crate::core::task::TaskStatus::Failed;
+        let mut t3 = crate::core::task::Task::new("T-003", "Task 3", "Desc");
+        t3.status = crate::core::task::TaskStatus::Pending;
+        write_task_json(&dir, &t1);
+        write_task_json(&dir, &t2);
+        write_task_json(&dir, &t3);
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_task_health();
+
+        // Should have warning with exact count "2 task(s) in failed state"
+        let failed_findings: Vec<&Finding> = findings
+            .iter()
+            .filter(|f| f.severity == Severity::Warning && f.message.contains("failed state"))
+            .collect();
+        assert_eq!(failed_findings.len(), 1);
+        assert!(failed_findings[0].message.contains("2 task(s)"));
+    }
+
+    #[test]
+    fn test_task_health_progress_percentage() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+
+        // 1 completed + 2 pending = 1/3 = 33%
+        let mut t1 = crate::core::task::Task::new("T-001", "Task 1", "Desc");
+        t1.status = crate::core::task::TaskStatus::Completed;
+        let t2 = crate::core::task::Task::new("T-002", "Task 2", "Desc");
+        let t3 = crate::core::task::Task::new("T-003", "Task 3", "Desc");
+        write_task_json(&dir, &t1);
+        write_task_json(&dir, &t2);
+        write_task_json(&dir, &t3);
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_task_health();
+
+        // Should have progress Info finding with "1/3 tasks completed (33%)"
+        let progress_findings: Vec<&Finding> = findings
+            .iter()
+            .filter(|f| f.severity == Severity::Info && f.message.contains("Progress:"))
+            .collect();
+        assert_eq!(progress_findings.len(), 1);
+        assert!(progress_findings[0].message.contains("1/3"));
+        assert!(progress_findings[0].message.contains("33%"));
+    }
+
+    #[test]
+    fn test_task_health_unresolvable_dependency() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+
+        // Task depends on non-existent task
+        let mut task = crate::core::task::Task::new("T-001", "Task 1", "Desc");
+        task.depends_on = vec!["T-999".into()];
+        write_task_json(&dir, &task);
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_task_health();
+
+        // Should have Critical finding about missing dependency
+        let dep_findings: Vec<&Finding> = findings
+            .iter()
+            .filter(|f| {
+                f.severity == Severity::Critical
+                    && f.message.contains("T-999")
+                    && f.message.contains("doesn't exist")
+            })
+            .collect();
+        assert_eq!(dep_findings.len(), 1);
+    }
+
+    #[test]
+    fn test_task_health_resolvable_dependency_no_finding() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+
+        // T-001 depends on T-002 which exists
+        let mut t1 = crate::core::task::Task::new("T-001", "Task 1", "Desc");
+        t1.depends_on = vec!["T-002".into()];
+        let t2 = crate::core::task::Task::new("T-002", "Task 2", "Desc");
+        write_task_json(&dir, &t1);
+        write_task_json(&dir, &t2);
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_task_health();
+
+        // Should NOT have Critical about missing dependency
+        let dep_critical: Vec<&Finding> = findings
+            .iter()
+            .filter(|f| f.severity == Severity::Critical && f.message.contains("doesn't exist"))
+            .collect();
+        assert_eq!(dep_critical.len(), 0);
+    }
+
+    // ---------------------------------------------------------------
+    // E. check_knowledge_coverage — content and count assertions
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_knowledge_coverage_empty() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_knowledge_coverage();
+
+        // Empty knowledge → exactly 1 finding with specific message
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("No knowledge captured"));
+        assert_eq!(findings[0].severity, Severity::Info);
+        assert_eq!(findings[0].category, "knowledge");
+    }
+
+    #[test]
+    fn test_knowledge_coverage_with_entries_missing_categories() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+
+        // Add a "research" knowledge entry
+        let entry = crate::core::knowledge::KnowledgeEntry::new(
+            "Test finding",
+            "Some research content",
+            &crate::brain::KnowledgeCategory::Research,
+        );
+        let knowledge_mgr =
+            crate::core::knowledge::KnowledgeManager::new(dir.path().join(".forge"));
+        knowledge_mgr.capture(&entry).unwrap();
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_knowledge_coverage();
+
+        // Should NOT have "No knowledge captured"
+        assert!(!findings.iter().any(|f| f.message.contains("No knowledge captured")));
+
+        // Should have Info about missing categories (decisions, learnings, patterns)
+        let missing_cat: Vec<&Finding> = findings
+            .iter()
+            .filter(|f| f.message.contains("No entries in:"))
+            .collect();
+        assert_eq!(missing_cat.len(), 1);
+        assert!(missing_cat[0].message.contains("decisions"));
+        assert!(missing_cat[0].message.contains("learnings"));
+        assert!(missing_cat[0].message.contains("patterns"));
+        // "research" should NOT be listed as missing
+        assert!(!missing_cat[0].message.contains("research"));
+    }
+
+    #[test]
+    fn test_knowledge_coverage_entry_count_in_summary() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+
+        // Add 2 research entries
+        let knowledge_mgr =
+            crate::core::knowledge::KnowledgeManager::new(dir.path().join(".forge"));
+        let e1 = crate::core::knowledge::KnowledgeEntry::new(
+            "Finding 1",
+            "Content 1",
+            &crate::brain::KnowledgeCategory::Research,
+        );
+        let e2 = crate::core::knowledge::KnowledgeEntry::new(
+            "Finding 2",
+            "Content 2",
+            &crate::brain::KnowledgeCategory::Research,
+        );
+        knowledge_mgr.capture(&e1).unwrap();
+        knowledge_mgr.capture(&e2).unwrap();
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_knowledge_coverage();
+
+        // Should have summary with "2 entries across 1 categories"
+        let summary: Vec<&Finding> = findings
+            .iter()
+            .filter(|f| f.message.contains("Knowledge base:"))
+            .collect();
+        assert_eq!(summary.len(), 1);
+        assert!(summary[0].message.contains("2 entries"));
+        assert!(summary[0].message.contains("1 categories"));
+    }
+
+    #[test]
+    fn test_knowledge_coverage_missing_skill_md() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+
+        // Add a research entry (creates knowledge/research/ dir with JSON)
+        let knowledge_mgr =
+            crate::core::knowledge::KnowledgeManager::new(dir.path().join(".forge"));
+        let entry = crate::core::knowledge::KnowledgeEntry::new(
+            "Finding",
+            "Content",
+            &crate::brain::KnowledgeCategory::Research,
+        );
+        knowledge_mgr.capture(&entry).unwrap();
+        // No research-SKILL.md file
+
+        let checker = GovernanceChecker::new(dir.path());
+        let findings = checker.check_knowledge_coverage();
+
+        // Should have Info about missing SKILL.md for research
+        let skill_info: Vec<&Finding> = findings
+            .iter()
+            .filter(|f| f.message.contains("SKILL.md") && f.message.contains("research"))
+            .collect();
+        assert_eq!(skill_info.len(), 1);
+        assert_eq!(skill_info[0].severity, Severity::Info);
+        // Should mention the count of entries
+        assert!(skill_info[0].message.contains("1 entries"));
+    }
+
+    // ---------------------------------------------------------------
+    // F. check_drift — value assertions
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_drift_without_vision() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+
+        let checker = GovernanceChecker::new(dir.path());
+        let brain = crate::brain::rule_based::RuleBasedBrain;
+        let drift = checker.check_drift(&brain);
+
+        // plan.md exists → drift is Some, RuleBasedBrain returns score 0.0
+        assert!(drift.is_some());
+        let drift = drift.unwrap();
+        assert_eq!(drift.vision_alignment, 0.0);
+        assert_eq!(drift.completed_tasks, 0);
+        assert_eq!(drift.total_tasks, 0);
+    }
+
+    #[test]
+    fn test_drift_no_spec_no_plan() {
+        let dir = TempDir::new().unwrap();
+        // Only create .forge/ without plan.md or SPEC.md
+        let forge_dir = dir.path().join(".forge");
+        std::fs::create_dir_all(forge_dir.join("tasks")).unwrap();
+
+        let checker = GovernanceChecker::new(dir.path());
+        let brain = crate::brain::rule_based::RuleBasedBrain;
+        let drift = checker.check_drift(&brain);
+
+        // No vision document → drift is None
+        assert!(drift.is_none());
+    }
+
+    #[test]
+    fn test_drift_with_spec_and_completed_tasks() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+        std::fs::write(dir.path().join("SPEC.md"), "# Vision\nBuild a tool").unwrap();
+
+        // Add one completed task
+        let mut task = crate::core::task::Task::new("T-001", "Build core", "Build the core");
+        task.status = crate::core::task::TaskStatus::Completed;
+        write_task_json(&dir, &task);
+
+        let checker = GovernanceChecker::new(dir.path());
+        let brain = crate::brain::rule_based::RuleBasedBrain;
+        let drift = checker.check_drift(&brain);
+
+        let drift = drift.unwrap();
+        assert_eq!(drift.completed_tasks, 1);
+        assert_eq!(drift.total_tasks, 1);
+        // RuleBasedBrain always returns 0.0 drift
+        assert_eq!(drift.vision_alignment, 0.0);
+    }
+
+    #[test]
+    fn test_drift_task_counts_accuracy() {
+        let dir = TempDir::new().unwrap();
+        setup_initialized_project(&dir);
+        std::fs::write(dir.path().join("SPEC.md"), "# Vision").unwrap();
+
+        // 2 completed + 1 pending = total 3, completed 2
+        let mut t1 = crate::core::task::Task::new("T-001", "Task 1", "Desc");
+        t1.status = crate::core::task::TaskStatus::Completed;
+        let mut t2 = crate::core::task::Task::new("T-002", "Task 2", "Desc");
+        t2.status = crate::core::task::TaskStatus::Completed;
+        let t3 = crate::core::task::Task::new("T-003", "Task 3", "Desc");
+        write_task_json(&dir, &t1);
+        write_task_json(&dir, &t2);
+        write_task_json(&dir, &t3);
+
+        let checker = GovernanceChecker::new(dir.path());
+        let brain = crate::brain::rule_based::RuleBasedBrain;
+        let drift = checker.check_drift(&brain).unwrap();
+
+        assert_eq!(drift.completed_tasks, 2);
+        assert_eq!(drift.total_tasks, 3);
+    }
+
+    // ---------------------------------------------------------------
+    // G. full_check integration — exact health_score values
+    // ---------------------------------------------------------------
+
     #[test]
     fn test_full_check_no_spec() {
         let dir = TempDir::new().unwrap();
@@ -547,6 +1420,10 @@ mod tests {
                 .iter()
                 .any(|f| f.message.contains("SPEC.md"))
         );
+        // Missing SPEC.md (Warning -5) + missing README (Warning -5) + empty tasks Info +
+        // empty knowledge Info = 100 - 10 = 90
+        // (plan.md exists so no "no plan" info, drift returns 0.0 via RuleBasedBrain)
+        assert_eq!(report.health_score, 90.0);
     }
 
     #[test]
@@ -554,16 +1431,15 @@ mod tests {
         let dir = TempDir::new().unwrap();
         setup_initialized_project(&dir);
 
-        // Create SPEC.md
+        // Create SPEC.md + README.md → eliminates 2 warnings
         std::fs::write(dir.path().join("SPEC.md"), "# Vision\nBuild something").unwrap();
-        // Create README.md
         std::fs::write(dir.path().join("README.md"), "# TestProject").unwrap();
 
         let checker = GovernanceChecker::new(dir.path());
         let brain = crate::brain::rule_based::RuleBasedBrain;
         let report = checker.full_check(&brain);
 
-        // Should NOT have documentation warnings about SPEC or README
+        // No documentation Warnings
         assert!(
             !report
                 .findings
@@ -571,8 +1447,44 @@ mod tests {
                 .any(|f| f.category == "documentation" && f.severity == Severity::Warning)
         );
 
-        // Should have drift report since SPEC.md exists
+        // Drift is Some (SPEC.md exists) with score 0.0 (RuleBasedBrain)
         assert!(report.drift.is_some());
+        assert_eq!(report.drift.as_ref().unwrap().vision_alignment, 0.0);
+
+        // Only Info findings remain (empty tasks, empty knowledge) → score = 100
+        assert_eq!(report.health_score, 100.0);
+    }
+
+    #[test]
+    fn test_full_check_uninitialized_project() {
+        let dir = TempDir::new().unwrap();
+        // Completely empty directory — no .forge/
+        let checker = GovernanceChecker::new(dir.path());
+        let brain = crate::brain::rule_based::RuleBasedBrain;
+        let report = checker.full_check(&brain);
+
+        // Architecture: 1 Critical (no .forge/) → -20
+        // Documentation: 2 Warnings (SPEC.md + README) + 1 Info (no plan) → -10
+        // Knowledge: 1 Info (no knowledge) → 0
+        // No drift (no vision doc)
+        // Total: 100 - 20 - 10 = 70
+        assert_eq!(report.health_score, 70.0);
+
+        // Exactly 1 critical finding
+        let critical_count = report
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::Critical)
+            .count();
+        assert_eq!(critical_count, 1);
+
+        // Exactly 2 warning findings
+        let warning_count = report
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::Warning)
+            .count();
+        assert_eq!(warning_count, 2);
     }
 
     #[test]
@@ -583,8 +1495,8 @@ mod tests {
         let brain = crate::brain::rule_based::RuleBasedBrain;
         let report = checker.full_check(&brain);
 
-        // Score should be reduced for critical issues
-        assert!(report.health_score < 100.0);
+        // Exact score: 70.0 (1 Critical + 2 Warnings)
+        assert_eq!(report.health_score, 70.0);
         assert!(
             report
                 .findings
@@ -594,69 +1506,39 @@ mod tests {
     }
 
     #[test]
-    fn test_check_documentation_missing_readme() {
+    fn test_full_check_summary_format() {
         let dir = TempDir::new().unwrap();
         setup_initialized_project(&dir);
-
-        let checker = GovernanceChecker::new(dir.path());
-        let findings = checker.check_documentation();
-
-        // Should warn about missing README
-        assert!(findings.iter().any(|f| f.message.contains("README")));
-    }
-
-    #[test]
-    fn test_check_architecture_initialized() {
-        let dir = TempDir::new().unwrap();
-        setup_initialized_project(&dir);
-
-        let checker = GovernanceChecker::new(dir.path());
-        let findings = checker.check_architecture();
-
-        // Should NOT have critical architecture issues (project is initialized)
-        assert!(!findings.iter().any(|f| f.severity == Severity::Critical));
-    }
-
-    #[test]
-    fn test_check_architecture_not_initialized() {
-        let dir = TempDir::new().unwrap();
-
-        let checker = GovernanceChecker::new(dir.path());
-        let findings = checker.check_architecture();
-
-        // Should have critical: no .forge/
-        assert!(
-            findings
-                .iter()
-                .any(|f| f.severity == Severity::Critical && f.message.contains(".forge/"))
-        );
-    }
-
-    #[test]
-    fn test_drift_without_vision() {
-        let dir = TempDir::new().unwrap();
-        setup_initialized_project(&dir);
+        std::fs::write(dir.path().join("SPEC.md"), "# Vision").unwrap();
+        std::fs::write(dir.path().join("README.md"), "# Readme").unwrap();
 
         let checker = GovernanceChecker::new(dir.path());
         let brain = crate::brain::rule_based::RuleBasedBrain;
-        let drift = checker.check_drift(&brain);
+        let report = checker.full_check(&brain);
 
-        // plan.md exists, so drift should be Some (uses plan as fallback)
-        assert!(drift.is_some());
+        // Summary should contain the score and counts
+        assert!(report.summary.contains("Health: 100/100"));
+        assert!(report.summary.contains("0 critical"));
+        assert!(report.summary.contains("0 warnings"));
     }
 
     #[test]
-    fn test_knowledge_coverage_empty() {
+    fn test_full_check_with_failed_tasks_exact_score() {
         let dir = TempDir::new().unwrap();
         setup_initialized_project(&dir);
+        std::fs::write(dir.path().join("SPEC.md"), "# Vision").unwrap();
+        std::fs::write(dir.path().join("README.md"), "# Readme").unwrap();
+
+        // 1 failed task produces 1 Warning (-5)
+        let mut task = crate::core::task::Task::new("T-001", "Task 1", "Desc");
+        task.status = crate::core::task::TaskStatus::Failed;
+        write_task_json(&dir, &task);
 
         let checker = GovernanceChecker::new(dir.path());
-        let findings = checker.check_knowledge_coverage();
+        let brain = crate::brain::rule_based::RuleBasedBrain;
+        let report = checker.full_check(&brain);
 
-        assert!(
-            findings
-                .iter()
-                .any(|f| f.message.contains("No knowledge captured"))
-        );
+        // 1 Warning from failed task → 100 - 5 = 95
+        assert_eq!(report.health_score, 95.0);
     }
 }
