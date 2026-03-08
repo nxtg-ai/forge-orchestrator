@@ -4,3 +4,5 @@
 .DS_Store
 .env
 .claude/
+mutants.out/
+mutants.out.old/
