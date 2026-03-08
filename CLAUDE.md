@@ -10,7 +10,7 @@ cargo build --release          # Optimized binary (4 MB, LTO + strip)
 cp target/release/forge ~/.local/bin/forge-orca
 
 # Test
-cargo test                     # All 244 tests (222 unit + 10 CLI + 12 MCP)
+cargo test                     # All 362 tests (340 unit + 10 CLI + 12 MCP)
 cargo clippy -- -W clippy::all # Lint
 
 # Run
@@ -147,7 +147,7 @@ forge-orchestrator          ──headless──►   runs CLI or TUI dashboard 
 
 - **Language:** Rust 1.93.0, Edition 2024
 - **Binary:** ~4 MB (release, LTO, stripped)
-- **Tests:** 244 (222 unit + 10 CLI + 12 MCP integration)
+- **Tests:** 362 (340 unit + 10 CLI + 12 MCP integration)
 - **Version:** 1.2.0
 - **Repo:** github.com/nxtg-ai/forge-orchestrator
 
