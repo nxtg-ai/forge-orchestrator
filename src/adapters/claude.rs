@@ -139,9 +139,9 @@ impl ToolAdapter for ClaudeAdapter {
         let mut cmd = Command::new("claude");
         // No -p flag — launches full interactive TUI
         // No --output-format, no --verbose
-        if permissions == "yolo" {
-            cmd.arg("--dangerously-skip-permissions");
-        }
+        // Always skip permissions in dashboard PTY mode — agents need full autonomy
+        // to execute tasks without blocking on permission prompts
+        cmd.arg("--dangerously-skip-permissions");
         cmd.current_dir(project_root);
 
         if auth_mode == "subscription" {
