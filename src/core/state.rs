@@ -543,12 +543,8 @@ mod tests {
         let mgr = StateManager::new(tmp.path());
         mgr.save(&ForgeState::default()).unwrap();
 
-        mgr.lock_files(
-            "task-1",
-            AgentType::Claude,
-            vec!["src/main.rs".to_string()],
-        )
-        .unwrap();
+        mgr.lock_files("task-1", AgentType::Claude, vec!["src/main.rs".to_string()])
+            .unwrap();
 
         mgr.lock_files(
             "task-2",
@@ -619,12 +615,8 @@ mod tests {
         let mgr = StateManager::new(tmp.path());
         mgr.save(&ForgeState::default()).unwrap();
 
-        mgr.lock_files(
-            "task-1",
-            AgentType::Claude,
-            vec!["src/main.rs".to_string()],
-        )
-        .unwrap();
+        mgr.lock_files("task-1", AgentType::Claude, vec!["src/main.rs".to_string()])
+            .unwrap();
 
         // Verify lock exists
         let state = mgr.load().unwrap();
@@ -642,12 +634,8 @@ mod tests {
         let mgr = StateManager::new(tmp.path());
         mgr.save(&ForgeState::default()).unwrap();
 
-        mgr.lock_files(
-            "task-1",
-            AgentType::Claude,
-            vec!["src/main.rs".to_string()],
-        )
-        .unwrap();
+        mgr.lock_files("task-1", AgentType::Claude, vec!["src/main.rs".to_string()])
+            .unwrap();
 
         // Conflict exists before unlock
         let conflicts = mgr
@@ -669,18 +657,10 @@ mod tests {
         let mgr = StateManager::new(tmp.path());
         mgr.save(&ForgeState::default()).unwrap();
 
-        mgr.lock_files(
-            "task-1",
-            AgentType::Claude,
-            vec!["src/main.rs".to_string()],
-        )
-        .unwrap();
-        mgr.lock_files(
-            "task-2",
-            AgentType::Codex,
-            vec!["src/main.rs".to_string()],
-        )
-        .unwrap();
+        mgr.lock_files("task-1", AgentType::Claude, vec!["src/main.rs".to_string()])
+            .unwrap();
+        mgr.lock_files("task-2", AgentType::Codex, vec!["src/main.rs".to_string()])
+            .unwrap();
 
         mgr.unlock_files("task-1").unwrap();
 
@@ -1000,12 +980,8 @@ mod tests {
         let mgr = StateManager::new(tmp.path());
         mgr.save(&ForgeState::default()).unwrap();
 
-        mgr.lock_files(
-            "task-1",
-            AgentType::Claude,
-            vec!["a.rs".to_string()],
-        )
-        .unwrap();
+        mgr.lock_files("task-1", AgentType::Claude, vec!["a.rs".to_string()])
+            .unwrap();
 
         // Re-lock with different files
         mgr.lock_files(
@@ -1035,12 +1011,8 @@ mod tests {
         let mgr = StateManager::new(tmp.path());
         mgr.save(&ForgeState::default()).unwrap();
 
-        mgr.lock_files(
-            "task-1",
-            AgentType::Claude,
-            vec!["a.rs".to_string()],
-        )
-        .unwrap();
+        mgr.lock_files("task-1", AgentType::Claude, vec!["a.rs".to_string()])
+            .unwrap();
 
         // Unlock a task that does not exist — should not error or affect task-1
         mgr.unlock_files("task-999").unwrap();

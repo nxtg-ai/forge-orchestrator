@@ -878,9 +878,7 @@ mod tests {
         // Should have Critical for missing state.json
         let state_critical: Vec<&Finding> = findings
             .iter()
-            .filter(|f| {
-                f.severity == Severity::Critical && f.message.contains("state.json")
-            })
+            .filter(|f| f.severity == Severity::Critical && f.message.contains("state.json"))
             .collect();
         assert_eq!(state_critical.len(), 1);
     }
@@ -907,9 +905,7 @@ mod tests {
         // Should have Warning for missing events.jsonl
         let events_warning: Vec<&Finding> = findings
             .iter()
-            .filter(|f| {
-                f.severity == Severity::Warning && f.message.contains("events.jsonl")
-            })
+            .filter(|f| f.severity == Severity::Warning && f.message.contains("events.jsonl"))
             .collect();
         assert_eq!(events_warning.len(), 1);
         assert_eq!(events_warning[0].category, "architecture");
@@ -1081,11 +1077,8 @@ mod tests {
 
         // Assigned status also triggers stale check
         let updated_at = chrono::Utc::now() - chrono::Duration::hours(30);
-        let task = task_with_status_and_time(
-            "T-002",
-            crate::core::task::TaskStatus::Assigned,
-            updated_at,
-        );
+        let task =
+            task_with_status_and_time("T-002", crate::core::task::TaskStatus::Assigned, updated_at);
         write_task_json(&dir, &task);
 
         let checker = GovernanceChecker::new(dir.path());
@@ -1286,7 +1279,11 @@ mod tests {
         let findings = checker.check_knowledge_coverage();
 
         // Should NOT have "No knowledge captured"
-        assert!(!findings.iter().any(|f| f.message.contains("No knowledge captured")));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.message.contains("No knowledge captured"))
+        );
 
         // Should have Info about missing categories (decisions, learnings, patterns)
         let missing_cat: Vec<&Finding> = findings
