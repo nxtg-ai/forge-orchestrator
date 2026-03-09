@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-03-08
+
+### The Stargate Era
+
+Forge 1.3 ships the three headline features from the v1.3.0 roadmap: **Stargate** embeds full interactive PTY agent panes directly in the dashboard (no more watching text scroll — you see Claude's actual TUI), **Builder Mode** gives agents the ability to signal their own completion via signal files, and **Quality Gates** (DX-052) introduces an 8-check automated gate engine with A–F letter grading and an optional Playwright smoke gate. Three-Tier Validation (DX-051) extends the T→V→U lifecycle to include human UAT as a first-class phase. Subscription safety rails (DX-033–038) add pacing, rate-limit detection, exponential backoff, provider rotation, quota monitoring, and risk warnings. The test suite grew from 200 to 362 with a full CRUCIBLE Gate 6 mutation audit (governance.rs 88.1%, state.rs 100%).
+
+### Added
+
+- **DX-024 Stargate — Embedded Interactive PTY Agent Panes** — `forge dashboard` now spawns Claude, Codex, and Gemini in native PTY sessions inside the dashboard. Each agent pane is a full interactive terminal, not a pipe. Agents see their own TUI (Claude's interactive mode, Codex's REPL, Gemini's interface). Keyboard input routes to the focused pane.
+- **vt100 terminal emulator** — replaced the bespoke `AnsiLineCollector` with the `vt100` crate for correct full-screen terminal emulation inside PTY panes. Cursor positioning, scrolling, alternate-screen buffers, and ANSI sequences all render correctly.
+- **Adaptive ready-pattern detection + PTY resize** — PTY panes detect when an agent's TUI is ready to receive input via configurable ready-pattern polling (200ms, 300ms grace). Panes resize automatically on expand/collapse.
+- **Full TUI mode for Codex and Gemini** — Codex and Gemini now launch their native TUIs inside Stargate panes (not just Claude). All three agents supported in interactive PTY mode.
+- **DX-050 Builder Mode** — agents signal task completion by writing a signal file (`.forge/signals/T-xxx.complete`). Dashboard detects the file and transitions the task without polling the process. Adds idle TUI spawn and color-coded pane headers per agent type.
+- **`c` key cycles agent assignment** — on the task board, pressing `c` cycles the selected task's agent assignment (Claude → Codex → Gemini → Claude). Reassign without leaving the dashboard.
+- **DX-051 Three-Tier Validation — T→V→U pipeline** — Human UAT (`forge uat`) is now a first-class phase. After BUILD→VERIFY completes, dashboard auto-transitions to UAT phase. `forge uat` launch auto-generates U-xxx acceptance tasks from completed build tasks.
+- **DX-052 Quality Gates — 8-check automated gate engine** — `forge verify` runs 8 quality gates: TypeScript compilation, test coverage, lint, security audit, dependency freshness, documentation, commit hygiene, build size. Each gate produces an A–F letter grade with configurable thresholds. Gate results feed into the governance health score.
+- **DX-052 Quality Gates — Playwright smoke gate** — optional ninth gate runs a Playwright headless browser check against the project's UI. Catches rendering regressions invisible to unit tests.
+- **DX-033/034/035/036 — Subscription safety rails** — four new protections for Pro/Max subscription users: token-bucket pacing (prevents burst), rate-limit detection (429 → automatic backoff), exponential backoff with jitter (10s→30s→60s→120s, max 5 retries), and provider rotation (fails over Claude→Codex→Gemini on sustained errors). All four ported to TUI dashboard mode.
+- **DX-037 Quota monitoring** — dashboard header shows remaining quota estimate. Warning triggered at configurable threshold.
+- **DX-038 Subscription risk warning** — banner fires when Codex is running in subscription mode with active tasks that could exhaust quota. Lets the operator intervene before hitting the cap.
+- **CRUCIBLE Gate 6 remediation** — full mutation testing audit (cargo-mutants). governance.rs: 0% → 88.1% (52/59 viable mutations caught). state.rs: 34.8% → 100% (23/23 caught). 69 new value-asserting tests replace hollow `is_some()`/`is_empty()` existence checks.
+- **ForgeSentinel** — CODEOWNERS, PR template, and SECURITY.md for open-source hardening.
+- **CodeQL security scanning** — GitHub Actions workflow runs Rust static analysis on every push.
+- **CI failure notifications** — failed builds automatically open a GitHub Issue via `failed-build-issue-action`.
+- **GitHub Sponsors** — funding link added to repository.
+
+### Fixed
+
+- **Stargate PTY bugfixes** — backspace rendering in agent panes, attach/detach/expand state machine, PTY completion detection false-positives (pattern-disappeared guard added).
+- **DX-033–036 TUI port** — subscription pacing, rate-limit detection, backoff, and provider rotation were headless-only; ported all four to the live TUI dashboard execution path.
+- **Claude adapter `--verbose` flag** — `stream-json` mode requires `--verbose` for NDJSON output; missing flag caused buffered output instead of live streaming.
+- **`forge init` next-steps ordering** — brain config step now appears before `plan --generate` in the post-init guidance (was reversed, confusing new users).
+
+### Changed
+
+- **362 tests** (340 unit + 10 CLI + 12 MCP), up from 200. Includes 69 new mutation-resistant governance and state tests.
+- **Terminology**: "coordination" replaced with "orchestration" across all user-facing CLI output, README, and docs.
+- **CI matrix**: Windows dropped from the test matrix — PTY allocation and `Instant`-based timing tests are not compatible with Windows CI runners. Linux + macOS remain.
+- **MCP tool count**: corrected to 10 in all docs (was documented as 9 in several places).
+- **README**: full public-launch rewrite with one-product framing, L2 spark mark logo, and accurate binary stats (v1.3.0, 362 tests, 10 MCP tools, 4 MB).
+
 ## [1.2.0] - 2026-02-13
 
 ### The UAT Commander
@@ -196,7 +237,8 @@ Forge 1.0 is the first release where you can type `forge init && forge plan --ge
 - Animated SVG banner for README
 - 51 tests (30 unit + 9 CLI + 12 MCP integration)
 
-[Unreleased]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/nxtg-ai/forge-orchestrator/compare/v0.3.0...v1.0.0
