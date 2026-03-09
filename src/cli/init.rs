@@ -180,14 +180,14 @@ pub fn execute(project_root: &Path, name: Option<String>) -> anyhow::Result<()> 
     println!();
     println!("Next steps:");
     println!(
-        "  {} — generate tasks from project context",
+        "  {} — choose the AI brain (rule-based is free, openai needs API key)",
+        "forge config brain openai".cyan()
+    );
+    println!(
+        "  {} — generate tasks from your SPEC.md or project context",
         "forge plan --generate".cyan()
     );
     println!("  {} — see the task board", "forge status".cyan());
-    println!(
-        "  {} — configure the AI brain",
-        "forge config brain openai".cyan()
-    );
     println!();
 
     Ok(())
