@@ -23,6 +23,28 @@ forge init
 
 Single binary. 4MB. No runtime dependencies.
 
+## Quick Demo
+
+Four commands from zero to task board:
+
+```bash
+# 1. Initialize — creates .forge/ directory with state, event log, knowledge base
+forge init
+
+# 2. Configure the AI brain — choose 'openai' (needs API key) or 'rule-based' (free)
+forge config brain openai
+
+# 3. Generate tasks — reads your SPEC.md or README, creates dependency-aware task graph
+forge plan --generate
+
+# 4. See the result — task board with assignments, dependencies, and project health
+forge status
+```
+
+From here you can:
+- `forge run` — execute tasks headlessly (autonomous mode, great for CI)
+- `forge dashboard --pty` — launch the TUI dashboard with interactive agent panes
+
 ## What You Get
 
 | Feature | What It Does |
@@ -54,7 +76,7 @@ The orchestrator is the policy core of Forge. All governance rules, file locks, 
 ```
 ┌──────────────────────────────────────┐
 │        forge-orchestrator            │
-│        (Rust, 4MB, 292 tests)        │
+│        (Rust, 4MB, 362 tests)        │
 │                                      │
 │  File locking · Task planning        │
 │  Knowledge · Governance · MCP        │
@@ -82,7 +104,7 @@ File locking exists because I've watched teams lose days to conflicting edits.
 
 When Claude Code starts editing a file, the orchestrator acquires an exclusive lock in `.forge/locks/`. Codex CLI requesting the same file is queued with a notification of who holds the lock. Locks include timeouts (crashed tools don't hold locks forever) and deadlock detection.
 
-292 tests cover concurrent access, timeout behavior, multi-adapter locking, and edge cases.
+362 tests cover concurrent access, timeout behavior, multi-adapter locking, and edge cases.
 
 ## How the Knowledge Flywheel Works
 
