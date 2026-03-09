@@ -134,7 +134,7 @@ impl ToolAdapter for ClaudeAdapter {
         _task: &Task,
         project_root: &Path,
         auth_mode: &str,
-        permissions: &str,
+        _permissions: &str,
     ) -> Command {
         let mut cmd = Command::new("claude");
         // No -p flag — launches full interactive TUI
