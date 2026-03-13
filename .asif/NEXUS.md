@@ -2,7 +2,7 @@
 
 > **Owner**: Asif Waliuddin
 > **Program**: NXTG-Forge (P-03b) | **Program Lead**: FPL
-> **Last Updated**: 2026-03-03
+> **Last Updated**: 2026-03-09
 > **North Star**: A single Rust binary that orchestrates code quality with zero dependencies and sub-second execution.
 
 ---
@@ -17,6 +17,8 @@
 | N-04 | File Locking | ORCHESTRATION | SHIPPED | P1 | 2026-02 |
 | N-05 | README Stats Accuracy | PERFORMANCE | SHIPPED | P2 | 2026-02 |
 | N-06 | CRUCIBLE Gate 6 Remediation | QUALITY GATES | SHIPPED | P0 | 2026-03-08 |
+| N-07 | v1.3.0 — Stargate / Builder / Quality Gates | ORCHESTRATION | SHIPPED | P0 | 2026-03-08 |
+| N-08 | v1.3.1 — PTY Passthrough + CI Fix | ORCHESTRATION | SHIPPED | P2 | 2026-03-08 |
 
 ---
 
@@ -375,6 +377,95 @@ Verdict: {PASS / FAIL / CRITICAL FAIL}
 
 ---
 
+## Team Feedback
+> Reflection cycle: 2026-03-09 | Author: forge-orchestrator team
+
+### 1. What did you ship since last check-in?
+
+**v1.3.0** (2026-03-08) — 47-commit major release:
+- Stargate (DX-024): embedded interactive PTY agent panes in dashboard. Full `vt100` terminal emulation replacing bespoke `AnsiLineCollector`.
+- Builder Mode (DX-050): agent-driven task completion via signal files.
+- Quality Gates (DX-052): 8-check automated gate engine with A–F letter grading + optional Playwright smoke gate.
+- Three-Tier Validation (DX-051): UAT as a first-class phase (T→V→U pipeline, `forge uat` with full ratatui TUI).
+- Subscription safety rails (DX-033–038): token-bucket pacing, rate-limit detection, exponential backoff, provider rotation, quota monitoring, risk warning.
+- CRUCIBLE Gate 6 remediation: governance.rs 0% → 88.1% (52/59 viable mutations); state.rs 34.8% → 100% (23/23). 69 new value-asserting tests.
+- Test suite: 200 → **362 tests** (340 unit + 10 CLI + 12 MCP).
+
+**v1.3.1** (2026-03-08, same day):
+- PTY passthrough fix: always-skip permissions gate so keyboard input reaches agent panes.
+- BackTab mapping added.
+- README Quick Demo walkthrough (4 commands, zero to task board).
+- Clippy + fmt cleanup.
+
+**Current state**: v1.3.1, 362 tests passing, CI green.
+
+---
+
+### 2. What surprised me?
+
+**Mutation testing revealed a coverage inflation trap.** governance.rs had 75% line coverage but 0% mutation score. Lines were executed by tests — just no assertions checking the values those lines produced. This is the textbook false-green pattern: you think you're tested, you're not. The fix (value assertions instead of existence checks) was not complex, but finding it required cargo-mutants. Without Gate 6 we would have shipped with an illusion of safety for the most governance-critical module.
+
+**state.rs went 34.8% → 100% in one focused pass.** Once the pattern was clear (assert lock state *after* the operation, not just that the call succeeded), the fixes were mechanical. The jump to 100% was faster than expected — the module's logic is actually well-bounded.
+
+**Wolf's intervention created a useful awkward moment.** The CoS writing code directly in our repo without a directive was wrong by protocol, but it surfaced a real gap: the team hadn't prioritised governance.rs remediation despite the CRUCIBLE report flagging it as CRITICAL. The situation forced both a policy clarification (CoS directs, team executes) and a genuine quality improvement.
+
+**PTY passthrough was subtle.** The `always_skip_permissions` fix in PTY mode was counterintuitive — the permissions gate was blocking keyboard input from reaching the agent TUI. The symptom (input not arriving in agent panes) pointed at the transport layer first, not a permissions check further up the stack.
+
+---
+
+### 3. Cross-project signals
+
+| Signal | Relevant to |
+|--------|-------------|
+| **Coverage inflation anti-pattern**: high line coverage + low mutation score = false green. Run `cargo-mutants` / `jest-mutators` on critical business logic, not just line coverage. | forge-ui (likely same issue in governance-state-manager, task-service), forge-plugin (never CRUCIBLE-audited) |
+| **Silent event log swallows** (`let _ = event_logger.log(...)` in `mcp/tools.rs`): audit trail events can be silently lost. Pattern likely exists in forge-ui's WebSocket error handlers and governance-mcp. | forge-ui (`src/server/api-server.ts`), forge-plugin governance-mcp (`index.mjs`) |
+| **PTY/terminal emulation patterns** (Stargate): ready-pattern detection, resize on panel state change, text+Enter as separate PTY writes, `pattern_disappeared` guard before completion. These are reusable primitives if forge-ui ever embeds live terminals. | forge-ui Infinity Terminal |
+| **vt100 crate** replaces bespoke ANSI parsing. If forge-ui's Infinity Terminal does client-side ANSI rendering, there may be a similar opportunity. | forge-ui |
+
+---
+
+### 4. What would I prioritize next with fresh directives?
+
+**P0 — Gate 5 remediation (mcp/tools.rs silent swallows)**
+The 7 `let _ = event_logger.log(...)` swallows in the MCP hot path are an audit trail integrity risk. If forge is sold on governance guarantees, events disappearing silently contradicts that promise. Fix: propagate to stderr at minimum, or surface as a non-fatal MCP warning.
+
+**P1 — Gate 8: cli/verify.rs (0% coverage)**
+56 lines, zero coverage. `verify.rs` is a user-facing command. Extract business logic from I/O boundary so it's unit-testable. Target: ≥60%.
+
+**P1 — Gate 2 hardening: remaining 7 hollow assertions**
+The tui/app.rs ones (`assert!(app.completed_at.is_some())`) are most exposed — TUI state transitions are exactly where bugs hide.
+
+**P2 — forge-plugin CRUCIBLE audit**
+The plugin has 43 tests and has never been mutation-tested. Given the coverage inflation lesson here, it almost certainly has the same governance — the governance state module in particular writes test fixtures that may not assert values.
+
+**P3 — forge-plugin Gate 5 (governance-mcp silent swallows)**
+`index.mjs` likely has `.catch(() => {})` or unhandled promise rejections in governance check calls. Worth a 30-minute grep + fix pass.
+
+---
+
+### 5. Blockers and questions for CoS
+
+**Q1 — Gate 5 MCP error surfacing strategy**
+When `event_logger.log()` fails in an MCP tool call, should we:
+  - (a) Return a non-fatal warning in the MCP response (`{"result": ..., "warnings": ["event log write failed"]}`)
+  - (b) Log to stderr only (silent from caller's perspective but visible in forge-orca process output)
+  - (c) Fail the MCP call entirely (strict audit trail guarantee)
+
+Option (a) requires a protocol change to our MCP response shape. Option (c) is the right answer if we want to market audit trail integrity as a differentiator. Need CoS direction before implementing.
+
+**Q2 — TUI coverage floor**
+`cli/start.rs` is 1,212 lines at 1.65% coverage. It's the PTY dashboard engine — genuinely hard to test headless. Should we:
+  - Accept it as an untestable layer (document the exception in CRUCIBLE config)
+  - Invest in a TUI snapshot-testing harness (e.g., `ratatui` test backends)
+  - Extract the state machine logic into a separately-testable module
+
+This is an architectural question and warrants CoS guidance before we commit engineering cycles.
+
+**Q3 — forge-plugin CRUCIBLE: ownership**
+Is the Gate 6 audit for forge-plugin owned by the forge-plugin team (separate directive), or should forge-orchestrator team run it since we now have the mutation testing tooling and pattern knowledge? Cross-team boundary question.
+
+---
+
 ## Team Questions
 
 _(Add questions for FPL / ASIF CoS here.)_
@@ -385,4 +476,5 @@ _(Add questions for FPL / ASIF CoS here.)_
 
 | Date | Change |
 |------|--------|
+| 2026-03-09 | Team Feedback reflection: v1.3.0/1.3.1 shipped, CRUCIBLE lessons, 5 prioritised next actions, 3 CoS questions. |
 | 2026-03-03 | Created by Emma (CLX9 Sr. CoS) — FPL delegation bootstrap. |
