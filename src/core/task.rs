@@ -94,6 +94,12 @@ pub struct Task {
     /// Retry count for verify/fix loops (max 3 before flagging for human)
     #[serde(default)]
     pub retry_count: u32,
+    /// Agent that verified this task (populated when a V-xxx subtask completes)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verified_by: Option<AgentType>,
+    /// When this task was verified
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verified_at: Option<DateTime<Utc>>,
 }
 
 impl Task {
@@ -120,6 +126,8 @@ impl Task {
             parent_task: None,
             phase: None,
             retry_count: 0,
+            verified_by: None,
+            verified_at: None,
         }
     }
 

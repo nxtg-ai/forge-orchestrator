@@ -303,6 +303,8 @@ mod tests {
             parent_task: None,
             phase: None,
             retry_count: 0,
+            verified_by: None,
+            verified_at: None,
         }
     }
 

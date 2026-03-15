@@ -31,6 +31,12 @@ pub struct ForgeEvent {
     pub task_id: Option<String>,
     pub agent: Option<AgentType>,
     pub message: String,
+    /// Task duration in milliseconds (from dispatch to completion).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    /// Process exit code (0 = success).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
     pub metadata: Option<serde_json::Value>,
 }
 
@@ -42,6 +48,8 @@ impl ForgeEvent {
             task_id: None,
             agent: None,
             message: message.into(),
+            duration_ms: None,
+            exit_code: None,
             metadata: None,
         }
     }
@@ -53,6 +61,16 @@ impl ForgeEvent {
 
     pub fn with_agent(mut self, agent: AgentType) -> Self {
         self.agent = Some(agent);
+        self
+    }
+
+    pub fn with_duration_ms(mut self, ms: u64) -> Self {
+        self.duration_ms = Some(ms);
+        self
+    }
+
+    pub fn with_exit_code(mut self, code: i32) -> Self {
+        self.exit_code = Some(code);
         self
     }
 

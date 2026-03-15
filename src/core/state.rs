@@ -30,6 +30,9 @@ pub struct ForgeState {
     /// Dashboard rendering mode: "pty" (Stargate) or "piped" (legacy). Default: "piped".
     #[serde(default = "default_dashboard_mode")]
     pub dashboard_mode: String,
+    /// Current dashboard phase: "build", "verify", "complete". Updated in real-time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_phase: Option<String>,
 }
 
 fn default_dashboard_mode() -> String {
@@ -126,6 +129,7 @@ impl Default for ForgeState {
             git: GitConfig::default(),
             scheduler: SchedulerConfig::default(),
             dashboard_mode: default_dashboard_mode(),
+            current_phase: None,
         }
     }
 }

@@ -273,6 +273,16 @@ impl App {
         Ok(())
     }
 
+    /// Persist the current dashboard phase to state.json.
+    fn persist_phase(&self) {
+        let state_mgr = StateManager::new(&self.forge_dir);
+        if let Ok(mut state) = state_mgr.load() {
+            state.current_phase = Some(format!("{:?}", self.phase).to_lowercase());
+            state.updated_at = chrono::Utc::now();
+            state_mgr.save(&state).ok();
+        }
+    }
+
     pub fn schedule_unblocked_tasks(&mut self, tx: &mpsc::UnboundedSender<AgentEvent>) {
         if self.watch_mode {
             return;
@@ -506,10 +516,24 @@ impl App {
                 let event_logger = EventLogger::new(&self.forge_dir);
 
                 // Compute task duration from dispatch time
-                let duration_secs = self
+                let duration_ms = self
                     .awaiting_completion
                     .get(&agent)
-                    .map(|a| a.dispatched_at.elapsed().as_secs());
+                    .map(|a| a.dispatched_at.elapsed().as_millis() as u64);
+
+                // Save agent output to .forge/results/ (PTY or piped mode)
+                let output_text = if let Some(ref text) = crash_output {
+                    text.clone()
+                } else {
+                    // Piped mode: flush agent_outputs buffer
+                    self.agent_outputs
+                        .get(&agent)
+                        .map(|buf| buf.iter().cloned().collect::<Vec<_>>().join("\n"))
+                        .unwrap_or_default()
+                };
+                if !output_text.is_empty() {
+                    save_pty_result(&self.forge_dir, &task_id, &output_text);
+                }
 
                 if success {
                     // Reset backoff on success
@@ -523,14 +547,21 @@ impl App {
                         task_mgr.update_task(&updated).ok();
                         state_mgr.unlock_files(&task_id).ok();
 
+                        // Cross-agent verification: when V-xxx completes,
+                        // stamp verified_by/verified_at on its parent T-xxx.
+                        if updated.phase == Some(TaskPhase::Verify) {
+                            if let Some(ref parent_id) = updated.parent_task {
+                                if let Ok(mut parent) = task_mgr.get_task(parent_id) {
+                                    parent.verified_by = updated.assigned_to.clone();
+                                    parent.verified_at = Some(chrono::Utc::now());
+                                    parent.updated_at = chrono::Utc::now();
+                                    task_mgr.update_task(&parent).ok();
+                                }
+                            }
+                        }
+
                         // DX-028: Auto-commit after task completion
                         self.git_auto_commit(&updated, &agent);
-
-                        // Save PTY output to .forge/results/ for cross-agent verification
-                        let pty_text = crash_output.as_deref().unwrap_or("");
-                        if !pty_text.is_empty() {
-                            save_pty_result(&self.forge_dir, &task_id, pty_text);
-                        }
 
                         // Auto-capture knowledge from completed task
                         let knowledge_mgr = KnowledgeManager::new(&self.forge_dir);
@@ -547,25 +578,22 @@ impl App {
                         .with_agent(agent.to_string());
                         knowledge_mgr.capture(&entry).ok();
 
-                        let dur_str = duration_secs
-                            .map(|s| format!("{s}s"))
+                        let dur_str = duration_ms
+                            .map(|ms| format!("{}s", ms / 1000))
                             .unwrap_or_else(|| "?s".to_string());
                         let event_msg = format!(
                             "{} completed by {} (exit {}, {})",
                             task_id, agent, exit_code, dur_str
                         );
                         self.push_event(&event_msg);
-                        event_logger
-                            .log(
-                                &ForgeEvent::new(EventType::TaskCompleted, event_msg)
-                                    .with_task(&task_id)
-                                    .with_agent(agent)
-                                    .with_metadata(serde_json::json!({
-                                        "exit_code": exit_code,
-                                        "duration_secs": duration_secs,
-                                    })),
-                            )
-                            .ok();
+                        let mut event = ForgeEvent::new(EventType::TaskCompleted, event_msg)
+                            .with_task(&task_id)
+                            .with_agent(agent)
+                            .with_exit_code(exit_code);
+                        if let Some(ms) = duration_ms {
+                            event = event.with_duration_ms(ms);
+                        }
+                        event_logger.log(&event).ok();
                     }
                 } else {
                     // Check if failure is due to rate limiting
@@ -602,17 +630,14 @@ impl App {
                                 task_id, MAX_BACKOFF_ATTEMPTS, agent
                             );
                             self.push_event(&event_msg);
-                            event_logger
-                                .log(
-                                    &ForgeEvent::new(EventType::TaskFailed, event_msg)
-                                        .with_task(&task_id)
-                                        .with_agent(agent)
-                                        .with_metadata(serde_json::json!({
-                                            "exit_code": exit_code,
-                                            "duration_secs": duration_secs,
-                                        })),
-                                )
-                                .ok();
+                            let mut ev = ForgeEvent::new(EventType::TaskFailed, event_msg)
+                                .with_task(&task_id)
+                                .with_agent(agent)
+                                .with_exit_code(exit_code);
+                            if let Some(ms) = duration_ms {
+                                ev = ev.with_duration_ms(ms);
+                            }
+                            event_logger.log(&ev).ok();
                         } else {
                             // Reset task to pending and apply backoff delay
                             if let Ok(task) = task_mgr.get_task(&task_id) {
@@ -634,17 +659,14 @@ impl App {
                                 task_id, delay_secs, attempt, MAX_BACKOFF_ATTEMPTS
                             );
                             self.push_event(&event_msg);
-                            event_logger
-                                .log(
-                                    &ForgeEvent::new(EventType::TaskFailed, event_msg)
-                                        .with_task(&task_id)
-                                        .with_agent(agent)
-                                        .with_metadata(serde_json::json!({
-                                            "exit_code": exit_code,
-                                            "duration_secs": duration_secs,
-                                        })),
-                                )
-                                .ok();
+                            let mut ev = ForgeEvent::new(EventType::TaskFailed, event_msg)
+                                .with_task(&task_id)
+                                .with_agent(agent)
+                                .with_exit_code(exit_code);
+                            if let Some(ms) = duration_ms {
+                                ev = ev.with_duration_ms(ms);
+                            }
+                            event_logger.log(&ev).ok();
                         }
                     } else {
                         // Normal failure (not rate limited)
@@ -673,21 +695,15 @@ impl App {
                                 self.push_event(&format!("  PTY output: {}", truncated));
                             }
                         }
-                        event_logger
-                            .log(
-                                &ForgeEvent::new(EventType::TaskFailed, event_msg)
-                                    .with_task(&task_id)
-                                    .with_agent(agent)
-                                    .with_metadata(serde_json::json!({
-                                        "exit_code": exit_code,
-                                        "duration_secs": duration_secs,
-                                    })),
-                            )
-                            .ok();
-
-                        // Save PTY output for failed tasks too
-                        if let Some(ref output) = crash_output {
-                            save_pty_result(&self.forge_dir, &task_id, output);
+                        {
+                            let mut ev = ForgeEvent::new(EventType::TaskFailed, event_msg)
+                                .with_task(&task_id)
+                                .with_agent(agent)
+                                .with_exit_code(exit_code);
+                            if let Some(ms) = duration_ms {
+                                ev = ev.with_duration_ms(ms);
+                            }
+                            event_logger.log(&ev).ok();
                         }
 
                         // Test/fix loop: generate fix + re-verify for failed verify tasks
@@ -1720,6 +1736,7 @@ impl App {
                 if verify_fix_tasks.is_empty() {
                     // No verify tasks were generated — go straight to Complete
                     self.phase = DashboardPhase::Complete;
+                    self.persist_phase();
                     self.push_event("Phase 2 (VERIFY) complete — no verify tasks found");
                     self.generate_uat_tasks();
                     return true;
@@ -1731,6 +1748,7 @@ impl App {
 
                 if all_verify_done {
                     self.phase = DashboardPhase::Complete;
+                    self.persist_phase();
                     self.push_event("Phase 2 (VERIFY) complete — all verification done");
                     self.generate_uat_tasks();
                     return true;
@@ -1744,6 +1762,7 @@ impl App {
     /// DX-052: Execute the Build→Verify transition (generate verify subtasks + reload).
     fn transition_to_verify(&mut self) -> bool {
         self.phase = DashboardPhase::Verify;
+        self.persist_phase();
         self.push_event("Phase 1 (BUILD) complete — transitioning to VERIFY");
 
         let task_mgr = TaskManager::new(&self.forge_dir);
@@ -2046,6 +2065,8 @@ impl App {
             parent_task: None,
             phase: None,
             retry_count: 0,
+            verified_by: None,
+            verified_at: None,
         };
 
         let std_cmd = match agent {
@@ -2699,6 +2720,8 @@ mod tests {
             parent_task: None,
             phase: None,
             retry_count: 0,
+            verified_by: None,
+            verified_at: None,
         }
     }
 
