@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-03-14
+
+### Codex PTY Crash Fix (P0)
+
+Resolves Codex CLI crashing immediately (exit 1) when spawned inside Forge Stargate dashboard PTY panes. Claude PTY was unaffected.
+
+### Fixed
+
+- **Codex PTY launch mode** (`codex.rs`) — Use `codex exec --full-auto --skip-git-repo-check "prompt"` instead of bare `codex`. Root cause: Codex's `resolve_prompt()` calls `exit(1)` when `stdin.is_terminal() == true` with no prompt argument. Passing prompt as CLI arg bypasses all 8 of Codex's validation gates.
+- **`--no-alt-screen` flag** (`codex.rs`) — Prevents rendering conflicts in nested terminal contexts (ratatui TUI → vt100 → Codex TUI). This flag exists specifically for embedded/multiplexer contexts.
+- **Environment variable leak** (`app.rs`) — Both PTY spawn paths now call `env_remove()` for vars adapters explicitly removed. Previously, `None` values from `get_envs()` were silently skipped, meaning API keys (e.g., `OPENAI_API_KEY` in subscription mode) leaked into PTY processes.
+- **Exit code masking** (`pty_session.rs`) — Preserve real exit codes via `status.exit_code()` instead of `if success { 0 } else { 1 }`. Exit codes 127, 2, 126 etc. now visible for debugging.
+- **PTY crash output capture** (`app.rs`) — When a PTY process exits with failure, last visible output from vt100 parser is captured and logged as an event before cleanup.
+
+### Dependencies
+
+- Bump quinn-proto from 0.11.13 to 0.11.14
+
+## [1.3.1] - 2026-03-09
+
+### Fixed
+
+- **CI formatting** — Apply `cargo fmt` to state.rs and governance.rs test code (formatting drift from CRUCIBLE mutation testing remediation).
+- **README walkthrough** — Added guided Quick Demo section for new users.
+
 ## [1.3.0] - 2026-03-08
 
 ### The Stargate Era
