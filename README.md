@@ -45,6 +45,30 @@ From here you can:
 - `forge run` — execute tasks headlessly (autonomous mode, great for CI)
 - `forge dashboard --pty` — launch the TUI dashboard with interactive agent panes
 
+
+## Real-World Result: Stargate Mode
+
+From a 94-line specification, the orchestrator coordinated three AI coding tools to build a complete CLI toolkit:
+
+```
+SPEC.md (94 lines) → forge plan --generate → 15 tasks
+
+Claude Code:  6 design tasks     → completed
+Codex CLI:    6 implementation   → completed
+Gemini CLI:   3 test/doc tasks   → completed
+
+Result: 5,306 lines of working code
+        10 auto-committed git entries
+        13 Python files (CLI + tests)
+        Zero file conflicts
+```
+
+Three companies. Three tools. One orchestrator. One command:
+
+```bash
+forge dashboard --pty
+```
+
 ## What You Get
 
 | Feature | What It Does |
