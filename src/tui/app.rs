@@ -3,6 +3,7 @@ use crate::adapters::claude::ClaudeAdapter;
 use crate::adapters::codex::CodexAdapter;
 use crate::adapters::gemini::GeminiAdapter;
 use crate::core::event::{EventLogger, EventType, ForgeEvent};
+use crate::core::knowledge::{KnowledgeEntry, KnowledgeManager};
 use crate::core::quality_gate::{self, GateResult};
 use crate::core::state::StateManager;
 use crate::core::task::{AgentType, Task, TaskManager, TaskPhase, TaskStatus};
@@ -266,6 +267,9 @@ impl App {
         // This ensures selected_index always points to the visually highlighted row.
         self.tasks = crate::tui::ui::hierarchical_sort(&raw_tasks);
         self.completed_task_ids = task_mgr.get_completed_task_ids()?;
+        // Keep state.json task_summary in sync with actual task files.
+        let state_mgr = StateManager::new(&self.forge_dir);
+        state_mgr.refresh_task_summary().ok();
         Ok(())
     }
 
@@ -467,7 +471,9 @@ impl App {
 
                 // Capture PTY output before removing session — helps debug
                 // crashes like Codex exiting immediately with no visible error.
-                let crash_output = if process_exited && !success {
+                // Capture PTY output before session cleanup — used for
+                // results/ saving (success) and crash diagnosis (failure).
+                let crash_output = if process_exited {
                     self.pty_sessions.get(&agent).map(|s| {
                         let lines = s.snapshot();
                         lines
@@ -480,7 +486,7 @@ impl App {
                             })
                             .filter(|l| !l.trim().is_empty())
                             .collect::<Vec<_>>()
-                            .join(" | ")
+                            .join("\n")
                     })
                 } else {
                     None
@@ -499,6 +505,12 @@ impl App {
                 let state_mgr = StateManager::new(&self.forge_dir);
                 let event_logger = EventLogger::new(&self.forge_dir);
 
+                // Compute task duration from dispatch time
+                let duration_secs = self
+                    .awaiting_completion
+                    .get(&agent)
+                    .map(|a| a.dispatched_at.elapsed().as_secs());
+
                 if success {
                     // Reset backoff on success
                     self.agent_backoff.remove(&agent);
@@ -514,14 +526,44 @@ impl App {
                         // DX-028: Auto-commit after task completion
                         self.git_auto_commit(&updated, &agent);
 
-                        let event_msg =
-                            format!("{} completed by {} (exit {})", task_id, agent, exit_code);
+                        // Save PTY output to .forge/results/ for cross-agent verification
+                        let pty_text = crash_output.as_deref().unwrap_or("");
+                        if !pty_text.is_empty() {
+                            save_pty_result(&self.forge_dir, &task_id, pty_text);
+                        }
+
+                        // Auto-capture knowledge from completed task
+                        let knowledge_mgr = KnowledgeManager::new(&self.forge_dir);
+                        let knowledge_content = format!(
+                            "Task {} ({}) completed by {}.\n\nDescription: {}",
+                            updated.id, updated.title, agent, updated.description,
+                        );
+                        let entry = KnowledgeEntry::new(
+                            format!("{}: {}", updated.id, updated.title),
+                            knowledge_content,
+                            &crate::brain::KnowledgeCategory::Learning,
+                        )
+                        .with_task(&task_id)
+                        .with_agent(agent.to_string());
+                        knowledge_mgr.capture(&entry).ok();
+
+                        let dur_str = duration_secs
+                            .map(|s| format!("{s}s"))
+                            .unwrap_or_else(|| "?s".to_string());
+                        let event_msg = format!(
+                            "{} completed by {} (exit {}, {})",
+                            task_id, agent, exit_code, dur_str
+                        );
                         self.push_event(&event_msg);
                         event_logger
                             .log(
                                 &ForgeEvent::new(EventType::TaskCompleted, event_msg)
                                     .with_task(&task_id)
-                                    .with_agent(agent),
+                                    .with_agent(agent)
+                                    .with_metadata(serde_json::json!({
+                                        "exit_code": exit_code,
+                                        "duration_secs": duration_secs,
+                                    })),
                             )
                             .ok();
                     }
@@ -564,7 +606,11 @@ impl App {
                                 .log(
                                     &ForgeEvent::new(EventType::TaskFailed, event_msg)
                                         .with_task(&task_id)
-                                        .with_agent(agent),
+                                        .with_agent(agent)
+                                        .with_metadata(serde_json::json!({
+                                            "exit_code": exit_code,
+                                            "duration_secs": duration_secs,
+                                        })),
                                 )
                                 .ok();
                         } else {
@@ -592,7 +638,11 @@ impl App {
                                 .log(
                                     &ForgeEvent::new(EventType::TaskFailed, event_msg)
                                         .with_task(&task_id)
-                                        .with_agent(agent),
+                                        .with_agent(agent)
+                                        .with_metadata(serde_json::json!({
+                                            "exit_code": exit_code,
+                                            "duration_secs": duration_secs,
+                                        })),
                                 )
                                 .ok();
                         }
@@ -627,9 +677,18 @@ impl App {
                             .log(
                                 &ForgeEvent::new(EventType::TaskFailed, event_msg)
                                     .with_task(&task_id)
-                                    .with_agent(agent),
+                                    .with_agent(agent)
+                                    .with_metadata(serde_json::json!({
+                                        "exit_code": exit_code,
+                                        "duration_secs": duration_secs,
+                                    })),
                             )
                             .ok();
+
+                        // Save PTY output for failed tasks too
+                        if let Some(ref output) = crash_output {
+                            save_pty_result(&self.forge_dir, &task_id, output);
+                        }
 
                         // Test/fix loop: generate fix + re-verify for failed verify tasks
                         if let Some(failed) = &failed_task {
@@ -2437,6 +2496,14 @@ fn compute_backoff_delay(attempt: u32) -> std::time::Duration {
     };
     let jitter = rand::rng().random_range(0..=30u64);
     std::time::Duration::from_secs(base_secs + jitter)
+}
+
+/// Save PTY output to .forge/results/{task_id}.txt for cross-agent verification.
+fn save_pty_result(forge_dir: &std::path::Path, task_id: &str, output: &str) {
+    let results_dir = forge_dir.join("results");
+    if std::fs::create_dir_all(&results_dir).is_ok() {
+        std::fs::write(results_dir.join(format!("{task_id}.txt")), output).ok();
+    }
 }
 
 /// Map an agent type to its pane index.
