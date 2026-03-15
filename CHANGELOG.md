@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-03-15
+
+### Observability & Logging (P1 — Launch Readiness)
+
+Addresses CLX9 dogfood findings: skeletal logging, missing task outputs, empty knowledge directories, stale state.json during dashboard runs. Implements all 4 Tier 1 items from the observability brief.
+
+### Added
+
+- **Full agent output capture** (`app.rs`) — PTY mode: `pty_session.snapshot()` flushes vt100 buffer to `.forge/results/{task_id}.txt` on every task completion/failure. Piped mode: `agent_outputs` buffer written to same path. All task outputs now persisted to disk.
+- **Structured event fields** (`event.rs`) — `duration_ms: Option<u64>` and `exit_code: Option<i32>` as first-class fields on `ForgeEvent`. Task duration tracked from dispatch to completion using `Instant::now()`.
+- **Real-time phase tracking** (`state.rs`, `app.rs`) — `current_phase: Option<String>` added to `ForgeState`. State.json updated at every Build→Verify→Complete phase transition.
+- **Cross-agent verification** (`task.rs`, `app.rs`) — `verified_by: Option<AgentType>` and `verified_at: Option<DateTime<Utc>>` fields on `Task`. Auto-populated when V-xxx verify tasks complete, linking verification agent to parent build task.
+- **Rich event logging** (`app.rs`) — PTY result capture and knowledge auto-extraction on task completion.
+
+### Changed
+
+- Stargate Auto-Approve Contract documented in CLAUDE.md — all 3 adapters (Claude, Codex, Gemini) now marked as having unconditional auto-approve.
+
 ## [1.3.2] - 2026-03-14
 
 ### Codex PTY Crash Fix (P0)
