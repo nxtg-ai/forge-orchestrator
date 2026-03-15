@@ -101,6 +101,18 @@ Each AI tool has an adapter implementing `ToolAdapter`:
 
 **Ready patterns:** Claude=`"to cycle"`, Codex=`"help you with"`, Gemini=`"Type your message"`
 
+### Stargate Auto-Approve Contract (MANDATORY)
+
+Every adapter's `build_command_interactive()` MUST pass the tool's auto-approve flag unconditionally in Stargate mode. Agents inside dashboard PTY panes run unattended — they cannot wait for human approval prompts.
+
+| Tool | Auto-Approve Flag | Status |
+|------|------------------|--------|
+| Claude | `--dangerously-skip-permissions` | Working (v1.3.0+) |
+| Codex | `codex exec --full-auto --skip-git-repo-check "prompt"` | Fixed (v1.3.2) |
+| Gemini | `--yolo --sandbox=false` | **MISSING** — causes 30+ min stalls |
+
+**Rule**: When adding a new adapter, the first thing to verify is its unattended-execution flag. If the CLI tool has no such flag, it cannot be used in Stargate mode.
+
 ## PTY / Stargate Mode
 
 `--pty` flag launches native agent TUIs inside the dashboard:
