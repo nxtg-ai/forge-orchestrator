@@ -109,7 +109,7 @@ Every adapter's `build_command_interactive()` MUST pass the tool's auto-approve 
 |------|------------------|--------|
 | Claude | `--dangerously-skip-permissions` | Working (v1.3.0+) |
 | Codex | `codex exec --full-auto --skip-git-repo-check "prompt"` | Fixed (v1.3.2) |
-| Gemini | `--yolo --sandbox=false` | **MISSING** — causes 30+ min stalls |
+| Gemini | `--yolo --sandbox=false` | Fixed (v1.3.2) |
 
 **Rule**: When adding a new adapter, the first thing to verify is its unattended-execution flag. If the CLI tool has no such flag, it cannot be used in Stargate mode.
 
