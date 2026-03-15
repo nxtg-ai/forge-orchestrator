@@ -179,12 +179,7 @@ impl ToolAdapter for CodexAdapter {
         let prompt = Self::task_prompt(task, task_type);
 
         let mut cmd = Command::new("codex");
-        cmd.args([
-            "exec",
-            "--full-auto",
-            "--skip-git-repo-check",
-            &prompt,
-        ]);
+        cmd.args(["exec", "--full-auto", "--skip-git-repo-check", &prompt]);
         cmd.current_dir(project_root);
 
         if auth_mode == "subscription" {

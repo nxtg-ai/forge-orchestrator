@@ -620,10 +620,7 @@ impl App {
                                 output
                             };
                             if !truncated.is_empty() {
-                                self.push_event(&format!(
-                                    "  PTY output: {}",
-                                    truncated
-                                ));
+                                self.push_event(&format!("  PTY output: {}", truncated));
                             }
                         }
                         event_logger
