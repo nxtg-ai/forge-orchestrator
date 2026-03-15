@@ -105,13 +105,14 @@ impl ToolAdapter for GeminiAdapter {
         _task: &Task,
         project_root: &Path,
         auth_mode: &str,
-        permissions: &str,
+        _permissions: &str,
     ) -> Command {
         let mut cmd = Command::new("gemini");
         // No -p flag — launches full interactive TUI
-        if permissions == "yolo" {
-            cmd.args(["--yolo", "--sandbox=false"]);
-        }
+        // Always use --yolo --sandbox=false in dashboard PTY mode — agents need
+        // full autonomy to execute tasks without blocking on approval prompts.
+        // (Mirrors Claude's --dangerously-skip-permissions and Codex's --full-auto.)
+        cmd.args(["--yolo", "--sandbox=false"]);
         cmd.current_dir(project_root);
 
         if auth_mode == "subscription" {
