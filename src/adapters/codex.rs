@@ -166,13 +166,16 @@ impl ToolAdapter for CodexAdapter {
         _task: &Task,
         project_root: &Path,
         auth_mode: &str,
-        permissions: &str,
+        _permissions: &str,
     ) -> Command {
         let mut cmd = Command::new("codex");
         // No "exec" subcommand — launches full interactive TUI
-        if permissions == "yolo" {
-            cmd.arg("--full-auto");
-        }
+        // Always use --full-auto in dashboard PTY mode — agents need full autonomy
+        // to execute tasks without blocking on approval prompts.
+        // (Mirrors Claude's --dangerously-skip-permissions in PTY mode.)
+        // --no-alt-screen: Codex is embedded inside Forge's own ratatui TUI via
+        // a vt100 PTY — alt-screen causes rendering conflicts in nested contexts.
+        cmd.args(["--full-auto", "--no-alt-screen"]);
         cmd.current_dir(project_root);
 
         if auth_mode == "subscription" {

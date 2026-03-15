@@ -465,6 +465,27 @@ impl App {
                     .map(|s| s.try_wait().is_some())
                     .unwrap_or(true);
 
+                // Capture PTY output before removing session — helps debug
+                // crashes like Codex exiting immediately with no visible error.
+                let crash_output = if process_exited && !success {
+                    self.pty_sessions.get(&agent).map(|s| {
+                        let lines = s.snapshot();
+                        lines
+                            .iter()
+                            .map(|l| {
+                                l.spans
+                                    .iter()
+                                    .map(|sp| sp.text.as_str())
+                                    .collect::<String>()
+                            })
+                            .filter(|l| !l.trim().is_empty())
+                            .collect::<Vec<_>>()
+                            .join(" | ")
+                    })
+                } else {
+                    None
+                };
+
                 if process_exited {
                     self.pty_sessions.remove(&agent);
                     if let Some(pane_idx) = agent_pane_index(&agent)
@@ -591,6 +612,20 @@ impl App {
                         let event_msg =
                             format!("{} failed by {} (exit {})", task_id, agent, exit_code);
                         self.push_event(&event_msg);
+                        // Log captured PTY output for crash diagnosis
+                        if let Some(ref output) = crash_output {
+                            let truncated = if output.len() > 200 {
+                                &output[..200]
+                            } else {
+                                output
+                            };
+                            if !truncated.is_empty() {
+                                self.push_event(&format!(
+                                    "  PTY output: {}",
+                                    truncated
+                                ));
+                            }
+                        }
                         event_logger
                             .log(
                                 &ForgeEvent::new(EventType::TaskFailed, event_msg)
@@ -1990,6 +2025,10 @@ impl App {
         for (key, val) in std_cmd.get_envs() {
             if let Some(v) = val {
                 pty_cmd.env(key.to_string_lossy().as_ref(), v.to_string_lossy().as_ref());
+            } else {
+                // Forward env_remove() calls — without this, vars the adapter
+                // wanted removed (e.g. API keys in subscription mode) leak through.
+                pty_cmd.env_remove(key.to_string_lossy().as_ref());
             }
         }
 
@@ -2082,6 +2121,10 @@ impl App {
         for (key, val) in std_cmd.get_envs() {
             if let Some(v) = val {
                 pty_cmd.env(key.to_string_lossy().as_ref(), v.to_string_lossy().as_ref());
+            } else {
+                // Forward env_remove() calls — without this, vars the adapter
+                // wanted removed (e.g. API keys in subscription mode) leak through.
+                pty_cmd.env_remove(key.to_string_lossy().as_ref());
             }
         }
 

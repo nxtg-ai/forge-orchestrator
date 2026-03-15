@@ -196,10 +196,11 @@ impl PtySession {
                     Err(_) => break,
                 }
             }
-            // Process exited — get exit code and notify event loop
+            // Process exited — get exit code and notify event loop.
+            // Preserve the real exit code (not just 0/1) for debugging.
             let (success, exit_code) = if let Ok(mut guard) = child_clone.lock() {
                 match guard.wait() {
-                    Ok(status) => (status.success(), if status.success() { 0 } else { 1 }),
+                    Ok(status) => (status.success(), status.exit_code() as i32),
                     Err(_) => (false, -1),
                 }
             } else {
