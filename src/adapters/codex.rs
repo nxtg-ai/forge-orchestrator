@@ -159,23 +159,32 @@ impl ToolAdapter for CodexAdapter {
         cmd
     }
 
-    /// Interactive PTY mode: launch `codex` (full TUI) instead of `codex exec`.
-    /// The prompt is typed into the TUI via initial_input() after startup.
+    /// PTY mode: use `codex exec` with the prompt as a CLI argument.
+    ///
+    /// Root cause (Emma/CLX9): Codex's resolve_prompt() exits immediately
+    /// with code 1 ("No prompt provided") when stdin.is_terminal() == true
+    /// and no prompt arg is given. In a PTY, stdin IS a terminal, so bare
+    /// `codex` (interactive TUI) crashes before initial_input can be typed.
+    ///
+    /// Fix: pass the prompt directly via `codex exec "prompt"`. This also
+    /// eliminates the fragile ready-pattern + delayed-input dance.
     fn build_command_interactive(
         &self,
-        _task: &Task,
+        task: &Task,
         project_root: &Path,
         auth_mode: &str,
         _permissions: &str,
     ) -> Command {
+        let task_type = task.task_type.as_deref().unwrap_or("");
+        let prompt = Self::task_prompt(task, task_type);
+
         let mut cmd = Command::new("codex");
-        // No "exec" subcommand — launches full interactive TUI
-        // Always use --full-auto in dashboard PTY mode — agents need full autonomy
-        // to execute tasks without blocking on approval prompts.
-        // (Mirrors Claude's --dangerously-skip-permissions in PTY mode.)
-        // --no-alt-screen: Codex is embedded inside Forge's own ratatui TUI via
-        // a vt100 PTY — alt-screen causes rendering conflicts in nested contexts.
-        cmd.args(["--full-auto", "--no-alt-screen"]);
+        cmd.args([
+            "exec",
+            "--full-auto",
+            "--skip-git-repo-check",
+            &prompt,
+        ]);
         cmd.current_dir(project_root);
 
         if auth_mode == "subscription" {
@@ -185,18 +194,8 @@ impl ToolAdapter for CodexAdapter {
         cmd
     }
 
-    /// Provide the task prompt to be typed into the Codex TUI after it initializes.
-    fn initial_input(&self, task: &Task) -> Option<String> {
-        let task_type = task.task_type.as_deref().unwrap_or("");
-        let prompt = Self::task_prompt(task, task_type).replace('\n', " ");
-        // \r = Enter to submit the prompt
-        Some(format!("{}\r", prompt))
-    }
-
-    /// Codex TUI shows "What can I help you with?" when ready for input.
-    fn ready_pattern(&self) -> Option<&str> {
-        Some("help you with")
-    }
+    // No initial_input — prompt is passed as CLI arg to `codex exec`.
+    // No ready_pattern — `codex exec` starts executing immediately.
 }
 
 #[cfg(test)]
