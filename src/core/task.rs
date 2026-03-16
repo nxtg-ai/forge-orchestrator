@@ -547,11 +547,13 @@ impl TaskManager {
             }
 
             verify_task.acceptance_criteria = enriched;
-            verify_task.assigned_to = Some(match task_type {
-                "document" => AgentType::Gemini,
-                "design" => AgentType::Claude,
-                _ => AgentType::Codex,
-            });
+
+            // CRITICAL: Cross-agent verification — the verifier MUST be a
+            // different agent than the builder. This is the Circular Validation
+            // Trap defense: if the same agent builds and verifies, it will
+            // repeat its own mistakes instead of catching them.
+            let builder = task.assigned_to.clone().unwrap_or(AgentType::Claude);
+            verify_task.assigned_to = Some(pick_different_agent(&builder));
 
             self.create_task(&verify_task)?;
             generated.push(verify_task);
@@ -608,6 +610,16 @@ impl TaskManager {
             next_t += 1;
         }
         Ok(generated)
+    }
+}
+
+/// Pick a different agent than the builder for cross-agent verification.
+/// Ensures v.agent != t.agent — the Circular Validation Trap defense.
+fn pick_different_agent(builder: &AgentType) -> AgentType {
+    match builder {
+        AgentType::Claude | AgentType::Any => AgentType::Codex,
+        AgentType::Codex => AgentType::Claude,
+        AgentType::Gemini => AgentType::Claude,
     }
 }
 
@@ -934,7 +946,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mgr = TaskManager::new(tmp.path());
 
-        // Default type → Codex
+        // Unassigned task defaults to Claude → verifier must be Codex (different agent)
         let mut t1 = Task::new("T-001", "Default task", "desc");
         t1.task_type = Some("implement".to_string());
         t1.status = TaskStatus::Completed;
@@ -942,6 +954,61 @@ mod tests {
 
         let generated = mgr.generate_verify_subtasks().unwrap();
         assert_eq!(generated[0].assigned_to, Some(AgentType::Codex));
+    }
+
+    #[test]
+    fn test_cross_agent_verification_never_same_agent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        // Codex built it → Claude must verify (v.agent != t.agent)
+        let mut t1 = Task::new("T-001", "Codex task", "desc");
+        t1.task_type = Some("implement".to_string());
+        t1.status = TaskStatus::Completed;
+        t1.assigned_to = Some(AgentType::Codex);
+        mgr.create_task(&t1).unwrap();
+
+        let generated = mgr.generate_verify_subtasks().unwrap();
+        assert_eq!(generated.len(), 1);
+        assert_eq!(generated[0].assigned_to, Some(AgentType::Claude));
+        assert_ne!(
+            generated[0].assigned_to, t1.assigned_to,
+            "Verifier must differ from builder"
+        );
+    }
+
+    #[test]
+    fn test_cross_agent_verification_gemini_builder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        // Gemini built it → Claude must verify
+        let mut t1 = Task::new("T-001", "Gemini task", "desc");
+        t1.task_type = Some("implement".to_string());
+        t1.status = TaskStatus::Completed;
+        t1.assigned_to = Some(AgentType::Gemini);
+        mgr.create_task(&t1).unwrap();
+
+        let generated = mgr.generate_verify_subtasks().unwrap();
+        assert_eq!(generated[0].assigned_to, Some(AgentType::Claude));
+        assert_ne!(generated[0].assigned_to, t1.assigned_to);
+    }
+
+    #[test]
+    fn test_cross_agent_verification_claude_builder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(tmp.path());
+
+        // Claude built it → Codex must verify
+        let mut t1 = Task::new("T-001", "Claude task", "desc");
+        t1.task_type = Some("implement".to_string());
+        t1.status = TaskStatus::Completed;
+        t1.assigned_to = Some(AgentType::Claude);
+        mgr.create_task(&t1).unwrap();
+
+        let generated = mgr.generate_verify_subtasks().unwrap();
+        assert_eq!(generated[0].assigned_to, Some(AgentType::Codex));
+        assert_ne!(generated[0].assigned_to, t1.assigned_to);
     }
 
     #[test]
