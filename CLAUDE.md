@@ -62,7 +62,7 @@ src/
 └── detect/              # Tool detection (scan PATH for claude, codex, gemini)
 ```
 
-## MCP Tools (9)
+## MCP Tools (11)
 
 forge-orchestrator exposes these tools via `forge mcp` (stdio JSON-RPC 2.0):
 
@@ -78,6 +78,7 @@ forge-orchestrator exposes these tools via `forge mcp` (stdio JSON-RPC 2.0):
 | `forge_check_drift` | Compare work vs. vision (SPEC.md) |
 | `forge_get_health` | Comprehensive governance health check |
 | `forge_set_project` | Switch active project |
+| `forge_get_events` | Query event history (count, task_id, event_type filters) |
 
 ## Task Model
 
