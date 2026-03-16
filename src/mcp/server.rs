@@ -203,7 +203,7 @@ mod tests {
         let response = handle_request(&request, &mut root).unwrap();
         let result = response.result.unwrap();
         let tools = result["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 10);
+        assert_eq!(tools.len(), 11);
     }
 
     #[test]

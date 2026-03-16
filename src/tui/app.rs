@@ -511,6 +511,12 @@ impl App {
                     }
                 }
 
+                tracing::debug!(
+                    task_id = %task_id, agent = %agent,
+                    success = success, exit_code = exit_code,
+                    "Task completed"
+                );
+
                 let task_mgr = TaskManager::new(&self.forge_dir);
                 let state_mgr = StateManager::new(&self.forge_dir);
                 let event_logger = EventLogger::new(&self.forge_dir);
@@ -2147,6 +2153,7 @@ impl App {
         agent: &AgentType,
         tx: &mpsc::UnboundedSender<AgentEvent>,
     ) {
+        tracing::debug!(task_id = %task.id, agent = %agent, "Spawning PTY for task");
         // Reuse existing idle TUI if available
         if self.pty_sessions.contains_key(agent) {
             self.dispatch_task_to_existing_tui(task, agent, tx);

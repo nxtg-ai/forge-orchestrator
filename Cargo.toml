@@ -1,6 +1,6 @@
 [package]
 name = "forge-orchestrator"
-version = "1.4.0"
+version = "1.4.1"
 edition = "2024"
 description = "Universal orchestration engine for AI-powered development"
 license = "MIT"
@@ -56,6 +56,11 @@ rand = "0.9"
 portable-pty = "0.9"
 # Full virtual terminal emulator (proper cursor, scroll regions, alt screen)
 vt100 = "0.15"
+
+# Structured logging / tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
 
 # File watching (future: detect completions)
 # notify = "7"

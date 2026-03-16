@@ -160,6 +160,32 @@ pub fn list_tools() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
+            name: "forge_get_events".into(),
+            description: "Query the event log — returns recent events with optional filters".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "description": "Number of events to return (default: 50)",
+                        "default": 50
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "description": "Filter events by task ID (e.g., T-001)"
+                    },
+                    "event_type": {
+                        "type": "string",
+                        "description": "Filter by event type",
+                        "enum": ["plan_created", "task_created", "task_assigned", "task_started",
+                                 "task_completed", "task_failed", "files_locked", "files_unlocked",
+                                 "knowledge_captured", "governance_check", "state_reconciled",
+                                 "tool_detected", "quality_gate_passed", "quality_gate_failed"]
+                    }
+                }
+            }),
+        },
+        ToolDefinition {
             name: "forge_set_project".into(),
             description: "Switch the active project — changes which .forge/ directory is used for all subsequent tool calls".into(),
             input_schema: json!({
@@ -203,6 +229,7 @@ pub fn call_tool(name: &str, args: &Value, project_root: &Path) -> CallToolResul
         );
     }
 
+    tracing::debug!(tool = name, "MCP tool call");
     match name {
         "forge_get_tasks" => handle_get_tasks(args, &forge_dir),
         "forge_claim_task" => handle_claim_task(args, &forge_dir),
@@ -213,6 +240,7 @@ pub fn call_tool(name: &str, args: &Value, project_root: &Path) -> CallToolResul
         "forge_get_knowledge" => handle_get_knowledge(args, &forge_dir),
         "forge_check_drift" => handle_check_drift(project_root),
         "forge_get_health" => handle_get_health(project_root),
+        "forge_get_events" => handle_get_events(args, &forge_dir),
         _ => CallToolResult::error(format!("Unknown tool: {name}")),
     }
 }
@@ -687,14 +715,69 @@ fn handle_get_health(project_root: &Path) -> CallToolResult {
     CallToolResult::text(serde_json::to_string_pretty(&output).unwrap_or_default())
 }
 
+fn handle_get_events(args: &Value, forge_dir: &Path) -> CallToolResult {
+    let event_logger = EventLogger::new(forge_dir);
+
+    let count = args
+        .get("count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(50) as usize;
+
+    let task_filter = args.get("task_id").and_then(|v| v.as_str());
+    let type_filter = args.get("event_type").and_then(|v| v.as_str());
+
+    let events = match event_logger.read_recent(count.max(500)) {
+        Ok(e) => e,
+        Err(e) => return CallToolResult::error(format!("Failed to read events: {e}")),
+    };
+
+    let filtered: Vec<_> = events
+        .into_iter()
+        .filter(|e| {
+            if let Some(tid) = task_filter {
+                if e.task_id.as_deref() != Some(tid) {
+                    return false;
+                }
+            }
+            if let Some(et) = type_filter {
+                let type_str = serde_json::to_string(&e.event_type).unwrap_or_default();
+                let type_str = type_str.trim_matches('"');
+                if type_str != et {
+                    return false;
+                }
+            }
+            true
+        })
+        .collect();
+
+    // Take only the last `count` after filtering
+    let start = filtered.len().saturating_sub(count);
+    let result: Vec<_> = filtered[start..]
+        .iter()
+        .map(|e| {
+            json!({
+                "timestamp": e.timestamp.to_rfc3339(),
+                "event_type": e.event_type,
+                "task_id": e.task_id,
+                "agent": e.agent,
+                "message": e.message,
+                "duration_ms": e.duration_ms,
+                "exit_code": e.exit_code,
+            })
+        })
+        .collect();
+
+    CallToolResult::text(serde_json::to_string_pretty(&result).unwrap_or_default())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_list_tools_returns_ten() {
+    fn test_list_tools_returns_eleven() {
         let tools = list_tools();
-        assert_eq!(tools.len(), 10);
+        assert_eq!(tools.len(), 11);
         assert_eq!(tools[0].name, "forge_get_tasks");
         assert_eq!(tools[1].name, "forge_claim_task");
         assert_eq!(tools[2].name, "forge_complete_task");
@@ -704,7 +787,8 @@ mod tests {
         assert_eq!(tools[6].name, "forge_get_knowledge");
         assert_eq!(tools[7].name, "forge_check_drift");
         assert_eq!(tools[8].name, "forge_get_health");
-        assert_eq!(tools[9].name, "forge_set_project");
+        assert_eq!(tools[9].name, "forge_get_events");
+        assert_eq!(tools[10].name, "forge_set_project");
     }
 
     #[test]

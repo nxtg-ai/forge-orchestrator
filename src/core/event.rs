@@ -98,6 +98,12 @@ impl EventLogger {
 
     /// Append a single event to the JSONL log
     pub fn log(&self, event: &ForgeEvent) -> anyhow::Result<()> {
+        tracing::debug!(
+            event_type = ?event.event_type,
+            task_id = ?event.task_id,
+            agent = ?event.agent,
+            "Writing event"
+        );
         std::fs::create_dir_all(&self.forge_dir)?;
         let mut file = std::fs::OpenOptions::new()
             .create(true)

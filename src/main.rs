@@ -17,6 +17,10 @@ async fn main() -> anyhow::Result<()> {
     // Load .env from CWD first (default dotenvy behavior)
     dotenvy::dotenv().ok();
 
+    // Initialize tracing — only active when RUST_LOG is set.
+    // Writes to stderr by default; also writes to .forge/debug.log when active.
+    init_tracing();
+
     let cli = Cli::parse();
     let project_root = PathBuf::from(&cli.project)
         .canonicalize()
@@ -165,4 +169,37 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Initialize tracing infrastructure. Only active when RUST_LOG is set.
+/// Logs to stderr + .forge/debug.log (non-blocking file appender).
+fn init_tracing() {
+    use tracing_subscriber::EnvFilter;
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    // Only activate if RUST_LOG is set — zero overhead otherwise.
+    let filter = match EnvFilter::try_from_default_env() {
+        Ok(f) => f,
+        Err(_) => return, // RUST_LOG not set — no tracing
+    };
+
+    // File appender: writes to .forge/debug.log (non-blocking)
+    let forge_dir = std::env::current_dir()
+        .unwrap_or_default()
+        .join(".forge");
+    std::fs::create_dir_all(&forge_dir).ok();
+    let file_appender = tracing_appender::rolling::never(&forge_dir, "debug.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    // Leak the guard so the file writer stays alive for the process lifetime
+    std::mem::forget(_guard);
+
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(non_blocking)
+                .with_ansi(false),
+        )
+        .init();
 }
