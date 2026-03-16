@@ -555,15 +555,14 @@ impl App {
 
                         // Cross-agent verification: when V-xxx completes,
                         // stamp verified_by/verified_at on its parent T-xxx.
-                        if updated.phase == Some(TaskPhase::Verify) {
-                            if let Some(ref parent_id) = updated.parent_task {
-                                if let Ok(mut parent) = task_mgr.get_task(parent_id) {
-                                    parent.verified_by = updated.assigned_to.clone();
-                                    parent.verified_at = Some(chrono::Utc::now());
-                                    parent.updated_at = chrono::Utc::now();
-                                    task_mgr.update_task(&parent).ok();
-                                }
-                            }
+                        if updated.phase == Some(TaskPhase::Verify)
+                            && let Some(ref parent_id) = updated.parent_task
+                            && let Ok(mut parent) = task_mgr.get_task(parent_id)
+                        {
+                            parent.verified_by = updated.assigned_to.clone();
+                            parent.verified_at = Some(chrono::Utc::now());
+                            parent.updated_at = chrono::Utc::now();
+                            task_mgr.update_task(&parent).ok();
                         }
 
                         // DX-028: Auto-commit after task completion

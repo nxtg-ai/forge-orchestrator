@@ -734,10 +734,10 @@ fn handle_get_events(args: &Value, forge_dir: &Path) -> CallToolResult {
     let filtered: Vec<_> = events
         .into_iter()
         .filter(|e| {
-            if let Some(tid) = task_filter {
-                if e.task_id.as_deref() != Some(tid) {
-                    return false;
-                }
+            if let Some(tid) = task_filter
+                && e.task_id.as_deref() != Some(tid)
+            {
+                return false;
             }
             if let Some(et) = type_filter {
                 let type_str = serde_json::to_string(&e.event_type).unwrap_or_default();
