@@ -185,9 +185,7 @@ fn init_tracing() {
     };
 
     // File appender: writes to .forge/debug.log (non-blocking)
-    let forge_dir = std::env::current_dir()
-        .unwrap_or_default()
-        .join(".forge");
+    let forge_dir = std::env::current_dir().unwrap_or_default().join(".forge");
     std::fs::create_dir_all(&forge_dir).ok();
     let file_appender = tracing_appender::rolling::never(&forge_dir, "debug.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);

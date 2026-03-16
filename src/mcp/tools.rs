@@ -718,10 +718,7 @@ fn handle_get_health(project_root: &Path) -> CallToolResult {
 fn handle_get_events(args: &Value, forge_dir: &Path) -> CallToolResult {
     let event_logger = EventLogger::new(forge_dir);
 
-    let count = args
-        .get("count")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(50) as usize;
+    let count = args.get("count").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
 
     let task_filter = args.get("task_id").and_then(|v| v.as_str());
     let type_filter = args.get("event_type").and_then(|v| v.as_str());
