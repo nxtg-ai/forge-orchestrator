@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-03-16
+
+### Tier 2 Observability
+
+- **Debug/trace mode** — `tracing` + `tracing-subscriber` + `tracing-appender`. Zero overhead when `RUST_LOG` unset. When set, writes to `.forge/debug.log`. `debug!()` spans at PTY spawn, task completion, event write, MCP dispatch.
+- **`forge_get_events` MCP tool** — 11th tool. Parameters: `count` (default 50), optional `task_id` filter, optional `event_type` filter. Returns structured JSON with `duration_ms`/`exit_code` fields.
+- **Knowledge auto-capture** — Confirmed working from v1.4.0 (no additional changes needed).
+
 ## [1.4.0] - 2026-03-15
 
 ### Observability & Logging (P1 — Launch Readiness)
