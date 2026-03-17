@@ -153,7 +153,7 @@ git clone https://github.com/nxtg-ai/forge-ui && npm install && npm run dev
 - [Forge Product Page](https://forge.nxtg.ai)
 - [Forge Plugin](https://github.com/nxtg-ai/forge-plugin) (L1: Vibe Coder)
 - [Forge UI](https://github.com/nxtg-ai/forge-ui) (L3: Ship Lord)
-- [Documentation](https://forge.nxtg.ai/docs)
+- [Documentation](https://forge.nxtg.ai/forge/docs)
 
 ## License
 
