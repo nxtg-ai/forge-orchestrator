@@ -1,9 +1,9 @@
 [package]
 name = "forge-orchestrator"
-version = "1.4.1"
+version = "1.4.2"
 edition = "2024"
 description = "Universal orchestration engine for AI-powered development"
-license = "MIT"
+license = "FSL-1.1-ALv2"
 repository = "https://github.com/nxtg-ai/forge-orchestrator"
 keywords = ["ai", "orchestration", "claude", "codex", "gemini"]
 categories = ["command-line-utilities", "development-tools"]
