@@ -1667,9 +1667,11 @@ impl App {
     }
 
     pub fn is_all_done(&self) -> bool {
+        // ALL tasks must be complete — including UAT and verify subtasks.
+        // Previously this filtered out UAT tasks, causing premature completion
+        // while U-xxx tasks were still pending.
         self.tasks
             .iter()
-            .filter(|t| t.phase != Some(TaskPhase::Uat))
             .all(|t| t.status == TaskStatus::Completed || t.status == TaskStatus::Failed)
     }
 
@@ -2757,6 +2759,33 @@ mod tests {
             make_task("T-002", TaskStatus::Pending, vec![]),
         ];
         assert!(!app.is_all_done());
+    }
+
+    #[test]
+    fn test_is_all_done_includes_uat_tasks() {
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
+        let mut uat = make_task("U-001", TaskStatus::Pending, vec![]);
+        uat.phase = Some(TaskPhase::Uat);
+        app.tasks = vec![
+            make_task("T-001", TaskStatus::Completed, vec![]),
+            make_task("V-001", TaskStatus::Completed, vec![]),
+            uat,
+        ];
+        // Pending UAT tasks MUST prevent is_all_done from returning true.
+        // This was the bug: UAT tasks were filtered out, causing premature
+        // phase completion while U-tasks were still pending.
+        assert!(!app.is_all_done());
+    }
+
+    #[test]
+    fn test_is_all_done_uat_completed() {
+        let (mut app, _rx, _tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
+        let mut uat = make_task("U-001", TaskStatus::Completed, vec![]);
+        uat.phase = Some(TaskPhase::Uat);
+        app.tasks = vec![make_task("T-001", TaskStatus::Completed, vec![]), uat];
+        assert!(app.is_all_done());
     }
 
     #[test]
