@@ -153,6 +153,9 @@ async fn main() -> anyhow::Result<()> {
             }
             cli::dashboard::execute(&project_root, parallel, watch, pty).await?;
         }
+        Commands::Uninstall { force } => {
+            cli::uninstall::execute(&project_root, force)?;
+        }
         Commands::Config { key, value } => {
             if let Some(key) = key {
                 if let Some(value) = value {

@@ -8,6 +8,7 @@ pub mod start;
 pub mod status;
 pub mod sync;
 pub mod uat;
+pub mod uninstall;
 pub mod verify;
 
 use clap::{Parser, Subcommand};
@@ -127,6 +128,13 @@ pub enum Commands {
         /// Quick capture: describe a finding inline without opening TUI
         #[arg()]
         finding: Option<String>,
+    },
+
+    /// Uninstall Forge — remove binary and optionally project data
+    Uninstall {
+        /// Also remove .forge/ project data and ~/.forge/ global config
+        #[arg(long)]
+        force: bool,
     },
 
     /// Get or set configuration values
