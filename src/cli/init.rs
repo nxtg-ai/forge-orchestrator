@@ -130,7 +130,16 @@ pub fn execute(project_root: &Path, name: Option<String>) -> anyhow::Result<()> 
 
     // Step 1: Detect tools
     println!("{}", "Step 2: Tool Detection".bold());
+    let spinner = indicatif::ProgressBar::new_spinner();
+    spinner.set_style(
+        indicatif::ProgressStyle::default_spinner()
+            .template("  {spinner:.cyan} {msg}")
+            .unwrap(),
+    );
+    spinner.set_message("Scanning PATH for AI tools (claude, codex, gemini)...");
+    spinner.enable_steady_tick(std::time::Duration::from_millis(80));
     let tools = detect_tools();
+    spinner.finish_and_clear();
     display_detected_tools(&tools);
     println!();
 
