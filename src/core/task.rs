@@ -808,8 +808,8 @@ mod tests {
 
         let mut task = Task::new(
             "T-001",
-            "Optimize database queries",
-            "Improve SQL performance",
+            "Refactor database module",
+            "Clean up internal SQL layer",
         );
         task.task_type = Some("implement".to_string());
         task.status = TaskStatus::Completed;
@@ -817,7 +817,7 @@ mod tests {
         mgr.create_task(&task).unwrap();
 
         let generated = mgr.generate_uat_subtasks().unwrap();
-        assert_eq!(generated.len(), 0); // No UAT keywords
+        assert_eq!(generated.len(), 0); // Internal/infra task — no UAT
     }
 
     #[test]

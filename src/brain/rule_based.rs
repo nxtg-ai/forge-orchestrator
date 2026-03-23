@@ -5,41 +5,37 @@ use crate::core::task::{AgentType, Task};
 /// This is the free tier / fallback brain.
 pub struct RuleBasedBrain;
 
-const UAT_KEYWORDS: &[&str] = &[
-    "ui",
-    "ux",
-    "dashboard",
-    "component",
-    "layout",
-    "style",
-    "page",
-    "view",
-    "button",
-    "form",
-    "navigation",
-    "terminal",
-    "interaction",
-    "responsive",
-    "animation",
-    "accessibility",
-    "dialog",
-    "modal",
-    "tooltip",
-    "menu",
-    "sidebar",
-    "header",
-    "footer",
-    "theme",
-    "color",
-    "font",
-    "icon",
+/// Tasks are user-facing by default. Only tasks matching these internal/infra
+/// keywords are excluded from UAT generation. This inverts the old approach
+/// (whitelist of UI keywords) which missed entire categories like games,
+/// CLIs, APIs, etc.
+const NON_USER_FACING_KEYWORDS: &[&str] = &[
+    "refactor",
+    "ci",
+    "pipeline",
+    "migration",
+    "schema",
+    "infrastructure",
+    "devops",
+    "dockerfile",
+    "linter",
+    "formatter",
+    "dependency",
+    "upgrade",
+    "internal",
+    "scaffolding",
+    "boilerplate",
+    "config",
+    "tooling",
 ];
 
-/// Returns true if the task is user-facing based on keyword analysis.
-/// Uses word-boundary matching to avoid false positives (e.g. "form" in "performance").
+/// Returns true if the task is user-facing (should get UAT).
+/// Default: true. Only returns false for clearly internal/infra tasks.
 pub fn is_user_facing(title: &str, description: &str) -> bool {
     let text = format!("{} {}", title.to_lowercase(), description.to_lowercase());
-    UAT_KEYWORDS.iter().any(|kw| contains_word(&text, kw))
+    !NON_USER_FACING_KEYWORDS
+        .iter()
+        .any(|kw| contains_word(&text, kw))
 }
 
 /// Check if `text` contains `word` as a whole word (bounded by non-alphanumeric or string edges).
@@ -474,22 +470,52 @@ mod tests {
         assert!(is_user_facing("Create login form", "Authentication form"));
         assert!(is_user_facing(
             "Layout restructure",
-            "Refactor the page layout"
+            "Update the page layout"
         ));
     }
 
     #[test]
     fn test_is_user_facing_negative() {
-        assert!(!is_user_facing(
-            "Optimize database queries",
-            "Improve SQL performance"
-        ));
+        // Only clearly internal/infra tasks are non-user-facing
         assert!(!is_user_facing(
             "Refactor auth module",
             "Clean up internal code"
         ));
-        assert!(!is_user_facing("Add caching layer", "Redis integration"));
-        assert!(!is_user_facing("Write unit tests", "Test coverage for API"));
+        assert!(!is_user_facing("Update CI pipeline", "Fix GitHub Actions"));
+        assert!(!is_user_facing(
+            "Dockerfile optimization",
+            "Reduce image size"
+        ));
+        assert!(!is_user_facing(
+            "Dependency upgrade",
+            "Bump all packages to latest"
+        ));
+        assert!(!is_user_facing(
+            "Database migration",
+            "Add new schema columns"
+        ));
+    }
+
+    #[test]
+    fn test_is_user_facing_games_and_features() {
+        // The old heuristic missed entire categories. Games, CLIs, APIs
+        // are all user-facing and must get UAT tasks.
+        assert!(is_user_facing(
+            "Design High Score Feature",
+            "Add high score tracking"
+        ));
+        assert!(is_user_facing(
+            "Implement Combo Multiplier",
+            "Combo system for scoring"
+        ));
+        assert!(is_user_facing(
+            "Add caching layer",
+            "Redis integration for faster responses"
+        ));
+        assert!(is_user_facing(
+            "Optimize database queries",
+            "Improve SQL performance"
+        ));
     }
 
     #[test]
