@@ -631,6 +631,7 @@ fn render_summary_pane_inner(
         DashboardPhase::Build => Color::Yellow,
         DashboardPhase::Verify => Color::Cyan,
         DashboardPhase::Complete => Color::Green,
+        DashboardPhase::Ship => Color::Magenta,
     };
 
     let mut lines = vec![
@@ -703,7 +704,7 @@ fn phase_progress(app: &App) -> (usize, usize) {
             .iter()
             .filter(|t| t.phase == Some(TaskPhase::Verify) || t.phase == Some(TaskPhase::Fix))
             .collect(),
-        DashboardPhase::Complete => app.tasks.iter().collect(),
+        DashboardPhase::Complete | DashboardPhase::Ship => app.tasks.iter().collect(),
     };
 
     let done = phase_tasks

@@ -153,6 +153,9 @@ async fn main() -> anyhow::Result<()> {
             }
             cli::dashboard::execute(&project_root, parallel, watch, pty).await?;
         }
+        Commands::Ship { auto, dry_run } => {
+            cli::ship::execute(&project_root, auto, dry_run)?;
+        }
         Commands::Uninstall { force } => {
             cli::uninstall::execute(&project_root, force)?;
         }

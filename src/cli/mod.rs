@@ -4,6 +4,7 @@ pub mod init;
 pub mod mcp;
 pub mod plan;
 pub mod run;
+pub mod ship;
 pub mod start;
 pub mod status;
 pub mod sync;
@@ -128,6 +129,17 @@ pub enum Commands {
         /// Quick capture: describe a finding inline without opening TUI
         #[arg()]
         finding: Option<String>,
+    },
+
+    /// Ship phase — generate changelog, archive artifacts, clean state for next cycle
+    Ship {
+        /// Auto-approve all steps (non-interactive)
+        #[arg(long)]
+        auto: bool,
+
+        /// Show what would happen without executing
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// Uninstall Forge — remove binary and optionally project data

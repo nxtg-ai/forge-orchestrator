@@ -9,6 +9,7 @@ pub enum TaskPhase {
     Verify,
     Fix,
     Uat,
+    Ship,
 }
 
 impl std::fmt::Display for TaskPhase {
@@ -18,6 +19,7 @@ impl std::fmt::Display for TaskPhase {
             TaskPhase::Verify => write!(f, "verify"),
             TaskPhase::Fix => write!(f, "fix"),
             TaskPhase::Uat => write!(f, "uat"),
+            TaskPhase::Ship => write!(f, "ship"),
         }
     }
 }

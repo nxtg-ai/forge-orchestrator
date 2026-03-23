@@ -65,6 +65,7 @@ pub enum DashboardPhase {
     Build,
     Verify,
     Complete,
+    Ship,
 }
 
 impl std::fmt::Display for DashboardPhase {
@@ -73,6 +74,7 @@ impl std::fmt::Display for DashboardPhase {
             DashboardPhase::Build => write!(f, "BUILD"),
             DashboardPhase::Verify => write!(f, "VERIFY"),
             DashboardPhase::Complete => write!(f, "COMPLETE"),
+            DashboardPhase::Ship => write!(f, "SHIP"),
         }
     }
 }
@@ -1186,23 +1188,26 @@ impl App {
             self.schedule_unblocked_tasks(agent_tx);
         }
         self.spinner_frame = (self.spinner_frame + 1) % 10;
+        // Ship phase can fire even with empty tasks (after clean_state)
+        if !self.watch_mode
+            && !self.all_complete
+            && self.running_task_ids.is_empty()
+            && self.phase == DashboardPhase::Ship
+        {
+            self.all_complete = true;
+            self.completed_at = Some(Instant::now());
+        }
         if !self.watch_mode
             && !self.all_complete
             && self.running_task_ids.is_empty()
             && !self.tasks.is_empty()
+            && self.is_all_done()
         {
-            // Phase-aware completion: only mark complete when dashboard phase is Complete
-            // or all tasks are done in the current phase
-            if self.phase == DashboardPhase::Complete && self.is_all_done() {
+            // All tasks done but phase hasn't transitioned yet — trigger it
+            self.check_phase_transition();
+            if self.phase == DashboardPhase::Ship {
                 self.all_complete = true;
                 self.completed_at = Some(Instant::now());
-            } else if self.is_all_done() {
-                // All tasks done but phase hasn't transitioned yet — trigger it
-                self.check_phase_transition();
-                if self.phase == DashboardPhase::Complete {
-                    self.all_complete = true;
-                    self.completed_at = Some(Instant::now());
-                }
             }
         }
         Ok(())
@@ -1762,7 +1767,18 @@ impl App {
                 }
                 false
             }
-            DashboardPhase::Complete => false,
+            DashboardPhase::Complete => {
+                // Complete→Ship: wait for ALL tasks (including UAT) to finish
+                if self.is_all_done() {
+                    self.phase = DashboardPhase::Ship;
+                    self.persist_phase();
+                    self.push_event("All tasks complete — entering SHIP phase");
+                    self.run_ship_phase();
+                    return true;
+                }
+                false
+            }
+            DashboardPhase::Ship => false,
         }
     }
 
@@ -1869,6 +1885,61 @@ impl App {
                 self.push_event(&format!("Failed to generate UAT tasks: {e}"));
             }
         }
+        self.reload_tasks().ok();
+    }
+
+    /// Run the SHIP phase: changelog, archive, clean state.
+    fn run_ship_phase(&mut self) {
+        use crate::core::ship;
+
+        // Generate changelog
+        match ship::generate_changelog(&self.forge_dir) {
+            Ok(cl) => {
+                if cl.contains("No completed tasks") {
+                    self.push_event("SHIP: No changelog entries (no completed T-tasks)");
+                } else {
+                    let lines = cl.lines().count();
+                    self.push_event(&format!("SHIP: Changelog generated ({lines} lines)"));
+                    // Write to project CHANGELOG.md if it exists
+                    let changelog_path = self.project_root.join("CHANGELOG.md");
+                    if changelog_path.exists()
+                        && let Ok(existing) = std::fs::read_to_string(&changelog_path)
+                        && let Some(pos) = existing.find("\n## ")
+                    {
+                        let mut new = existing[..pos].to_string();
+                        new.push('\n');
+                        new.push_str(&cl);
+                        new.push_str(&existing[pos..]);
+                        std::fs::write(&changelog_path, new).ok();
+                        self.push_event("SHIP: Updated CHANGELOG.md");
+                    }
+                }
+            }
+            Err(e) => self.push_event(&format!("SHIP: Changelog error: {e}")),
+        }
+
+        // Suggest version bump
+        let bump = ship::suggest_version_bump(&self.forge_dir);
+        self.push_event(&format!("SHIP: Suggested version bump: {bump}"));
+
+        // Archive
+        match ship::archive_cycle(&self.forge_dir) {
+            Ok((count, path)) => {
+                self.push_event(&format!(
+                    "SHIP: Archived {count} artifacts to {}",
+                    path.file_name().unwrap_or_default().to_string_lossy()
+                ));
+            }
+            Err(e) => self.push_event(&format!("SHIP: Archive error: {e}")),
+        }
+
+        // Clean state
+        match ship::clean_state(&self.forge_dir) {
+            Ok(()) => self.push_event("SHIP: State cleaned — ready for next cycle"),
+            Err(e) => self.push_event(&format!("SHIP: Clean error: {e}")),
+        }
+
+        self.push_event("SHIP phase complete. Run `forge ship` for interactive mode.");
         self.reload_tasks().ok();
     }
 
@@ -3318,8 +3389,8 @@ mod tests {
         let tasks_dir = forge_dir.join("tasks");
         std::fs::create_dir_all(&tasks_dir).unwrap();
 
-        // Create a completed task on disk (document type — skipped by verify generation)
-        let mut task = Task::new("T-001", "Done task", "It's done");
+        // Create a completed internal task (skipped by verify + UAT generation)
+        let mut task = Task::new("T-001", "Refactor internal module", "Internal refactoring");
         task.status = TaskStatus::Completed;
         task.assigned_to = Some(AgentType::Claude);
         task.task_type = Some("document".to_string());
@@ -3331,11 +3402,14 @@ mod tests {
         assert!(!app.all_complete);
 
         // Force reload so handle_tick updates
-        // With phase-aware completion: Build→Verify (no verify tasks)→Complete
+        // Build→Verify→Complete (first tick), Complete→Ship (second tick)
+        app.last_task_reload = Instant::now() - std::time::Duration::from_secs(3);
+        app.handle_tick(&tx).unwrap();
+        // Second tick for Complete→Ship transition
         app.last_task_reload = Instant::now() - std::time::Duration::from_secs(3);
         app.handle_tick(&tx).unwrap();
 
-        assert_eq!(app.phase, DashboardPhase::Complete);
+        assert_eq!(app.phase, DashboardPhase::Ship);
         assert!(app.all_complete);
         assert!(app.completed_at.is_some());
     }
@@ -3700,6 +3774,7 @@ mod tests {
         assert_eq!(DashboardPhase::Build.to_string(), "BUILD");
         assert_eq!(DashboardPhase::Verify.to_string(), "VERIFY");
         assert_eq!(DashboardPhase::Complete.to_string(), "COMPLETE");
+        assert_eq!(DashboardPhase::Ship.to_string(), "SHIP");
     }
 
     // ── DX-029: Stream-JSON parser tests ─────────────────────────
