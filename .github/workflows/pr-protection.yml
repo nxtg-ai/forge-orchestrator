@@ -1,0 +1,105 @@
+name: PR Protection
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+permissions:
+  contents: read
+  pull-requests: write
+env:
+  CARGO_TERM_COLOR: always
+  MIN_TEST_COUNT: 362
+
+jobs:
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan for unsafe Rust patterns
+        id: scan
+        run: |
+          echo "## Security Scan" > security-report.txt
+          ISSUES=0
+          for PAT in 'unsafe\s*{' 'std::process::Command' '\*mut ' '\*const ' 'extern\s*\"C\"' 'from_raw_parts'; do
+            HITS=$(grep -rn "$PAT" src/ --include='*.rs' || true)
+            if [ -n "$HITS" ]; then
+              echo "### Pattern: \`$PAT\`" >> security-report.txt
+              echo '```' >> security-report.txt
+              echo "$HITS" >> security-report.txt
+              echo '```' >> security-report.txt
+              ISSUES=$((ISSUES + $(echo "$HITS" | wc -l)))
+            fi
+          done
+          [ "$ISSUES" -eq 0 ] && echo "No unsafe patterns found." >> security-report.txt
+          echo "issues=$ISSUES" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with: { name: security-report, path: security-report.txt }
+
+  quality-gate:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: "clippy, rustfmt" }
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy -- -D warnings
+      - name: Run tests and verify count
+        run: |
+          OUTPUT=$(cargo test 2>&1)
+          echo "$OUTPUT"
+          PASSED=$(echo "$OUTPUT" | grep -oP '\d+ passed' | grep -oP '\d+' | tail -1)
+          echo "Tests passed: ${PASSED:-0}"
+          if [ "${PASSED:-0}" -lt "$MIN_TEST_COUNT" ]; then
+            echo "::error::Test count ${PASSED:-0} < minimum $MIN_TEST_COUNT"
+            exit 1
+          fi
+
+  dependency-audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install and run cargo-audit
+        run: cargo install cargo-audit --quiet && cargo audit
+
+  build-check:
+    name: Release Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release
+
+  summary:
+    name: PR Summary
+    runs-on: ubuntu-latest
+    needs: [security-scan, quality-gate, dependency-audit, build-check]
+    if: always()
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: security-report }
+        continue-on-error: true
+      - name: Post summary comment
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.NXTG_SENTINEL_TOKEN || secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const jobs = ${{ toJSON(needs) }};
+            const icon = s => s === 'success' ? ':white_check_mark:' : ':x:';
+            let body = `## PR Protection Summary\n| Check | Status |\n|-------|--------|\n`;
+            for (const [k,v] of Object.entries(jobs))
+              body += `| ${k} | ${icon(v.result)} |\n`;
+            body += '\n';
+            try { body += fs.readFileSync('security-report.txt', 'utf8'); } catch {}
+            const {data: comments} = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number });
+            const bot = comments.find(c => c.body?.startsWith('## PR Protection'));
+            const p = {owner: context.repo.owner, repo: context.repo.repo, body};
+            if (bot) await github.rest.issues.updateComment({...p, comment_id: bot.id});
+            else await github.rest.issues.createComment({...p, issue_number: context.issue.number});
