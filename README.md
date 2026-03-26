@@ -89,8 +89,12 @@ forge dashboard --pty
 forge init                     # Initialize Forge in a project
 forge plan --generate          # Generate task plan from spec
 forge dashboard                # Live TUI dashboard
+forge dashboard --pty          # TUI with interactive agent panes (Stargate)
 forge run                      # Headless autonomous mode
 forge status                   # Current state summary
+forge verify                   # Run automated acceptance tests
+forge uat                      # Interactive UAT test runner
+forge ship                     # Release ceremony: changelog, archive, tag
 ```
 
 ## Architecture
@@ -100,7 +104,7 @@ The orchestrator is the policy core of Forge. All governance rules, file locks, 
 ```
 ┌──────────────────────────────────────┐
 │        forge-orchestrator            │
-│        (Rust, 4MB, 362 tests)        │
+│        (Rust, 4MB, 356 tests)        │
 │                                      │
 │  File locking · Task planning        │
 │  Knowledge · Governance · MCP        │
@@ -128,7 +132,7 @@ File locking exists because I've watched teams lose days to conflicting edits.
 
 When Claude Code starts editing a file, the orchestrator acquires an exclusive lock in `.forge/locks/`. Codex CLI requesting the same file is queued with a notification of who holds the lock. Locks include timeouts (crashed tools don't hold locks forever) and deadlock detection.
 
-362 tests cover concurrent access, timeout behavior, multi-adapter locking, and edge cases.
+356 tests cover concurrent access, timeout behavior, multi-adapter locking, and edge cases.
 
 ## How the Knowledge Flywheel Works
 
@@ -140,13 +144,15 @@ After a week, the system knows your conventions better than you remember them. N
 
 ## Upgrade Path
 
-For visual dashboards and the Infinity Terminal (sessions that survive browser close, network drops, and server restarts), add Forge UI:
+The TUI dashboard shows everything. Forge UI shows it better.
+
+Visual dashboards. Governance HUD. Real-time agent collaboration network. And the Infinity Terminal: sessions that survive browser close, network drops, and server restarts. If you've lost a 3-hour agent session to a disconnected SSH pipe, you know why this matters.
 
 ```bash
 git clone https://github.com/nxtg-ai/forge-ui && npm install && npm run dev
 ```
 
-58 components. 4,146 tests. 87% coverage.
+58 components. 4,165 tests. 87% coverage.
 
 ## Links
 
