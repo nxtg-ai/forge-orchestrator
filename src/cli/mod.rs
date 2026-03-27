@@ -1,19 +1,36 @@
+/// Configuration management (get/set brain, model, etc.).
 pub mod config;
+/// Live TUI dashboard with task board, agent output panes, and event log.
 pub mod dashboard;
+/// Project initialization — scaffolds `.forge/` directory and detects AI tools.
 pub mod init;
+/// MCP server startup (stdio JSON-RPC 2.0 transport).
 pub mod mcp;
+/// Master plan generation and display from SPEC.md or UAT findings.
 pub mod plan;
+/// Headless task execution — single-task or autonomous parallel mode.
 pub mod run;
+/// Ship phase — changelog generation, artifact archival, and state cleanup.
 pub mod ship;
+/// Autonomous orchestration loop — auto-claim, execute, and complete tasks.
 pub mod start;
+/// Status display — task board, agent activity, and governance summary.
 pub mod status;
+/// State reconciliation — update summaries, render adapter configs, check governance.
 pub mod sync;
+/// Interactive UAT — capture user acceptance findings via TUI or inline.
 pub mod uat;
+/// Uninstall Forge — remove binary and optionally project data.
 pub mod uninstall;
+/// Generate verify subtasks for completed build tasks.
 pub mod verify;
 
 use clap::{Parser, Subcommand};
 
+/// Top-level CLI definition parsed by clap.
+///
+/// Entry point for all `forge` subcommands. The `--project` flag allows
+/// targeting a specific project root directory.
 #[derive(Parser)]
 #[command(
     name = "forge",
@@ -23,6 +40,7 @@ use clap::{Parser, Subcommand};
                   as a coordinated team with governance, knowledge capture, and conflict prevention."
 )]
 pub struct Cli {
+    /// The subcommand to execute.
     #[command(subcommand)]
     pub command: Commands,
 
@@ -31,6 +49,9 @@ pub struct Cli {
     pub project: String,
 }
 
+/// All available `forge` subcommands.
+///
+/// Each variant maps to a CLI subcommand (e.g., `forge init`, `forge plan`).
 #[derive(Subcommand)]
 pub enum Commands {
     /// Initialize Forge in a project — scaffold .forge/, detect AI tools

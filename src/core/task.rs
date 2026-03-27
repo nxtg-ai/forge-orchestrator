@@ -2,13 +2,21 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+/// The lifecycle phase a task belongs to.
+///
+/// Tasks progress through phases: Build -> Verify -> Fix (if needed) -> UAT -> Ship.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskPhase {
+    /// Initial implementation phase (T-xxx tasks).
     Build,
+    /// Automated verification phase (V-xxx tasks).
     Verify,
+    /// Fix phase for issues found during verification (F-xxx tasks).
     Fix,
+    /// User acceptance testing phase (U-xxx tasks, human-only).
     Uat,
+    /// Ship phase — changelog, archive, release.
     Ship,
 }
 
@@ -24,23 +32,35 @@ impl std::fmt::Display for TaskPhase {
     }
 }
 
+/// Current status of a task in its lifecycle.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
+    /// Not yet claimed by any agent.
     Pending,
+    /// Claimed by an agent but execution has not started.
     Assigned,
+    /// Actively being worked on by an agent.
     InProgress,
+    /// Successfully finished.
     Completed,
+    /// Execution failed (may be retried).
     Failed,
+    /// Waiting on unmet dependency tasks.
     Blocked,
 }
 
+/// Supported AI agent backends.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentType {
+    /// Anthropic Claude Code CLI.
     Claude,
+    /// OpenAI Codex CLI.
     Codex,
+    /// Google Gemini CLI.
     Gemini,
+    /// Any available agent (auto-assigned by the scheduler).
     Any,
 }
 
@@ -68,21 +88,36 @@ impl std::str::FromStr for AgentType {
     }
 }
 
+/// A unit of work in the Forge orchestration system.
+///
+/// Tasks are persisted as both markdown (`.md`) and JSON (`.json`) files
+/// under `.forge/tasks/`. The JSON sidecar is the machine-readable source of truth.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
+    /// Unique identifier with phase prefix (e.g., `"T-001"`, `"V-002"`, `"U-003"`).
     pub id: String,
+    /// Short human-readable title.
     pub title: String,
+    /// Detailed description of what the task requires.
     pub description: String,
+    /// Current lifecycle status.
     pub status: TaskStatus,
+    /// Agent assigned to execute this task, or `None` if unassigned.
     pub assigned_to: Option<AgentType>,
     /// Task type hint for adapter strategy: design, implement, review, test, document.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_type: Option<String>,
+    /// Task IDs that must complete before this task can start.
     pub depends_on: Vec<String>,
+    /// File paths under exclusive lock while this task is in progress.
     pub locked_files: Vec<String>,
+    /// Criteria that must be satisfied for the task to be marked complete.
     pub acceptance_criteria: Vec<String>,
+    /// When this task was created.
     pub created_at: DateTime<Utc>,
+    /// Last modification timestamp.
     pub updated_at: DateTime<Utc>,
+    /// When the task finished (regardless of success or failure).
     pub completed_at: Option<DateTime<Utc>>,
     /// Which plan generation pass created this task.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -105,6 +140,7 @@ pub struct Task {
 }
 
 impl Task {
+    /// Create a new task with `Pending` status and the current timestamp.
     pub fn new(
         id: impl Into<String>,
         title: impl Into<String>,
@@ -133,6 +169,7 @@ impl Task {
         }
     }
 
+    /// Returns `true` if any dependency task ID is not in the completed set.
     pub fn is_blocked(&self, completed_tasks: &[String]) -> bool {
         self.depends_on
             .iter()
@@ -227,24 +264,31 @@ impl Task {
     }
 }
 
-/// Manage the collection of tasks in .forge/tasks/
+/// Manages the collection of tasks stored in `.forge/tasks/`.
+///
+/// Provides CRUD operations, ID generation, and subtask generation
+/// for verify, UAT, and fix phases.
 pub struct TaskManager {
+    /// Path to the `.forge/` directory.
     forge_dir: PathBuf,
 }
 
 impl TaskManager {
+    /// Create a new `TaskManager` targeting the given `.forge/` directory.
     pub fn new(forge_dir: impl Into<PathBuf>) -> Self {
         Self {
             forge_dir: forge_dir.into(),
         }
     }
 
+    /// Persist a task to disk as both markdown and JSON files.
     pub fn create_task(&self, task: &Task) -> anyhow::Result<()> {
         task.write_to_file(&self.forge_dir)?;
         task.write_json(&self.forge_dir)?;
         Ok(())
     }
 
+    /// List all tasks from JSON files on disk, sorted by ID.
     pub fn list_tasks(&self) -> anyhow::Result<Vec<Task>> {
         let tasks_dir = self.forge_dir.join("tasks");
         if !tasks_dir.exists() {
@@ -267,14 +311,17 @@ impl TaskManager {
         Ok(tasks)
     }
 
+    /// Load a single task by ID from its JSON sidecar file.
     pub fn get_task(&self, task_id: &str) -> anyhow::Result<Task> {
         Task::read_from_json(&self.forge_dir, task_id)
     }
 
+    /// Update a task by overwriting its files on disk.
     pub fn update_task(&self, task: &Task) -> anyhow::Result<()> {
         self.create_task(task) // overwrite
     }
 
+    /// Return the IDs of all tasks with `Completed` status.
     pub fn get_completed_task_ids(&self) -> anyhow::Result<Vec<String>> {
         Ok(self
             .list_tasks()?

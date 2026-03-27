@@ -5,15 +5,27 @@ use std::path::PathBuf;
 
 use super::task::AgentType;
 
+/// Root orchestration state persisted to `.forge/state.json`.
+///
+/// This is the fast-read cache of project metadata, detected tools,
+/// task summaries, file locks, and configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ForgeState {
+    /// Schema version of the state file format.
     pub version: String,
+    /// Human-readable project name.
     pub project_name: String,
+    /// When this project was initialized with `forge init`.
     pub created_at: DateTime<Utc>,
+    /// Last modification timestamp (updated on every state write).
     pub updated_at: DateTime<Utc>,
+    /// AI tools detected on the system PATH (claude, codex, gemini).
     pub tools: Vec<DetectedTool>,
+    /// LLM brain configuration (provider + optional model).
     pub brain: BrainConfig,
+    /// Cached task counts by status, refreshed from task files on disk.
     pub task_summary: TaskSummary,
+    /// Currently locked files keyed by task ID, preventing concurrent edits.
     pub active_locks: HashMap<String, FileLock>,
     /// Per-agent auth mode: "subscription" strips API keys, "api" passes them through
     #[serde(default)]
@@ -39,39 +51,61 @@ fn default_dashboard_mode() -> String {
     "piped".to_string()
 }
 
+/// An AI tool binary detected on the system PATH during `forge init`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DetectedTool {
+    /// CLI binary name (e.g., `"claude"`, `"codex"`, `"gemini"`).
     pub name: String,
+    /// Corresponding agent type enum value.
     pub agent_type: AgentType,
+    /// Version string if detectable (e.g., `"1.0.39"`).
     pub version: Option<String>,
+    /// Absolute path to the binary on disk.
     pub path: String,
+    /// Whether the binary is currently usable.
     pub available: bool,
 }
 
+/// Configuration for the pluggable LLM brain backend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrainConfig {
+    /// Provider name: `"rule-based"` (free heuristic) or `"openai"` (API-powered).
     pub provider: String,
+    /// Optional model identifier (e.g., `"gpt-4o"`, `"o3"`).
     pub model: Option<String>,
 }
 
+/// Aggregated task counts by status, cached in state for fast reads.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TaskSummary {
+    /// Total number of tasks across all statuses.
     pub total: usize,
+    /// Tasks not yet assigned or started.
     pub pending: usize,
+    /// Tasks currently assigned or being worked on.
     pub in_progress: usize,
+    /// Tasks that finished successfully.
     pub completed: usize,
+    /// Tasks that failed execution.
     pub failed: usize,
+    /// Tasks waiting on unmet dependencies.
     pub blocked: usize,
 }
 
+/// An exclusive file lock held by a task to prevent concurrent edits.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileLock {
+    /// The task ID that owns this lock.
     pub task_id: String,
+    /// The agent type that claimed the lock.
     pub agent: AgentType,
+    /// When the lock was acquired.
     pub locked_at: DateTime<Utc>,
+    /// File paths under exclusive access.
     pub files: Vec<String>,
 }
 
+/// Git integration settings controlling auto-commit behavior after task completion.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitConfig {
     /// Enable auto-commit after each task completes. Default: true.
@@ -80,6 +114,7 @@ pub struct GitConfig {
     pub strategy: String,
 }
 
+/// Scheduler settings for provider rotation and rate-limit pacing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchedulerConfig {
     /// Enable provider rotation when a provider is rate-limited. Default: false.
@@ -134,12 +169,17 @@ impl Default for ForgeState {
     }
 }
 
-/// Manages .forge/state.json — the fast-read cache of orchestration state
+/// Manages `.forge/state.json` — the fast-read cache of orchestration state.
+///
+/// All reads and writes go through this manager to ensure consistent
+/// serialization and automatic `updated_at` timestamp maintenance.
 pub struct StateManager {
+    /// Path to the `.forge/` directory.
     forge_dir: PathBuf,
 }
 
 impl StateManager {
+    /// Create a new `StateManager` targeting the given `.forge/` directory.
     pub fn new(forge_dir: impl Into<PathBuf>) -> Self {
         Self {
             forge_dir: forge_dir.into(),
@@ -150,6 +190,7 @@ impl StateManager {
         self.forge_dir.join("state.json")
     }
 
+    /// Load the current state from disk, returning defaults if the file does not exist.
     pub fn load(&self) -> anyhow::Result<ForgeState> {
         let path = self.state_path();
         if !path.exists() {
@@ -159,6 +200,7 @@ impl StateManager {
         Ok(serde_json::from_str(&content)?)
     }
 
+    /// Persist the given state to disk as pretty-printed JSON.
     pub fn save(&self, state: &ForgeState) -> anyhow::Result<()> {
         std::fs::create_dir_all(&self.forge_dir)?;
         let content = serde_json::to_string_pretty(state)?;
@@ -166,6 +208,7 @@ impl StateManager {
         Ok(())
     }
 
+    /// Replace the cached task summary and bump `updated_at`.
     pub fn update_task_summary(&self, summary: TaskSummary) -> anyhow::Result<()> {
         let mut state = self.load()?;
         state.task_summary = summary;
