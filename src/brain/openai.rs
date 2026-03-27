@@ -416,6 +416,9 @@ mod tests {
 
     #[test]
     fn test_drift_without_key() {
+        // Remove env var so a leaked .env OPENAI_API_KEY doesn't shadow api_key: None
+        // SAFETY: single-threaded test, no concurrent env access
+        unsafe { std::env::remove_var("OPENAI_API_KEY") };
         let brain = OpenAIBrain {
             model: "gpt-4o".into(),
             api_key: None,
