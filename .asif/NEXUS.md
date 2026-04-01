@@ -2,7 +2,7 @@
 
 > **Owner**: Asif Waliuddin
 > **Program**: NXTG-Forge (P-03b) | **Program Lead**: FPL
-> **Last Updated**: 2026-03-09
+> **Last Updated**: 2026-03-31
 > **North Star**: A single Rust binary that orchestrates code quality with zero dependencies and sub-second execution.
 
 ---
@@ -19,6 +19,10 @@
 | N-06 | CRUCIBLE Gate 6 Remediation | QUALITY GATES | SHIPPED | P0 | 2026-03-08 |
 | N-07 | v1.3.0 — Stargate / Builder / Quality Gates | ORCHESTRATION | SHIPPED | P0 | 2026-03-08 |
 | N-08 | v1.3.1 — PTY Passthrough + CI Fix | ORCHESTRATION | SHIPPED | P2 | 2026-03-08 |
+| N-09 | v1.4.x — Observability + Cross-Agent Verification | ORCHESTRATION | SHIPPED | P0 | 2026-03-16 |
+| N-10 | v1.4.2 — FSL-1.1-ALv2 License Transition | GOVERNANCE | SHIPPED | P1 | 2026-03-18 |
+| N-11 | v1.4.4 — musl Static Binary + Phase Fix | PERFORMANCE | SHIPPED | P1 | 2026-03-23 |
+| N-12 | v1.5.0 — SHIP Phase + PR Protection | ORCHESTRATION | SHIPPED | P0 | 2026-03-27 |
 
 ---
 
@@ -36,10 +40,11 @@
 - **Shipped**: N-01 (quality gates), N-02 (Playwright gate)
 
 ### PILLAR-3 — PERFORMANCE: "Single binary, zero deps, sub-second"
-- Rust binary: 4.0 MB, zero runtime dependencies.
-- 293 tests (271 unit + 10 integration + 12 E2E).
+- Rust binary: ~4 MB (release, LTO, stripped), zero runtime dependencies.
+- 378 tests (356 unit + 10 CLI + 12 MCP). 11 MCP tools.
 - Sub-second startup and execution for all orchestration commands.
-- **Shipped**: N-05 (README accuracy — version 1.2.0, 293 tests, 10 MCP tools, 4.0 MB binary documented)
+- musl static binary for glibc <2.39 compatibility (CLX9).
+- **Shipped**: N-05 (README accuracy), N-11 (musl static binary)
 
 ---
 
@@ -369,47 +374,70 @@ Verdict: {PASS / FAIL / CRITICAL FAIL}
 ---
 
 ## Portfolio Intelligence
-> Injected by CLX9 CoS (Emma) — Enrichment Cycle 2026-03-05
+> Last updated by forge-orchestrator team — 2026-03-31
 
-- **Forge Program**: Combined 4,482 tests. Orchestrator at 293 (unit + CLI + MCP). v1.2.0 stable.
-- **Trilogy Week 1 DONE**: All 3 repos completed FPL-20260303-01. Week 2 pending Asif direction.
-- **Portfolio context**: 16,442 tests portfolio-wide. Orchestrator is the Rust execution backbone.
+- **Forge Program**: Orchestrator at 378 tests (356u + 10cli + 12mcp), v1.5.0. Plugin at v3.6.0, 43 tests. UI at v3.1.3, 4165 tests.
+- **Release cadence**: 7 orchestrator releases in 22 days (v1.3.2–v1.5.0). Plugin and UI stable.
+- **forge-ui concern**: 16 unreleased commits since v3.1.3 — exceeds >5 threshold. Flagged in Q4.
+- **Show HN**: DIRECTIVE-NXTG-20260326-01 in progress. Name collision resolved (forge → nxtg-forge). Marketplace submission pending Asif credentials.
 
 ---
 
 ## Team Feedback
-> Reflection cycle: 2026-03-09 | Author: forge-orchestrator team
+> Reflection cycle: 2026-03-31 | Author: forge-orchestrator team
+> Previous reflection: 2026-03-09
 
 ### 1. What did you ship since last check-in?
 
-**v1.3.0** (2026-03-08) — 47-commit major release:
-- Stargate (DX-024): embedded interactive PTY agent panes in dashboard. Full `vt100` terminal emulation replacing bespoke `AnsiLineCollector`.
-- Builder Mode (DX-050): agent-driven task completion via signal files.
-- Quality Gates (DX-052): 8-check automated gate engine with A–F letter grading + optional Playwright smoke gate.
-- Three-Tier Validation (DX-051): UAT as a first-class phase (T→V→U pipeline, `forge uat` with full ratatui TUI).
-- Subscription safety rails (DX-033–038): token-bucket pacing, rate-limit detection, exponential backoff, provider rotation, quota monitoring, risk warning.
-- CRUCIBLE Gate 6 remediation: governance.rs 0% → 88.1% (52/59 viable mutations); state.rs 34.8% → 100% (23/23). 69 new value-asserting tests.
-- Test suite: 200 → **362 tests** (340 unit + 10 CLI + 12 MCP).
+**7 releases in 22 days** (v1.3.2 → v1.5.0):
 
-**v1.3.1** (2026-03-08, same day):
-- PTY passthrough fix: always-skip permissions gate so keyboard input reaches agent panes.
-- BackTab mapping added.
-- README Quick Demo walkthrough (4 commands, zero to task board).
-- Clippy + fmt cleanup.
+**v1.3.2** (2026-03-09):
+- Codex PTY fix: `codex exec --full-auto --skip-git-repo-check` for unattended Stargate mode.
+- Gemini PTY fix: `--yolo --sandbox=false` always in PTY mode.
+- Stargate Auto-Approve Contract documented in CLAUDE.md as mandatory adapter pattern.
 
-**Current state**: v1.3.1, 362 tests passing, CI green.
+**v1.4.0** (2026-03-14) — Observability:
+- Structured event system: rich metadata on every task lifecycle event.
+- Cross-agent verification: `v.agent != t.agent` invariant — verifier can never be the same agent that built the task.
+- Phase tracking: Build → Verify → Fix → UAT phases with automatic transitions.
+- PTY result capture and auto-knowledge extraction.
+
+**v1.4.1** (2026-03-16) — Tier 2 Observability:
+- `tracing` crate integration for structured logging.
+- **11th MCP tool**: `forge_get_events` — query event history with count, task_id, event_type filters.
+- Debug logging across MCP server, task lifecycle, and governance checks.
+
+**v1.4.2** (2026-03-18) — License Transition:
+- FSL-1.1-ALv2 license (converts to Apache-2.0 on 2028-03-18) per ADR-020.
+- CLA bot (GitHub Action) + CONTRIBUTING.md.
+
+**v1.4.3** (2026-03-19): Docs URL fix for Product Hunt launch.
+
+**v1.4.4** (2026-03-23):
+- Phase fix: include UAT tasks in completion check (prevented premature COMPLETE).
+- `forge init` spinner during tool detection.
+- **musl static Linux binary** (x86_64-unknown-linux-musl) — solves glibc <2.39 compatibility.
+- `forge uninstall` command.
+
+**v1.5.0** (2026-03-27) — SHIP Phase:
+- New lifecycle phase: SHIP (after UAT). Bundles changelog generation, state archival, cleanup.
+- `forge ship` command.
+- PR protection workflow (security + quality + build + dependency audit).
+- rustls-webpki 0.103.9 → 0.103.10 (RUSTSEC-2026-0049 fix).
+
+**Current state**: v1.5.0, **378 tests** (356 unit + 10 CLI + 12 MCP), 11 MCP tools, CI green. 7 unreleased commits since v1.5.0 (all docs/CI/meta).
 
 ---
 
 ### 2. What surprised me?
 
-**Mutation testing revealed a coverage inflation trap.** governance.rs had 75% line coverage but 0% mutation score. Lines were executed by tests — just no assertions checking the values those lines produced. This is the textbook false-green pattern: you think you're tested, you're not. The fix (value assertions instead of existence checks) was not complex, but finding it required cargo-mutants. Without Gate 6 we would have shipped with an illusion of safety for the most governance-critical module.
+**The SHIP phase concept emerged from dogfooding.** We kept doing the same manual steps after UAT: bump version, write changelog, tag, archive state, clean up signal files. Making this a first-class phase (Build → Verify → Fix → UAT → SHIP) was obvious in retrospect but only surfaced after doing 6 releases in 3 weeks. The orchestration tool needed to orchestrate its own releases.
 
-**state.rs went 34.8% → 100% in one focused pass.** Once the pattern was clear (assert lock state *after* the operation, not just that the call succeeded), the fixes were mechanical. The jump to 100% was faster than expected — the module's logic is actually well-bounded.
+**The `is_user_facing` heuristic had to be inverted.** The original default was "tasks are NOT user-facing unless marked." In practice, most tasks ARE user-facing for release gating purposes. The inversion (`542bac7`) was a one-line fix but the design assumption behind it was wrong from the start. Lesson: default to the common case, not the conservative case, when the cost of a false positive is just "an extra UAT check."
 
-**Wolf's intervention created a useful awkward moment.** The CoS writing code directly in our repo without a directive was wrong by protocol, but it surfaced a real gap: the team hadn't prioritised governance.rs remediation despite the CRUCIBLE report flagging it as CRITICAL. The situation forced both a policy clarification (CoS directs, team executes) and a genuine quality improvement.
+**Musl static binary was frictionless.** Expected to need Docker or a custom linker for `x86_64-unknown-linux-musl` cross-compilation. On WSL2 it was just `rustup target add` + `cargo build --target`. The resulting binary runs on any Linux including CLX9 (glibc 2.31). Solved a real deployment pain point with zero infrastructure complexity.
 
-**PTY passthrough was subtle.** The `always_skip_permissions` fix in PTY mode was counterintuitive — the permissions gate was blocking keyboard input from reaching the agent TUI. The symptom (input not arriving in agent panes) pointed at the transport layer first, not a permissions check further up the stack.
+**rustdoc coverage audit exposed documentation debt.** Running `cargo doc` with warnings revealed that public API surface across cli, mcp, core, and tui modules was ~40% documented. The fix was mechanical (add `///` doc comments) but the gap was invisible until someone looked. Public-facing modules should have doc coverage as a CI gate.
 
 ---
 
@@ -417,52 +445,50 @@ Verdict: {PASS / FAIL / CRITICAL FAIL}
 
 | Signal | Relevant to |
 |--------|-------------|
-| **Coverage inflation anti-pattern**: high line coverage + low mutation score = false green. Run `cargo-mutants` / `jest-mutators` on critical business logic, not just line coverage. | forge-ui (likely same issue in governance-state-manager, task-service), forge-plugin (never CRUCIBLE-audited) |
-| **Silent event log swallows** (`let _ = event_logger.log(...)` in `mcp/tools.rs`): audit trail events can be silently lost. Pattern likely exists in forge-ui's WebSocket error handlers and governance-mcp. | forge-ui (`src/server/api-server.ts`), forge-plugin governance-mcp (`index.mjs`) |
-| **PTY/terminal emulation patterns** (Stargate): ready-pattern detection, resize on panel state change, text+Enter as separate PTY writes, `pattern_disappeared` guard before completion. These are reusable primitives if forge-ui ever embeds live terminals. | forge-ui Infinity Terminal |
-| **vt100 crate** replaces bespoke ANSI parsing. If forge-ui's Infinity Terminal does client-side ANSI rendering, there may be a similar opportunity. | forge-ui |
+| **SHIP phase pattern**: Any repo with release discipline benefits from a `ship` command bundling version bump + changelog + tag + state cleanup. Eliminates the "47 commits unreleased for 24 days" FPL incident pattern. | forge-ui (16 unreleased commits right now), forge-plugin |
+| **PR protection workflow** (`e1df662`): security + quality + build + dependency audit as a reusable GitHub Actions template. Prevents low-quality PRs from merging. | forge-ui, forge-plugin (neither has PR protection) |
+| **Musl static binary**: solves glibc compatibility for any Rust binary. If forge-ui ever has a native server component, same pattern applies. | Any Rust project targeting diverse Linux distros |
+| **Cross-agent verification invariant** (`v.agent != t.agent`): prevents same-agent self-verification. This trust model should be consistent across the portfolio — forge-plugin's governance checks should enforce the same rule. | forge-plugin governance-mcp |
+| **Previous signals still open**: Gate 5 silent swallows (mcp/tools.rs), coverage inflation anti-pattern — no CoS response yet. | All repos |
 
 ---
 
 ### 4. What would I prioritize next with fresh directives?
 
-**P0 — Gate 5 remediation (mcp/tools.rs silent swallows)**
-The 7 `let _ = event_logger.log(...)` swallows in the MCP hot path are an audit trail integrity risk. If forge is sold on governance guarantees, events disappearing silently contradicts that promise. Fix: propagate to stderr at minimum, or surface as a non-fatal MCP warning.
+**P0 — Release v1.5.1** (7 unreleased commits, at the >5 threshold)
+All docs/CI/meta: Dx3 CLAUDE.md, badges, test isolation, rustdoc, README sync, rustls-webpki security bump, PR protection workflow. The security dep bump alone warrants a release.
 
-**P1 — Gate 8: cli/verify.rs (0% coverage)**
-56 lines, zero coverage. `verify.rs` is a user-facing command. Extract business logic from I/O boundary so it's unit-testable. Target: ≥60%.
+**P0 — Show HN readiness** (DIRECTIVE-NXTG-20260326-01)
+Ensure forge-orchestrator README and docs consistently reference "NXTG-Forge" (not bare "forge"). Check `--help` output, error messages, and any user-visible strings. This is a program-level directive but has forge-orchestrator action items.
 
-**P1 — Gate 2 hardening: remaining 7 hollow assertions**
-The tui/app.rs ones (`assert!(app.completed_at.is_some())`) are most exposed — TUI state transitions are exactly where bugs hide.
+**P1 — Gate 5 remediation (STILL OPEN from 2026-03-09)**
+The 7 `let _ = event_logger.log(...)` swallows in mcp/tools.rs remain unaddressed. Q1 (error surfacing strategy) is unanswered after 22 days. Will default to option (b) — stderr logging — if no CoS response by next reflection.
 
-**P2 — forge-plugin CRUCIBLE audit**
-The plugin has 43 tests and has never been mutation-tested. Given the coverage inflation lesson here, it almost certainly has the same governance — the governance state module in particular writes test fixtures that may not assert values.
+**P1 — Doc coverage CI gate**
+Add `#![warn(missing_docs)]` to lib modules and enforce in CI. The rustdoc audit showed ~40% coverage on public API. Preventing regression is cheaper than fixing it later.
 
-**P3 — forge-plugin Gate 5 (governance-mcp silent swallows)**
-`index.mjs` likely has `.catch(() => {})` or unhandled promise rejections in governance check calls. Worth a 30-minute grep + fix pass.
+**P2 — TUI state machine extraction (STILL OPEN from 2026-03-09)**
+Q2 unanswered. `cli/start.rs` still at 1.65% coverage, 1,212 lines. The ratatui test backend approach looks most promising — the framework now has `TestBackend` built in.
+
+**P3 — forge-ui release nudge**
+16 unreleased commits on forge-ui since v3.1.3 — well past the >5 threshold. Not this team's scope but worth flagging in program NEXUS.
 
 ---
 
 ### 5. Blockers and questions for CoS
 
-**Q1 — Gate 5 MCP error surfacing strategy**
-When `event_logger.log()` fails in an MCP tool call, should we:
-  - (a) Return a non-fatal warning in the MCP response (`{"result": ..., "warnings": ["event log write failed"]}`)
-  - (b) Log to stderr only (silent from caller's perspective but visible in forge-orca process output)
-  - (c) Fail the MCP call entirely (strict audit trail guarantee)
+**Q1 — Gate 5 MCP error surfacing (REPEATED — originally 2026-03-09, no response)**
+When `event_logger.log()` fails in an MCP tool call: (a) non-fatal MCP warning, (b) stderr only, (c) fail the call?
+**Proposal**: If no response by 2026-04-07, team will implement option (b) as a reasonable default. Can be upgraded to (c) later if audit trail becomes a differentiator.
 
-Option (a) requires a protocol change to our MCP response shape. Option (c) is the right answer if we want to market audit trail integrity as a differentiator. Need CoS direction before implementing.
+**Q2 — TUI coverage floor (REPEATED — originally 2026-03-09, no response)**
+Accept as untestable, invest in snapshot harness, or extract state machine? Proposing option 3 (extract) as the most architecturally sound. Will proceed with a spike if no response by 2026-04-07.
 
-**Q2 — TUI coverage floor**
-`cli/start.rs` is 1,212 lines at 1.65% coverage. It's the PTY dashboard engine — genuinely hard to test headless. Should we:
-  - Accept it as an untestable layer (document the exception in CRUCIBLE config)
-  - Invest in a TUI snapshot-testing harness (e.g., `ratatui` test backends)
-  - Extract the state machine logic into a separately-testable module
+**Q3 — forge-plugin CRUCIBLE ownership (REPEATED — originally 2026-03-09, no response)**
+Ownership still unclear. Proposing: forge-orchestrator team runs the audit since we have tooling + pattern knowledge, then hands findings to forge-plugin team for remediation.
 
-This is an architectural question and warrants CoS guidance before we commit engineering cycles.
-
-**Q3 — forge-plugin CRUCIBLE: ownership**
-Is the Gate 6 audit for forge-plugin owned by the forge-plugin team (separate directive), or should forge-orchestrator team run it since we now have the mutation testing tooling and pattern knowledge? Cross-team boundary question.
+**Q4 — forge-ui release debt (NEW)**
+forge-ui has 16 unreleased commits since v3.1.3. This exceeds the >5 commit threshold. Should FPL issue a directive to the forge-ui team, or is this being tracked elsewhere?
 
 ---
 
@@ -476,5 +502,6 @@ _(Add questions for FPL / ASIF CoS here.)_
 
 | Date | Change |
 |------|--------|
+| 2026-03-31 | Team Feedback reflection: v1.3.2–v1.5.0 shipped (7 releases, 378 tests), SHIP phase, musl binary, cross-agent verification, 3 repeated CoS questions + 1 new. |
 | 2026-03-09 | Team Feedback reflection: v1.3.0/1.3.1 shipped, CRUCIBLE lessons, 5 prioritised next actions, 3 CoS questions. |
 | 2026-03-03 | Created by Emma (CLX9 Sr. CoS) — FPL delegation bootstrap. |
