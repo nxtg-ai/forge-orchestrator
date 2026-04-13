@@ -25,7 +25,7 @@ jobs:
         run: |
           if [ -f semgrep.sarif ]; then
             count=$(python3 -c "import json; d=json.load(open('semgrep.sarif')); print(sum(len(r.get('results',[])) for r in d.get('runs',[])))" 2>/dev/null || echo "0")
-            echo "### Semgrep: $count findings" >> $GITHUB_STEP_SUMMARY
+            echo "### Semgrep SAST: $count findings" >> $GITHUB_STEP_SUMMARY
             if [ "$count" != "0" ]; then
               python3 -c "
 import json
@@ -52,6 +52,98 @@ for run in d.get('runs', []):
         with:
           name: semgrep-sarif
           path: semgrep.sarif
+          retention-days: 30
+        continue-on-error: true
+
+  bandit:
+    name: Bandit (Python SAST)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for Python files
+        id: check
+        run: |
+          if find . -name "*.py" -not -path "*/node_modules/*" -not -path "*/.venv/*" | head -1 | grep -q .; then
+            echo "has_python=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_python=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Install Bandit
+        if: steps.check.outputs.has_python == 'true'
+        run: pip install bandit[sarif]
+      - name: Run Bandit
+        if: steps.check.outputs.has_python == 'true'
+        run: bandit -r . -f sarif -o bandit.sarif --exit-zero --exclude ./.venv,./node_modules,./.claude 2>/dev/null || true
+      - name: Findings summary
+        if: always() && steps.check.outputs.has_python == 'true'
+        run: |
+          if [ -f bandit.sarif ]; then
+            count=$(python3 -c "import json; d=json.load(open('bandit.sarif')); print(sum(len(r.get('results',[])) for r in d.get('runs',[])))" 2>/dev/null || echo "0")
+            echo "### Bandit (Python): $count findings" >> $GITHUB_STEP_SUMMARY
+            if [ "$count" != "0" ]; then
+              python3 -c "
+import json
+d = json.load(open('bandit.sarif'))
+print('| File | Severity | Rule | Message |')
+print('|------|----------|------|---------|')
+for run in d.get('runs', []):
+  for r in run.get('results', []):
+    level = r.get('level', '?')
+    rule = r.get('ruleId', '?')[:25]
+    msg = r.get('message', {}).get('text', '?')[:60]
+    loc = r.get('locations', [{}])[0].get('physicalLocation', {})
+    path = loc.get('artifactLocation', {}).get('uri', '?')
+    line = loc.get('region', {}).get('startLine', '?')
+    print(f'| \`{path}:{line}\` | {level} | {rule} | {msg} |')
+" 2>/dev/null | head -25 >> $GITHUB_STEP_SUMMARY
+            else
+              echo "No Python security findings." >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+      - name: Skip notice
+        if: steps.check.outputs.has_python == 'false'
+        run: echo "### Bandit: skipped (no Python files)" >> $GITHUB_STEP_SUMMARY
+      - name: Upload SARIF artifact
+        if: always() && steps.check.outputs.has_python == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-sarif
+          path: bandit.sarif
+          retention-days: 30
+        continue-on-error: true
+
+  bearer:
+    name: Bearer (Data Privacy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Bearer
+        uses: bearer/bearer-action@v2
+        with:
+          format: sarif
+          output: bearer.sarif
+          diff: false
+        continue-on-error: true
+      - name: Findings summary
+        if: always()
+        run: |
+          if [ -f bearer.sarif ]; then
+            count=$(python3 -c "import json; d=json.load(open('bearer.sarif')); print(sum(len(r.get('results',[])) for r in d.get('runs',[])))" 2>/dev/null || echo "0")
+            echo "### Bearer (Data Privacy): $count findings" >> $GITHUB_STEP_SUMMARY
+            if [ "$count" != "0" ]; then
+              echo "⚠️ Potential PII/sensitive data exposure detected. Download bearer-sarif artifact for details." >> $GITHUB_STEP_SUMMARY
+            else
+              echo "No data privacy findings." >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### Bearer: scan completed (no SARIF generated)" >> $GITHUB_STEP_SUMMARY
+          fi
+      - name: Upload SARIF artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bearer-sarif
+          path: bearer.sarif
           retention-days: 30
         continue-on-error: true
 
