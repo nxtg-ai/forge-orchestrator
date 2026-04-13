@@ -8,8 +8,6 @@ on:
 
 permissions:
   contents: read
-  security-events: write
-  pull-requests: write
 
 jobs:
   semgrep:
@@ -21,61 +19,31 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run Semgrep
         run: semgrep scan --config auto --sarif --output semgrep.sarif || true
-      - name: Upload SARIF (public repos)
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: semgrep.sarif
-          category: semgrep
-        continue-on-error: true
-      - name: Post findings to PR (private repos fallback)
-        if: always() && github.event_name == 'pull_request'
-        uses: reviewdog/action-setup@v1
-      - name: Annotate PR with Semgrep findings
-        if: always() && github.event_name == 'pull_request'
-        shell: bash
-        run: |
-          if command -v reviewdog &> /dev/null && [ -f semgrep.sarif ]; then
-            cat semgrep.sarif | python3 -c "
-          import json, sys
-          sarif = json.load(sys.stdin)
-          for run in sarif.get('runs', []):
-            for result in run.get('results', []):
-              level = result.get('level', 'warning')
-              msg = result.get('message', {}).get('text', '')
-              rule = result.get('ruleId', 'unknown')
-              for loc in result.get('locations', []):
-                phys = loc.get('physicalLocation', {})
-                path = phys.get('artifactLocation', {}).get('uri', '')
-                line = phys.get('region', {}).get('startLine', 1)
-                print(f'{path}:{line}:1: {level}: [{rule}] {msg}')
-          " | reviewdog -efm='%f:%l:%c: %t%*[^:]: %m' -reporter=github-pr-review -level=warning
-          fi
-        env:
-          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
-      - name: Log findings summary
+      - name: Findings summary
         if: always()
         shell: bash
         run: |
           if [ -f semgrep.sarif ]; then
             count=$(python3 -c "import json; d=json.load(open('semgrep.sarif')); print(sum(len(r.get('results',[])) for r in d.get('runs',[])))" 2>/dev/null || echo "0")
-            echo "::notice::Semgrep found $count findings. Full details in workflow artifacts."
-            if [ "$count" -gt 0 ]; then
-              echo "## Semgrep Findings: $count" >> $GITHUB_STEP_SUMMARY
+            echo "### Semgrep: $count findings" >> $GITHUB_STEP_SUMMARY
+            if [ "$count" != "0" ]; then
               python3 -c "
-          import json
-          d = json.load(open('semgrep.sarif'))
-          for run in d.get('runs', []):
-            for r in run.get('results', []):
-              level = r.get('level', '?')
-              rule = r.get('ruleId', '?')
-              msg = r.get('message', {}).get('text', '?')[:80]
-              loc = r.get('locations', [{}])[0].get('physicalLocation', {})
-              path = loc.get('artifactLocation', {}).get('uri', '?')
-              line = loc.get('region', {}).get('startLine', '?')
-              print(f'| \`{path}:{line}\` | {level} | {rule} | {msg} |')
-          " 2>/dev/null | head -20 >> $GITHUB_STEP_SUMMARY
+import json
+d = json.load(open('semgrep.sarif'))
+print('| File | Severity | Rule | Message |')
+print('|------|----------|------|---------|')
+for run in d.get('runs', []):
+  for r in run.get('results', []):
+    level = r.get('level', '?')
+    rule = r.get('ruleId', '?').split('.')[-1][:30]
+    msg = r.get('message', {}).get('text', '?')[:60]
+    loc = r.get('locations', [{}])[0].get('physicalLocation', {})
+    path = loc.get('artifactLocation', {}).get('uri', '?')
+    line = loc.get('region', {}).get('startLine', '?')
+    print(f'| \`{path}:{line}\` | {level} | {rule} | {msg} |')
+" 2>/dev/null | head -25 >> $GITHUB_STEP_SUMMARY
+            else
+              echo "No security findings." >> $GITHUB_STEP_SUMMARY
             fi
           fi
       - name: Upload SARIF artifact
@@ -85,6 +53,7 @@ jobs:
           name: semgrep-sarif
           path: semgrep.sarif
           retention-days: 30
+        continue-on-error: true
 
   gitleaks:
     name: Secret Scanning
@@ -98,22 +67,16 @@ jobs:
           curl -sSfL https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks_8.30.1_linux_x64.tar.gz | tar xz -C /usr/local/bin
       - name: Scan for secrets
         run: gitleaks detect --source . --verbose --report-format sarif --report-path gitleaks.sarif --exit-code 0
-      - name: Upload SARIF (public repos)
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: gitleaks.sarif
-          category: gitleaks
-        continue-on-error: true
-      - name: Log findings summary
+      - name: Findings summary
         if: always()
         run: |
           if [ -f gitleaks.sarif ]; then
             count=$(python3 -c "import json; d=json.load(open('gitleaks.sarif')); print(sum(len(r.get('results',[])) for r in d.get('runs',[])))" 2>/dev/null || echo "0")
-            echo "::notice::Gitleaks found $count potential secrets."
-            if [ "$count" -gt 0 ]; then
-              echo "## Gitleaks Findings: $count" >> $GITHUB_STEP_SUMMARY
-              echo "⚠️ Review findings in the workflow logs or download the SARIF artifact." >> $GITHUB_STEP_SUMMARY
+            echo "### Gitleaks: $count potential secrets" >> $GITHUB_STEP_SUMMARY
+            if [ "$count" != "0" ]; then
+              echo "⚠️ Review the workflow logs or download the SARIF artifact for details." >> $GITHUB_STEP_SUMMARY
+            else
+              echo "No secrets detected." >> $GITHUB_STEP_SUMMARY
             fi
           fi
       - name: Upload SARIF artifact
@@ -123,3 +86,4 @@ jobs:
           name: gitleaks-sarif
           path: gitleaks.sarif
           retention-days: 30
+        continue-on-error: true
