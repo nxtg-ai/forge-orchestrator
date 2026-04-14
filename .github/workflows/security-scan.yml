@@ -24,24 +24,10 @@ jobs:
         shell: bash
         run: |
           if [ -f semgrep.sarif ]; then
-            count=$(python3 -c "import json; d=json.load(open('semgrep.sarif')); print(sum(len(r.get('results',[])) for r in d.get('runs',[])))" 2>/dev/null || echo "0")
+            count=$(python3 -c "import json;d=json.load(open('semgrep.sarif'));print(sum(len(r.get('results',[])) for r in d.get('runs',[])))" 2>/dev/null || echo "0")
             echo "### Semgrep SAST: $count findings" >> $GITHUB_STEP_SUMMARY
             if [ "$count" != "0" ]; then
-              python3 -c "
-import json
-d = json.load(open('semgrep.sarif'))
-print('| File | Severity | Rule | Message |')
-print('|------|----------|------|---------|')
-for run in d.get('runs', []):
-  for r in run.get('results', []):
-    level = r.get('level', '?')
-    rule = r.get('ruleId', '?').split('.')[-1][:30]
-    msg = r.get('message', {}).get('text', '?')[:60]
-    loc = r.get('locations', [{}])[0].get('physicalLocation', {})
-    path = loc.get('artifactLocation', {}).get('uri', '?')
-    line = loc.get('region', {}).get('startLine', '?')
-    print(f'| \`{path}:{line}\` | {level} | {rule} | {msg} |')
-" 2>/dev/null | head -25 >> $GITHUB_STEP_SUMMARY
+              python3 -c "import json;d=json.load(open('semgrep.sarif'));print('| File | Severity | Rule | Message |');print('|------|----------|------|---------|');[print('| \`{}:{}\` | {} | {} | {} |'.format(r.get('locations',[{}])[0].get('physicalLocation',{}).get('artifactLocation',{}).get('uri','?'),r.get('locations',[{}])[0].get('physicalLocation',{}).get('region',{}).get('startLine','?'),r.get('level','?'),r.get('ruleId','?').split('.')[-1][:30],r.get('message',{}).get('text','?')[:60])) for run in d.get('runs',[]) for r in run.get('results',[])]" 2>/dev/null | head -25 >> $GITHUB_STEP_SUMMARY
             else
               echo "No security findings." >> $GITHUB_STEP_SUMMARY
             fi
@@ -78,31 +64,18 @@ for run in d.get('runs', []):
         if: always() && steps.check.outputs.has_python == 'true'
         run: |
           if [ -f bandit.sarif ]; then
-            count=$(python3 -c "import json; d=json.load(open('bandit.sarif')); print(sum(len(r.get('results',[])) for r in d.get('runs',[])))" 2>/dev/null || echo "0")
+            count=$(python3 -c "import json;d=json.load(open('bandit.sarif'));print(sum(len(r.get('results',[])) for r in d.get('runs',[])))" 2>/dev/null || echo "0")
             echo "### Bandit (Python): $count findings" >> $GITHUB_STEP_SUMMARY
             if [ "$count" != "0" ]; then
-              python3 -c "
-import json
-d = json.load(open('bandit.sarif'))
-print('| File | Severity | Rule | Message |')
-print('|------|----------|------|---------|')
-for run in d.get('runs', []):
-  for r in run.get('results', []):
-    level = r.get('level', '?')
-    rule = r.get('ruleId', '?')[:25]
-    msg = r.get('message', {}).get('text', '?')[:60]
-    loc = r.get('locations', [{}])[0].get('physicalLocation', {})
-    path = loc.get('artifactLocation', {}).get('uri', '?')
-    line = loc.get('region', {}).get('startLine', '?')
-    print(f'| \`{path}:{line}\` | {level} | {rule} | {msg} |')
-" 2>/dev/null | head -25 >> $GITHUB_STEP_SUMMARY
+              python3 -c "import json;d=json.load(open('bandit.sarif'));print('| File | Severity | Rule | Message |');print('|------|----------|------|---------|');[print('| \`{}:{}\` | {} | {} | {} |'.format(r.get('locations',[{}])[0].get('physicalLocation',{}).get('artifactLocation',{}).get('uri','?'),r.get('locations',[{}])[0].get('physicalLocation',{}).get('region',{}).get('startLine','?'),r.get('level','?'),r.get('ruleId','?')[:25],r.get('message',{}).get('text','?')[:60])) for run in d.get('runs',[]) for r in run.get('results',[])]" 2>/dev/null | head -25 >> $GITHUB_STEP_SUMMARY
             else
               echo "No Python security findings." >> $GITHUB_STEP_SUMMARY
             fi
           fi
       - name: Skip notice
         if: steps.check.outputs.has_python == 'false'
-        run: echo "### Bandit: skipped (no Python files)" >> $GITHUB_STEP_SUMMARY
+        run: |
+          echo "### Bandit: skipped (no Python files)" >> $GITHUB_STEP_SUMMARY
       - name: Upload SARIF artifact
         if: always() && steps.check.outputs.has_python == 'true'
         uses: actions/upload-artifact@v4
@@ -128,10 +101,10 @@ for run in d.get('runs', []):
         if: always()
         run: |
           if [ -f bearer.sarif ]; then
-            count=$(python3 -c "import json; d=json.load(open('bearer.sarif')); print(sum(len(r.get('results',[])) for r in d.get('runs',[])))" 2>/dev/null || echo "0")
+            count=$(python3 -c "import json;d=json.load(open('bearer.sarif'));print(sum(len(r.get('results',[])) for r in d.get('runs',[])))" 2>/dev/null || echo "0")
             echo "### Bearer (Data Privacy): $count findings" >> $GITHUB_STEP_SUMMARY
             if [ "$count" != "0" ]; then
-              echo "⚠️ Potential PII/sensitive data exposure detected. Download bearer-sarif artifact for details." >> $GITHUB_STEP_SUMMARY
+              echo "Warning: Potential PII/sensitive data exposure detected. Download bearer-sarif artifact for details." >> $GITHUB_STEP_SUMMARY
             else
               echo "No data privacy findings." >> $GITHUB_STEP_SUMMARY
             fi
@@ -163,10 +136,10 @@ for run in d.get('runs', []):
         if: always()
         run: |
           if [ -f gitleaks.sarif ]; then
-            count=$(python3 -c "import json; d=json.load(open('gitleaks.sarif')); print(sum(len(r.get('results',[])) for r in d.get('runs',[])))" 2>/dev/null || echo "0")
+            count=$(python3 -c "import json;d=json.load(open('gitleaks.sarif'));print(sum(len(r.get('results',[])) for r in d.get('runs',[])))" 2>/dev/null || echo "0")
             echo "### Gitleaks: $count potential secrets" >> $GITHUB_STEP_SUMMARY
             if [ "$count" != "0" ]; then
-              echo "⚠️ Review the workflow logs or download the SARIF artifact for details." >> $GITHUB_STEP_SUMMARY
+              echo "Warning: Review the workflow logs or download the SARIF artifact for details." >> $GITHUB_STEP_SUMMARY
             else
               echo "No secrets detected." >> $GITHUB_STEP_SUMMARY
             fi
