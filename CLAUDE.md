@@ -183,3 +183,9 @@ On every session start, recall relevant context from Dx3 before starting work:
 - The brain at dx3-cognitive MCP has context from ALL projects — use it
 
 This is how the portfolio compounds intelligence. Your work benefits from every other team's learning.
+
+## Team Voice
+
+Our voice is `am_onyx`. Speak via:
+  ~/ASIF/scripts/cos-speak-remote --voice am_onyx "text"
+Use on cycle exit, deliverable shipped, blocker, escalation.
