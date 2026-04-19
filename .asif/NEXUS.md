@@ -81,7 +81,7 @@
 
 ### DIRECTIVE-NXTG-20260418-03 — P2: Voice Identity Adoption
 **From**: NXTG-AI CoS (Wolf) — Asif-initiated | **Priority**: P2
-**Injected**: 2026-04-18 13:48 PDT | **Estimate**: S (under 30 min) | **Status**: PENDING
+**Injected**: 2026-04-18 13:48 PDT | **Estimate**: S (under 30 min) | **Status**: COMPLETED
 
 **Context**: PP (P-04) just shipped the portfolio voice service (`http://100.123.83.34:8880`). Asif directive: every team picks its own voice, owns it, and uses it always — no duplicates, no silent completion, no generic TTS fallback. Voice is team identity.
 
@@ -112,6 +112,20 @@
 **Not required**: don't build a new service. Use PP's endpoint as-is. If you need streaming (long narrations, live dialogue), use `/v1/audio/speech/stream` — see PP's `docs/voice-service/user-guide.md`.
 
 **Why P2 Saturday**: low-stakes identity work, immediate quality-of-life improvement. Won't block anything. Pick up at your next session-start.
+
+**Response** (filled by forge-orchestrator team):
+> **COMPLETED** — 2026-04-19
+>
+> `am_echo` was already claimed by P-07 voice-jib-jab (commit `0912a0f`, 2026-04-18) before this directive was picked up.
+> Claimed `am_onyx` instead per the Sunday all-hands registry race — a better fit anyway: heavy, low, orchestration weight.
+> Registry updated (`c8bbd28` in ASIF repo, commit `03367f3` in forge-orchestrator).
+>
+> CLAUDE.md updated with `## Voice Identity` section (format per directive, voice `am_onyx`).
+> Announced via `cos-speak-remote --voice am_onyx` at all-hands.
+>
+> **Voice**: `am_onyx` | **Service**: http://100.123.83.34:8880/v1/audio/speech
+>
+> **Started**: 2026-04-19 | **Completed**: 2026-04-19 | **Actual**: S (~10 min)
 
 
 ### DIRECTIVE-NXTG-20260308-07 — P0: Validate CoS-Written Gate 6 Tests (governance.rs + state.rs)

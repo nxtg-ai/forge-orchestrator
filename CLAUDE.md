@@ -184,8 +184,11 @@ On every session start, recall relevant context from Dx3 before starting work:
 
 This is how the portfolio compounds intelligence. Your work benefits from every other team's learning.
 
-## Team Voice
+## Voice Identity
 
-Our voice is `am_onyx`. Speak via:
-  ~/ASIF/scripts/cos-speak-remote --voice am_onyx "text"
-Use on cycle exit, deliverable shipped, blocker, escalation.
+**Voice**: `am_onyx`
+**Service**: http://100.123.83.34:8880/v1/audio/speech
+**Registry**: ~/ASIF/standards/voice-registry.md
+**Use**: every cycle-complete, every P0/P1 completion, every directive response.
+
+Speak via: `~/ASIF/scripts/cos-speak-remote --voice am_onyx "text"`
