@@ -433,6 +433,86 @@ Verdict: {PASS / FAIL / CRITICAL FAIL}
 ---
 
 ## Team Feedback
+> Reflection cycle: 2026-04-19 | Author: forge-orchestrator team
+> Previous reflection: 2026-03-31
+
+### 1. What did you ship since last check-in?
+
+**13 commits since 2026-03-31 — no version bump yet (v1.5.0 still current, 17 unreleased commits total).**
+
+All work in this window is CI/docs/meta/governance — no user-facing features:
+
+- **Security scan CI** (5 commits, `593774e`→`12ac849`): Defense-in-depth SAST pipeline — Semgrep + Gitleaks + CodeQL in parallel. PR annotations + job summary output. Added Bandit (Python SAST) + Bearer (data privacy). Fixed YAML parse errors and missing-location guards. This is now a proper multi-scanner security gate.
+- **PR protection workflow** (`e1df662`): GitHub Actions workflow — security + quality + build + dependency audit gates on every PR.
+- **rustls-webpki security bump** (`1d1cd7f`): RUSTSEC-2026-0049 fix — 0.103.9 → 0.103.10.
+- **README sync** (`82c7f68`): test counts, missing commands, L3 upsell language.
+- **Rustdoc coverage** (`e22f03c`): Added `///` doc comments to public API surface — cli, mcp, core, tui modules. ~40% → measurably higher coverage.
+- **Test isolation fix** (`cdd2dd3`): `test_drift_without_key` was reading real env state — made hermetic.
+- **Dx3 integration** (`e9cf005`): Added Brain Integration instructions to CLAUDE.md.
+- **CI badges** (`2473293`): CI, stars, crates.io badges on README.
+- **Voice identity** (today): Claimed `am_onyx` at Sunday all-hands. `## Voice Identity` section in CLAUDE.md. DIRECTIVE-NXTG-20260418-03 DONE.
+
+**Test count**: 378 (356 unit + 10 CLI + 12 MCP) — unchanged from v1.5.0.
+
+---
+
+### 2. What surprised me?
+
+**The security scan took 5 iterations to stabilize.** The Semgrep + Gitleaks + Bearer stack seems simple but the GitHub Actions YAML parsing is sensitive — block scalars, missing-location guards, private-repo token scoping. Each failure was a different failure mode. Net result is good but the iteration cost was high. Lesson: new CI workflows need a dedicated test branch, not 5 commits to main.
+
+**`test_drift_without_key` was reading real filesystem state.** A test that appeared unit-level was silently coupling to the dev environment. Caught via a flaky CI run. The fix was trivial (mock the env var) but the fact it passed locally for weeks while being non-hermetic is a smell — our test isolation discipline needs a scan.
+
+**17 unreleased commits and no user pain.** The previous reflection flagged a v1.5.1 release as P0. It didn't ship. 17 commits accumulated — all non-user-facing, so no immediate harm, but this is exactly the FPL incident pattern. Release discipline requires a trigger, not just intent.
+
+---
+
+### 3. Cross-project signals
+
+| Signal | Relevant to |
+|--------|-------------|
+| **Multi-scanner security CI** (`bbc1eb6`→`12ac849`): Semgrep + Gitleaks + CodeQL + Bandit + Bearer pattern is reusable. forge-ui and forge-plugin have no SAST. The workflow is parameterizable. | forge-ui, forge-plugin |
+| **PR protection workflow** (`e1df662`): security + quality + build + dep audit on every PR. Prevents the "47 commits unreleased" pattern at merge time, not release time. | forge-ui (16+ unreleased), forge-plugin |
+| **Test env coupling**: `test_drift_without_key` read real env state. Any test that calls filesystem, env vars, or network without explicit setup is suspect. Portfolio-wide hermetic audit would surface more. | All repos |
+| **Voice registry collision risk**: The `am_echo` suggestion in my directive was stale — P-07 had already claimed it. Directive suggestions should reference the registry live, not embed voice IDs at write time. | CoS process |
+
+---
+
+### 4. What would I prioritize next with fresh directives?
+
+**P0 — Cut v1.5.1** (17 unreleased commits, all non-user-facing but >5 threshold breached)
+Changelog: security scan CI, PR protection, RUSTSEC fix, rustdoc, test isolation, README. The security dep bump alone warrants a release.
+
+**P1 — Gate 5 remediation** (open since 2026-03-09 — Q1 unanswered 41 days)
+`let _ = event_logger.log(...)` swallows in mcp/tools.rs. Will implement option (b) — stderr logging — per the 2026-04-07 deadline that passed. No CoS response means default applies.
+
+**P1 — Rustdoc CI gate**
+`#![warn(missing_docs)]` in CI to prevent regression. The audit (`e22f03c`) improved coverage; a gate prevents drift. One-line Cargo.toml + CI step.
+
+**P2 — TUI coverage spike**
+Q2 unanswered. Proposing a ratatui `TestBackend` spike on `cli/start.rs` (1.65% coverage, 1,212 lines). Low risk, high ROI if it works.
+
+**P3 — forge-ui release debt**
+Last flagged at 16 unreleased. Status unknown. FPL should be issuing a directive if it's still open.
+
+---
+
+### 5. Blockers and questions for CoS
+
+**Q1 — Gate 5 MCP error surfacing (OVERDUE — originally 2026-03-09, deadline 2026-04-07 passed)**
+Implementing option (b) — stderr logging — as default this session unless redirected. Will file as done in next commit.
+
+**Q2 — TUI coverage floor (OVERDUE — originally 2026-03-09, deadline 2026-04-07 passed)**
+Proceeding with ratatui TestBackend spike. Will report findings.
+
+**Q3 — forge-plugin CRUCIBLE ownership (OVERDUE — originally 2026-03-09)**
+No response in 41 days. Proposing: forge-orchestrator team runs the audit and hands findings to forge-plugin team. Will proceed unless redirected.
+
+**Q5 (NEW) — v1.5.1 release authorization**
+17 unreleased commits on main. All non-user-facing (CI, docs, meta). Can I cut v1.5.1 without explicit CoS authorization, or does every release need a directive?
+
+---
+
+## Team Feedback
 > Reflection cycle: 2026-03-31 | Author: forge-orchestrator team
 > Previous reflection: 2026-03-09
 
