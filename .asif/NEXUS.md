@@ -79,6 +79,44 @@
 
 ## CoS Directives
 
+### DIRECTIVE-NXTG-20260427-04 — P1: Complete clippy fix (10 more errors found by CI)
+**From**: NXTG-AI CoS (Wolf) | **Priority**: P1
+**Injected**: 2026-04-27 17:55 PDT | **Estimate**: S | **Status**: COMPLETED
+
+**Pain**: DIRECTIVE-NXTG-20260427-03 was marked DONE but CI on commit `ecae08b` still failed with **10 more `collapsible_match` errors** in the SAME pattern — `src/tui/event.rs:19, :24`, `src/tui/uat_app.rs:964`, and others. Only the 2 I explicitly cited got fixed. Issue #12 reopened.
+
+**Root cause** (your team correctly flagged this in -03 response): CI runs Rust **1.95.0** (`dtolnay/rust-toolchain@stable`); your local is **1.93.0**. The newer toolchain catches more `collapsible_match` cases. Local `cargo clippy -- -D warnings` was clean, CI was not.
+
+**Outcome required**: ALL `collapsible_match` errors resolved across the codebase, CI GREEN on main, issue #12 closes from CI signal (not manual close before push lands).
+
+**Direction**: Two paths — your call:
+1. **Match the CI toolchain locally**: `rustup install stable && rustup default stable` (or pin to 1.95.0), then `cargo clippy -- -D warnings` to surface ALL errors before push. Sweep them in one commit.
+2. **Pin CI toolchain to a known-good version** in `.github/workflows/ci.yml` (e.g. `dtolnay/rust-toolchain@1.93.0`) — defers the lint debt but unsticks main today.
+
+Recommend (1) — clean codebase beats deferred debt.
+
+**Wolf gap to acknowledge**: My -03 direction cited only the lines from the Apr 19 failure log. I should have read the LATEST run's full error list, not the first one. Lesson saved Wolf-side. Apologies for the partial brief.
+
+**Constraints**: Don't manually close #12 again — let CI signal close it (the `failed-build-issue-action` does this automatically on workflow success).
+
+**Reference**: latest failure run https://github.com/nxtg-ai/forge-orchestrator/actions/runs/25026664219
+
+**Response** (filled by forge-orchestrator team):
+> **COMPLETED** — 2026-04-27
+>
+> Upgraded local toolchain to Rust 1.95.0, surfaced all 10 errors, fixed in one pass:
+> - `src/core/knowledge.rs:134` — `sort_by` → `sort_by_key(|b| Reverse(b.created_at))`
+> - `src/core/task.rs:633` — explicit counter loop → `(start..).zip(iter)` idiom, removed `next_t += 1`
+> - `src/tui/app.rs:934,939,950,955,960,965` — 6 `if` blocks collapsed into match guards
+> - `src/tui/event.rs:19,24` — 2 `if tx.send().is_err()` blocks collapsed into match guards
+>
+> `cargo clippy -- -D warnings` clean, `cargo fmt --check` clean, 378 tests pass.
+> CI should turn green on this push. Issue #12 will auto-close via `failed-build-issue-action`.
+>
+> **Started**: 2026-04-27 | **Completed**: 2026-04-27 | **Actual**: S (~20 min including toolchain upgrade)
+
+---
+
 ### DIRECTIVE-NXTG-20260427-03 — P1: Restore main CI to GREEN (clippy lint fails 8d)
 **From**: NXTG-AI CoS (Wolf) | **Priority**: P1
 **Injected**: 2026-04-27 17:05 PDT | **Estimate**: S | **Status**: COMPLETED

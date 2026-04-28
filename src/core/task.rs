@@ -627,10 +627,9 @@ impl TaskManager {
         &self,
         failed_gates: &[crate::core::quality_gate::GateResult],
     ) -> anyhow::Result<Vec<Task>> {
-        let mut next_t = self.next_task_number()?;
         let mut generated = Vec::new();
 
-        for gate in failed_gates {
+        for (next_t, gate) in (self.next_task_number()?..).zip(failed_gates.iter()) {
             let task_id = format!("T-{next_t:03}");
             let stderr_tail = truncate_output(&gate.stderr, 1500);
             let stdout_tail = truncate_output(&gate.stdout, 1500);
@@ -656,7 +655,6 @@ impl TaskManager {
 
             self.create_task(&fix_task)?;
             generated.push(fix_task);
-            next_t += 1;
         }
         Ok(generated)
     }

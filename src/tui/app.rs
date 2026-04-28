@@ -930,15 +930,11 @@ impl App {
                 }
                 FocusArea::Pane(idx) => self.scroll_pane_to_bottom(idx),
             },
-            KeyCode::PageUp => {
-                if self.focus == FocusArea::TaskBoard {
-                    self.selected_index = self.selected_index.saturating_sub(10);
-                }
+            KeyCode::PageUp if self.focus == FocusArea::TaskBoard => {
+                self.selected_index = self.selected_index.saturating_sub(10);
             }
-            KeyCode::PageDown => {
-                if self.focus == FocusArea::TaskBoard && !self.tasks.is_empty() {
-                    self.selected_index = (self.selected_index + 10).min(self.tasks.len() - 1);
-                }
+            KeyCode::PageDown if self.focus == FocusArea::TaskBoard && !self.tasks.is_empty() => {
+                self.selected_index = (self.selected_index + 10).min(self.tasks.len() - 1);
             }
             KeyCode::Enter | KeyCode::Char('f') => {
                 if let FocusArea::Pane(idx) = self.focus {
@@ -946,30 +942,23 @@ impl App {
                     self.resize_pty_for_pane(idx);
                 }
             }
-            KeyCode::Char('a') => {
-                if self.pty_mode && self.focus == FocusArea::TaskBoard {
-                    self.dispatch_to_tui(tx);
-                }
+            KeyCode::Char('a') if self.pty_mode && self.focus == FocusArea::TaskBoard => {
+                self.dispatch_to_tui(tx);
             }
-            KeyCode::Char('c') => {
-                if self.focus == FocusArea::TaskBoard {
-                    self.cycle_agent_assignment();
-                }
+            KeyCode::Char('c') if self.focus == FocusArea::TaskBoard => {
+                self.cycle_agent_assignment();
             }
-            KeyCode::Char('r') => {
-                if self.focus == FocusArea::TaskBoard {
-                    self.retry_selected_task(tx);
-                }
+            KeyCode::Char('r') if self.focus == FocusArea::TaskBoard => {
+                self.retry_selected_task(tx);
             }
-            KeyCode::Char('s') | KeyCode::Char('+') => {
+            KeyCode::Char('s') | KeyCode::Char('+')
                 if self.focus == FocusArea::TaskBoard
-                    || matches!(self.focus, FocusArea::Pane(0..=2))
-                {
-                    if !self.shell_active {
-                        self.spawn_shell(tx);
-                    }
-                    self.focus = FocusArea::Pane(3);
+                    || matches!(self.focus, FocusArea::Pane(0..=2)) =>
+            {
+                if !self.shell_active {
+                    self.spawn_shell(tx);
                 }
+                self.focus = FocusArea::Pane(3);
             }
             // DX-024: 'i' attaches to focused PTY pane for interactive input
             KeyCode::Char('i') => {

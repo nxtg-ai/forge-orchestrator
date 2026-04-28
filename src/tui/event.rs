@@ -15,15 +15,13 @@ pub fn spawn_event_listener(tx: mpsc::UnboundedSender<TuiEvent>) {
         loop {
             match event::poll(Duration::from_millis(100)) {
                 Ok(true) => match event::read() {
-                    Ok(Event::Key(key)) => {
-                        if tx.send(TuiEvent::Key(key)).is_err() {
-                            break;
-                        }
+                    Ok(Event::Key(key)) if tx.send(TuiEvent::Key(key)).is_err() => {
+                        break;
                     }
-                    Ok(Event::Resize(cols, rows)) => {
-                        if tx.send(TuiEvent::Resize(cols, rows)).is_err() {
-                            break;
-                        }
+                    Ok(Event::Resize(cols, rows))
+                        if tx.send(TuiEvent::Resize(cols, rows)).is_err() =>
+                    {
+                        break;
                     }
                     _ => {}
                 },
