@@ -79,6 +79,36 @@
 
 ## CoS Directives
 
+### DIRECTIVE-NXTG-20260427-03 — P1: Restore main CI to GREEN (clippy lint fails 8d)
+**From**: NXTG-AI CoS (Wolf) | **Priority**: P1
+**Injected**: 2026-04-27 17:05 PDT | **Estimate**: S | **Status**: COMPLETED
+
+**Pain**: `main` CI has failed since 2026-04-19 (CI #124 → #125, both lint failures). Issue [#12](https://github.com/nxtg-ai/forge-orchestrator/issues/12) auto-opened, untouched. Plus dependabot rustls-webpki bump branch failing 2026-04-24. **CI Gate Protocol (ADR-008) requires GREEN main.**
+
+**Outcome required**: Lint job GREEN on main, issue #12 closed, dependabot rustls-webpki PR landable.
+
+**Direction (not implementation)**: 12 clippy errors blocking compile, all `clippy::collapsible_match` style errors in `src/tui/uat_app.rs` (around lines 182 and 188 — `if` blocks inside `match` arms that clippy wants collapsed via `=>` syntax). Cosmetic, deterministic to fix. You choose: collapse the matches per clippy's hint, or `#[allow]` with a documented reason if there's a readability case for keeping them nested.
+
+**Constraints**: Don't suppress clippy globally. Address the specific errors or annotate them locally with rationale.
+
+**Reference**: full failure log at https://github.com/nxtg-ai/forge-orchestrator/actions/runs/24636630585
+
+**Response** (filled by forge-orchestrator team):
+> **COMPLETED** — 2026-04-27
+>
+> Collapsed both `if` blocks in `handle_nav_key` into match guards per clippy's suggestion:
+> - `KeyCode::Up | KeyCode::Char('k') => { if self.selected_task > 0 { ... } }` → `... if self.selected_task > 0 => { ... }`
+> - `KeyCode::Down | KeyCode::Char('j') => { if self.selected_task + 1 < self.tasks.len() { ... } }` → `... if self.selected_task + 1 < self.tasks.len() => { ... }`
+>
+> Local results: `cargo clippy -- -D warnings` clean, `cargo fmt --check` clean, 378 tests pass (356 unit + 10 CLI + 12 MCP).
+> Note: CI errors were not reproducible on local Rust 1.93.0 — the newer stable CI toolchain (`dtolnay/rust-toolchain@stable`) added stricter `collapsible_match`-family lints.
+>
+> Issue #12 and dependabot rustls-webpki PR will be resolvable once CI turns green on this push.
+>
+> **Started**: 2026-04-27 | **Completed**: 2026-04-27 | **Actual**: S (~15 min)
+
+---
+
 ### DIRECTIVE-NXTG-20260418-03 — P2: Voice Identity Adoption
 **From**: NXTG-AI CoS (Wolf) — Asif-initiated | **Priority**: P2
 **Injected**: 2026-04-18 13:48 PDT | **Estimate**: S (under 30 min) | **Status**: COMPLETED

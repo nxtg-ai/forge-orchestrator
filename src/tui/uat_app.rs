@@ -178,17 +178,13 @@ impl UatApp {
             KeyCode::Char('q') | KeyCode::Esc => {
                 self.should_quit = true;
             }
-            KeyCode::Up | KeyCode::Char('k') => {
-                if self.selected_task > 0 {
-                    self.selected_task -= 1;
-                    self.list_state.select(Some(self.selected_task));
-                }
+            KeyCode::Up | KeyCode::Char('k') if self.selected_task > 0 => {
+                self.selected_task -= 1;
+                self.list_state.select(Some(self.selected_task));
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if self.selected_task + 1 < self.tasks.len() {
-                    self.selected_task += 1;
-                    self.list_state.select(Some(self.selected_task));
-                }
+            KeyCode::Down | KeyCode::Char('j') if self.selected_task + 1 < self.tasks.len() => {
+                self.selected_task += 1;
+                self.list_state.select(Some(self.selected_task));
             }
             KeyCode::Char('p') => {
                 // Mark selected task as passed — persists to disk
