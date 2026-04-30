@@ -1,0 +1,212 @@
+name: Release Protocol Drift Check
+# ASIF Release Protocol Enforcement — Layer 2 (ADR-036)
+# standards/release-protocol-enforcement.md
+#
+# Runs daily and verifies the manifest version matches:
+#   - latest git tag matching v*
+#   - latest GitHub Release
+#   - latest published registry version (npm / cargo / pypi)
+#
+# On any drift, opens a `release-drift` labeled issue with a missing-step
+# checklist. Auto-closes when drift resolves on next run.
+#
+# Install:
+#   cp ~/ASIF/scripts/templates/release-protocol-check.yml .github/workflows/release-protocol-check.yml
+#   git add .github/workflows/release-protocol-check.yml && commit && push
+#
+# Configuration is via the workflow_dispatch inputs OR repo variables:
+#   REGISTRY: npm | cargo | pypi | none (default: auto-detect from manifest)
+#   PACKAGE_NAME: explicit package name (default: auto-detect)
+
+on:
+  schedule:
+    - cron: '0 8 * * *'  # 08:00 UTC daily
+  workflow_dispatch:
+    inputs:
+      registry:
+        description: 'Override registry (npm/cargo/pypi/none)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  drift-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need full tag history
+
+      - name: Detect manifest version + registry
+        id: detect
+        run: |
+          set -e
+          VERSION=""
+          REGISTRY=""
+          PKG_NAME=""
+
+          if [ -f "package.json" ]; then
+            VERSION=$(node -p "require('./package.json').version" 2>/dev/null || true)
+            PKG_NAME=$(node -p "require('./package.json').name" 2>/dev/null || true)
+            # Public if has publishConfig OR private:false OR @nxtg/* scope OR no private flag
+            IS_PRIVATE=$(node -p "require('./package.json').private === true" 2>/dev/null || echo "false")
+            if [ "$IS_PRIVATE" != "true" ]; then
+              REGISTRY="npm"
+            fi
+          elif [ -f "Cargo.toml" ]; then
+            VERSION=$(grep -oP '^version\s*=\s*"\K[^"]+' Cargo.toml | head -1)
+            PKG_NAME=$(grep -oP '^name\s*=\s*"\K[^"]+' Cargo.toml | head -1)
+            if ! grep -q '^publish\s*=\s*false' Cargo.toml; then
+              REGISTRY="cargo"
+            fi
+          elif [ -f "pyproject.toml" ]; then
+            VERSION=$(grep -oP '^version\s*=\s*"\K[^"]+' pyproject.toml | head -1)
+            PKG_NAME=$(grep -oP '^name\s*=\s*"\K[^"]+' pyproject.toml | head -1)
+            REGISTRY="pypi"
+          fi
+
+          # Override from workflow inputs
+          if [ -n "${{ inputs.registry }}" ]; then
+            REGISTRY="${{ inputs.registry }}"
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "registry=$REGISTRY" >> "$GITHUB_OUTPUT"
+          echo "pkg_name=$PKG_NAME" >> "$GITHUB_OUTPUT"
+          echo "Detected: name=$PKG_NAME version=v$VERSION registry=$REGISTRY"
+
+      - name: Check git tag
+        id: tag
+        if: steps.detect.outputs.version != ''
+        run: |
+          TAG="v${{ steps.detect.outputs.version }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "tag_status=ok" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_status=missing" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check GitHub Release
+        id: release
+        if: steps.detect.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ steps.detect.outputs.version }}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release_status=ok" >> "$GITHUB_OUTPUT"
+          else
+            echo "release_status=missing" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check registry publish
+        id: registry
+        if: steps.detect.outputs.version != '' && steps.detect.outputs.registry != '' && steps.detect.outputs.registry != 'none'
+        run: |
+          REG="${{ steps.detect.outputs.registry }}"
+          PKG="${{ steps.detect.outputs.pkg_name }}"
+          VERSION="${{ steps.detect.outputs.version }}"
+          PUBLISHED=""
+          STATUS="missing"
+
+          case "$REG" in
+            npm)
+              PUBLISHED=$(npm view "$PKG" version 2>/dev/null || echo "")
+              ;;
+            cargo)
+              PUBLISHED=$(curl -sf "https://crates.io/api/v1/crates/$PKG" 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin).get('crate',{}).get('newest_version',''))" 2>/dev/null || echo "")
+              ;;
+            pypi)
+              PUBLISHED=$(curl -sf "https://pypi.org/pypi/$PKG/json" 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin).get('info',{}).get('version',''))" 2>/dev/null || echo "")
+              ;;
+          esac
+
+          if [ "$PUBLISHED" = "$VERSION" ]; then
+            STATUS="ok"
+          fi
+
+          echo "registry_status=$STATUS" >> "$GITHUB_OUTPUT"
+          echo "registry_published=$PUBLISHED" >> "$GITHUB_OUTPUT"
+
+      - name: Check CHANGELOG
+        id: changelog
+        if: steps.detect.outputs.version != ''
+        run: |
+          VERSION="${{ steps.detect.outputs.version }}"
+          STATUS="ok"
+          if [ -f "CHANGELOG.md" ]; then
+            if ! grep -qE "^##[[:space:]]*\[?v?$VERSION\]?\s*[—\-]\s*[0-9]{4}-[0-9]{2}-[0-9]{2}" CHANGELOG.md; then
+              if grep -qE "^##[[:space:]]*\[Unreleased\]" CHANGELOG.md; then
+                STATUS="unrolled"
+              fi
+            fi
+          fi
+          echo "changelog_status=$STATUS" >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate drift + open/close issue
+        if: steps.detect.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          VERSION="${{ steps.detect.outputs.version }}"
+          TAG="v$VERSION"
+          TAG_OK="${{ steps.tag.outputs.tag_status }}"
+          RELEASE_OK="${{ steps.release.outputs.release_status }}"
+          REGISTRY_OK="${{ steps.registry.outputs.registry_status }}"
+          PUBLISHED="${{ steps.registry.outputs.registry_published }}"
+          CHANGELOG_OK="${{ steps.changelog.outputs.changelog_status }}"
+          REGISTRY="${{ steps.detect.outputs.registry }}"
+          PKG="${{ steps.detect.outputs.pkg_name }}"
+
+          DRIFT=false
+          MISSING=""
+
+          if [ "$TAG_OK" = "missing" ]; then
+            DRIFT=true
+            MISSING="$MISSING\n- [ ] Git tag \`$TAG\` is missing — run: \`git tag $TAG && git push origin $TAG\`"
+          fi
+          if [ "$RELEASE_OK" = "missing" ]; then
+            DRIFT=true
+            MISSING="$MISSING\n- [ ] GitHub Release \`$TAG\` not published — run: \`gh release create $TAG --notes-from-tag\`"
+          fi
+          if [ -n "$REGISTRY" ] && [ "$REGISTRY" != "none" ] && [ "$REGISTRY_OK" != "ok" ]; then
+            DRIFT=true
+            case "$REGISTRY" in
+              npm) CMD="npm publish" ;;
+              cargo) CMD="cargo publish" ;;
+              pypi) CMD="python -m build && twine upload dist/*" ;;
+            esac
+            MISSING="$MISSING\n- [ ] Registry \`$REGISTRY\` shows \`$PUBLISHED\` (expected \`$VERSION\`) — run: \`$CMD\`"
+          fi
+          if [ "$CHANGELOG_OK" = "unrolled" ]; then
+            DRIFT=true
+            MISSING="$MISSING\n- [ ] CHANGELOG.md still has \`[Unreleased]\` — roll to \`[v$VERSION] — $(date +%Y-%m-%d)\`"
+          fi
+
+          ISSUE_TITLE="Release drift: v$VERSION bumped but train incomplete"
+          EXISTING=$(gh issue list --label "release-drift" --state open --json number,title --jq ".[] | select(.title == \"$ISSUE_TITLE\") | .number" | head -1)
+
+          if $DRIFT; then
+            BODY=$(printf "Manifest declares **v%s** but the release train has gaps detected on %s UTC.\n\n## Missing Steps\n%b\n\n## Why this matters\nPer ADR-036, every public-package release must ship as one atomic bundle: tag + GH release + registry publish + CHANGELOG. Partial releases break downstream consumers and audit trail.\n\n## How to resolve\nComplete the steps above. This issue auto-closes on the next daily run when drift clears.\n\n---\n_Auto-generated by \`.github/workflows/release-protocol-check.yml\` — see \`standards/release-protocol-enforcement.md\` in ASIF._\n" "$VERSION" "$(date -u '+%Y-%m-%d %H:%M')" "$MISSING")
+
+            if [ -z "$EXISTING" ]; then
+              gh label create release-drift --color FFA500 --description "Release artifacts out of sync with manifest version" 2>/dev/null || true
+              gh issue create --title "$ISSUE_TITLE" --body "$BODY" --label "release-drift"
+              echo "Opened release-drift issue."
+            else
+              gh issue comment "$EXISTING" --body "Drift still present as of $(date -u '+%Y-%m-%d %H:%M UTC'). Latest checklist:$MISSING"
+              echo "Updated existing release-drift issue #$EXISTING."
+            fi
+          else
+            if [ -n "$EXISTING" ]; then
+              gh issue close "$EXISTING" --comment "Release drift cleared on $(date -u '+%Y-%m-%d %H:%M UTC'). All artifacts in sync for v$VERSION."
+              echo "Closed resolved release-drift issue #$EXISTING."
+            else
+              echo "No drift. Release train for v$VERSION is intact."
+            fi
+          fi
