@@ -691,6 +691,62 @@ forge-ui has 16 unreleased commits since v3.1.3. This exceeds the >5 commit thre
 
 ## CoS Directives
 
+### DIRECTIVE-FORGE-20260503-02 — P1: CI hygiene + dependency vulnerability cleanup
+**From**: Wolf (NXTG-AI CoS) — relayed from Emma /alignment 21:08 CDT analysis + Asif "proceed with best fix solution" 16:04 PDT
+**Priority**: P1 | **Injected**: 2026-05-03 14:10 PDT | **Estimate**: M (1-2h, 4-6 small PRs) | **Status**: PENDING
+
+**Authority**: Asif explicit GO in /alignment 16:04 PDT after PR #16 (canonical-positioning) surfaced 3 pre-existing CI failures (CLA, Quality Gate parser, Dependency Audit). This unblocks PR #16 merge AND closes the dependabot-PR-no-watch backlog flagged at 21:00 CDT (PR #13 unmerged 9 days, PR #11 unmerged 19 days).
+
+**Context (verified online by Emma 16:05 CDT, rustsec.org)**:
+- rustls-webpki 0.103.13 patches RUSTSEC-2026-0104/0098/0099 (3 RED). PR #13 is the right fix.
+- rand 0.9.3 patches RUSTSEC-2026-0097 (1 YELLOW). PR #11 is right.
+- ratatui 0.30.0 (modular reorg) likely drops paste+lru transitives → kills 2 YELLOW.
+- indicatif still pulls number_prefix at 0.17.11 — that YELLOW is upstream-blocked, needs cargo-audit ignore with expiry.
+- contributor-assistant/github-action@v2 tag deleted upstream (latest @v2.6.1 from 2024-09-26).
+
+**Outcomes (COMPASS — team picks implementation, sequence flexible)**:
+
+1. **PR-A: CI hygiene fix** (smallest first, unblocks all others):
+   - .github/workflows/cla.yml: bump action pin from @v2 to @v2.6.1
+   - .github/workflows/cla.yml: skip CLA job when github.actor == 'dependabot[bot]' (otherwise dependabot PRs can never merge)
+   - .github/workflows/pr-protection.yml: fix Quality Gate test-count parser — replace `tail -1` with awk sum so it counts all 3 test binaries (currently sees 12, actual 378)
+   - Open PR, may need admin merge if it hits its own broken CI (Asif).
+
+2. **PR #11 (rand 0.9.3)**: re-run CI after PR-A merges, verify green, merge.
+
+3. **PR #13 (rustls-webpki 0.103.13)**: investigate Lint failure separately — likely real clippy issue from new dep, fix on the dependabot branch, re-run, merge. Kills 3 RED advisories.
+
+4. **PR-B: ratatui 0.29 → 0.30.x bump**: new dependabot PR or manual Cargo.toml edit. Verify cargo audit goes green on paste + lru YELLOW transitives.
+
+5. **PR-C: cargo-audit ignore for number_prefix**: add `--ignore RUSTSEC-2025-0119` flag with comment "upstream-blocked on indicatif 0.18; remove when indicatif updates". Time-box the ignore (e.g., 60 days).
+
+6. **PR #16 (canonical positioning)**: rebase onto fixed main, re-run CI, sign CLA on PR via Asif comment, merge. forge-orchestrator surface alignment LIVE.
+
+**Hard constraints**:
+- Each PR is its own commit. No mega-PR mixing dep bumps + CI hygiene + content.
+- Co-author canon (3-line trailer with 🌽 + nxtg.ai + AxW <axw@nxtg.ai>) on every commit — NO Claude/Anthropic attribution. Per ~/.claude/rules/commit-co-author-canon.md.
+- HANDOFF note to Wolf after each PR lands (Note number = sequential).
+- If Lint fix on PR #13 requires deep clippy work, surface as TQ in NEXUS — Wolf reviews scope before sinking time.
+- No functional code changes. CI workflow + Cargo.toml + Cargo.lock only.
+
+**Out of scope**:
+- Anything beyond this 6-step chain. forge.nxtg.ai page build is nxtg.ai team after PR #16 merges.
+- Bigger ratatui migration if 0.29→0.30 breaks build — fall back to ignore-with-expiry on those YELLOWs and surface as TQ.
+
+**Acceptance**:
+- [ ] PR-A merged (CI hygiene)
+- [ ] PR #11 + #13 merged (kill 4 advisories)
+- [ ] PR-B + PR-C merged (kill remaining YELLOWs or scope them)
+- [ ] PR #16 CI all GREEN (Test, Lint, Quality Gate, Dependency Audit, CLA)
+- [ ] PR #16 merged to main
+- [ ] HANDOFF Note to Wolf summarizing the merge chain + any deferred items
+
+**Promise**: PRM-NXTG-20260503-XX (Wolf creates on inject)
+
+**Note from Wolf**: Emma did the upstream-version research (rustsec.org). I packaged + injected. You hold the implementation pen. ETA realistic: 1-2 hours wall clock for the full chain at today's team pace (10-15 min per PR). If you hit a Lint roadblock on PR #13, surface fast — don't sink an hour.
+
+---
+
 ### DIRECTIVE-FORGE-20260503-01 — P1: forge-orchestrator surface alignment (canonical positioning)
 **From**: Wolf (NXTG-AI CoS) — relayed from Emma HANDOFF Note 195 + Asif weekly review 2026-05-03 lock
 **Priority**: P1 | **Injected**: 2026-05-03 13:45 PDT | **Estimate**: S (1-2h) | **Status**: PENDING
