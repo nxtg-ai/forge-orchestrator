@@ -16,11 +16,12 @@ jobs:
   cla:
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'pull_request_target') ||
-      (github.event_name == 'issue_comment' && github.event.comment.body == 'recheck')
+      github.actor != 'dependabot[bot]' &&
+      ((github.event_name == 'pull_request_target') ||
+      (github.event_name == 'issue_comment' && github.event.comment.body == 'recheck'))
     steps:
       - name: CLA Assistant
-        uses: contributor-assistant/github-action@v2
+        uses: contributor-assistant/github-action@v2.6.1
         with:
           path-to-signatures: '.github/cla-signatures.json'
           path-to-document: 'https://github.com/${{ github.repository }}/blob/main/.github/CLA.md'

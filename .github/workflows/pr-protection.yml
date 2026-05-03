@@ -8,7 +8,7 @@ permissions:
   pull-requests: write
 env:
   CARGO_TERM_COLOR: always
-  MIN_TEST_COUNT: 362
+  MIN_TEST_COUNT: 378
 
 jobs:
   security-scan:
@@ -50,7 +50,7 @@ jobs:
         run: |
           OUTPUT=$(cargo test 2>&1)
           echo "$OUTPUT"
-          PASSED=$(echo "$OUTPUT" | grep -oP '\d+ passed' | grep -oP '\d+' | tail -1)
+          PASSED=$(echo "$OUTPUT" | grep -oP '\d+ passed' | grep -oP '\d+' | awk '{s+=$1} END{print s+0}')
           echo "Tests passed: ${PASSED:-0}"
           if [ "${PASSED:-0}" -lt "$MIN_TEST_COUNT" ]; then
             echo "::error::Test count ${PASSED:-0} < minimum $MIN_TEST_COUNT"
