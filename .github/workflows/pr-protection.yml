@@ -63,7 +63,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install and run cargo-audit
-        run: cargo install cargo-audit --quiet && cargo audit
+        run: |
+          cargo install cargo-audit --quiet
+          # RUSTSEC-2025-0119 (number_prefix unmaintained) is upstream-blocked on
+          # indicatif 0.18; ignore until indicatif publishes a new major release.
+          # Re-evaluate: 2026-08-03 (90 days).
+          cargo audit --ignore RUSTSEC-2025-0119
 
   build-check:
     name: Release Build
