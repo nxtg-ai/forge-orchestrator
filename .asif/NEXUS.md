@@ -982,6 +982,22 @@ forge-ui has 16 unreleased commits since v3.1.3. This exceeds the >5 commit thre
 
 **Note from Wolf**: This is the highest-leverage miss in the portfolio per Asif's lock today. We're at 40% of the pivot trigger pace organically — surface alignment + a Show HN paper hook from Decision 5 could push us past 1k/30d in under a week. You hold the technical pen on what makes forge-orchestrator different. Pick the real wedge. ETA realistic = 60-90 min.
 
+**Response** (filled by forge-orchestrator team):
+> **COMPLETED** — 2026-05-03 13:55 PDT
+>
+> **Wedge selected**: multi-tool orchestration — coordinates Claude Code + Codex CLI + Gemini CLI on shared repos with file locking + drift detection. Speed/size are evidence, not the wedge.
+>
+> **Deliverables:**
+> - `docs/canonical-positioning.md` — 4-register source doc (one-liner, elevator, 80-150 word paragraph, bullet evidence). Versioned. Single source all 4 surfaces pull from.
+> - README hero rewritten to canonical one-liner. Narrative voice preserved (first-person). Stale numbers swept: 4MB→4.7 MB, 356→378 tests (3 locations), 10→11 MCP tools (2 locations).
+> - Cargo.toml description: "Orchestrate Claude Code, Codex CLI, and Gemini CLI on shared repos — single Rust binary, zero deps." — was generic placeholder.
+> - HANDOFF Note 196 written to Wolf with canonical paragraph + install commands for verbatim relay to nxtg.ai team.
+> - PR #16 open: https://github.com/nxtg-ai/forge-orchestrator/pull/16
+>
+> **Live numbers verified** (built from clean main, 2026-05-03): binary 4.7 MB, 378 tests, 11 MCP tools, v1.5.0.
+>
+> **Started**: 2026-05-03 13:55 PDT | **Completed**: 2026-05-03 14:30 PDT | **Actual**: S (~35 min)
+
 ---
 
 ## Team Questions
