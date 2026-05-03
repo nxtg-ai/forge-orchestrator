@@ -2,7 +2,7 @@
 name = "forge-orchestrator"
 version = "1.5.0"
 edition = "2024"
-description = "Universal orchestration engine for AI-powered development"
+description = "Orchestrate Claude Code, Codex CLI, and Gemini CLI on shared repos — single Rust binary, zero deps."
 license = "FSL-1.1-ALv2"
 repository = "https://github.com/nxtg-ai/forge-orchestrator"
 keywords = ["ai", "orchestration", "claude", "codex", "gemini"]
