@@ -65,9 +65,10 @@ jobs:
       - name: Install and run cargo-audit
         run: |
           cargo install cargo-audit --quiet
-          # RUSTSEC-2025-0119 (number_prefix): upstream-blocked on indicatif 0.18, permanent ignore (PR #20)
-          # RUSTSEC-2026-0097 (rand 0.9.2→0.9.3): resolved by PR #21 — remove after that merges
-          cargo audit --ignore RUSTSEC-2025-0119 --ignore RUSTSEC-2026-0097
+          # RUSTSEC-2025-0119 (number_prefix unmaintained) is upstream-blocked on
+          # indicatif 0.18; ignore until indicatif publishes a new major release.
+          # Re-evaluate: 2026-08-03 (90 days).
+          cargo audit --ignore RUSTSEC-2025-0119
 
   build-check:
     name: Release Build
