@@ -6,13 +6,11 @@
 
 [![CI](https://github.com/nxtg-ai/forge-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/nxtg-ai/forge-orchestrator/actions) [![GitHub stars](https://img.shields.io/github/stars/nxtg-ai/forge-orchestrator)](https://github.com/nxtg-ai/forge-orchestrator) [![crates.io](https://img.shields.io/crates/v/forge-orchestrator)](https://crates.io/crates/forge-orchestrator)
 
-**Multi-tool orchestration in a single Rust binary.**
-
-This is L2: Pro Builder.
+**Orchestrate Claude Code, Codex CLI, and Gemini CLI on shared repos — single Rust binary, zero deps.**
 
 Multi-agent inside a single tool works fine. Claude Code runs 20 subagents and they stay aligned because the tool manages that orchestration internally. The problem is multi-tool: Claude Code, Codex CLI, and Gemini CLI on the same repo with no shared state. That's what the orchestrator solves.
 
-It adds file locking, knowledge capture, task planning, drift detection, and multi-tool orchestration to your development workflow. Three tools reading from and writing to a single state directory.
+It adds file locking, knowledge capture, task planning, drift detection, and multi-tool orchestration to your development workflow. Three tools reading from and writing to a single state directory. An 11-tool MCP server exposes the full orchestration state to any connected AI client.
 
 The orchestrator exists because I ran two AI tools on the same codebase and watched them fail in the same ways human teams fail. Claude refactored a module. Codex updated tests against the pre-refactor interface. Both saved. Tests failed. Neither tool knew the other existed. I'd spent 23 years watching this exact scenario with talented human teams. The solution was always the same: orchestration infrastructure.
 
@@ -23,7 +21,7 @@ curl -fsSL https://forge.nxtg.ai/install.sh | sh
 forge init
 ```
 
-Single binary. 4MB. No runtime dependencies.
+Single binary. 4.7 MB. No runtime dependencies.
 
 ## Quick Demo
 
@@ -83,7 +81,7 @@ forge dashboard --pty
 | Multi-tool adapters | Claude Code (MCP stdio) + Codex CLI + Gemini CLI (filesystem) |
 | TUI dashboard | `forge dashboard`: live tool panes, task status, lock state |
 | Headless mode | `forge run`: autonomous execution for CI/CD pipelines |
-| MCP server | 10 tools accessible by any connected AI tool |
+| MCP server | 11 tools accessible by any connected AI tool via stdio |
 
 ## Key Commands
 
@@ -106,7 +104,7 @@ The orchestrator is the policy core of Forge. All governance rules, file locks, 
 ```
 ┌──────────────────────────────────────┐
 │        forge-orchestrator            │
-│        (Rust, 4MB, 356 tests)        │
+│        (Rust, 4.7 MB, 378 tests)      │
 │                                      │
 │  File locking · Task planning        │
 │  Knowledge · Governance · MCP        │
@@ -134,7 +132,7 @@ File locking exists because I've watched teams lose days to conflicting edits.
 
 When Claude Code starts editing a file, the orchestrator acquires an exclusive lock in `.forge/locks/`. Codex CLI requesting the same file is queued with a notification of who holds the lock. Locks include timeouts (crashed tools don't hold locks forever) and deadlock detection.
 
-356 tests cover concurrent access, timeout behavior, multi-adapter locking, and edge cases.
+378 tests cover concurrent access, timeout behavior, multi-adapter locking, and edge cases.
 
 ## How the Knowledge Flywheel Works
 
