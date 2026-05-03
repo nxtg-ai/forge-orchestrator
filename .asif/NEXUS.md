@@ -689,6 +689,49 @@ forge-ui has 16 unreleased commits since v3.1.3. This exceeds the >5 commit thre
 
 ---
 
+## CoS Directives
+
+### DIRECTIVE-FORGE-20260503-01 — P1: forge-orchestrator surface alignment (canonical positioning)
+**From**: Wolf (NXTG-AI CoS) — relayed from Emma HANDOFF Note 195 + Asif weekly review 2026-05-03 lock
+**Priority**: P1 | **Injected**: 2026-05-03 13:45 PDT | **Estimate**: S (1-2h) | **Status**: PENDING
+
+**Authority**: Asif weekly review 2026-05-03 — forge-orchestrator is now the highest-visibility primary focus for the portfolio. Surface fragmentation across crates.io / lib.rs / GitHub / forge.nxtg.ai is a HUGE MISS gating the marketing flywheel pivot from Faultline to Forge.
+
+**Context**:
+- 14d clone traffic: 333 total / 144 UNIQUE cloners. 113⭐ / 17 forks. ~400-600 unique cloners/30d annualized.
+- Asif locked pivot trigger: 1,000 unique organic cloners across forge-orchestrator + forge-plugin in any rolling 30-day window (team IPs filtered). Current pace = ~40% of trigger BEFORE any campaign. The signal is real.
+- forge.nxtg.ai is being re-allocated from Faultline-primary to forge-orchestrator-primary in parallel by the nxtg.ai team. Your README is the source they pull from.
+
+**Outcomes (COMPASS — these must hold; you pick implementation):**
+1. **One canonical positioning paragraph** committed as `docs/canonical-positioning.md` — 80-150 words capturing what makes forge-orchestrator genuinely different. Candidate axes: Rust + local-first + deterministic + speed numbers + MCP server mode + zero runtime deps + single binary. Pick the wedge that's true.
+2. **README.md hero aligned** — rewrite top section to use canonical positioning + live performance numbers (binary size, test count, startup time — pull from current binary, not stale README).
+3. **Cargo.toml description aligned** — short version of canonical positioning (lib.rs auto-pulls from this; one update fixes both crates.io + lib.rs).
+4. **HANDOFF block** — when shipped, write a HANDOFF note to Wolf with the canon paragraph + bullets + install commands so Wolf can relay verbatim to the nxtg.ai team for the /orchestrator page build.
+
+**Hard constraints**:
+- Numbers must be real, pulled from current binary (`forge --version`, `cargo test`, `ls -la target/release/`). No stale or rounded marketing claims.
+- Apache-2.0 / FSL-1.1-ALv2 license accuracy (per N-10 transition). Surfaces must reflect current license, not past.
+- No marketing fluff. Honor existing voice/tone of current README.
+- COMPASS — outcomes, not prescription. You know the project's narrative best.
+
+**Out of scope for v1**:
+- forge.nxtg.ai page itself (nxtg.ai team owns the Next.js delivery; you supply the copy block).
+- forge-plugin / forge-ui surface alignment (separate scope, separate teams).
+- Show HN / Twitter / Reddit launches (downstream content; Wolf authors per Decision 6).
+
+**Acceptance**:
+- [ ] `docs/canonical-positioning.md` committed (the canon doc all 4 surfaces pull from)
+- [ ] README.md hero aligned with canonical positioning + live numbers
+- [ ] Cargo.toml description field aligned
+- [ ] PR opened for review
+- [ ] HANDOFF note to Wolf with canon block + install commands
+
+**Promise**: PRM-NXTG-20260503-04 (Wolf creates on inject)
+
+**Note from Wolf**: This is the highest-leverage miss in the portfolio per Asif's lock today. We're at 40% of the pivot trigger pace organically — surface alignment + a Show HN paper hook from Decision 5 could push us past 1k/30d in under a week. You hold the technical pen on what makes forge-orchestrator different. Pick the real wedge. ETA realistic = 60-90 min.
+
+---
+
 ## Team Questions
 
 _(Add questions for FPL / ASIF CoS here.)_
