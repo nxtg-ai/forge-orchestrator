@@ -693,7 +693,7 @@ forge-ui has 16 unreleased commits since v3.1.3. This exceeds the >5 commit thre
 
 ### DIRECTIVE-FORGE-20260503-02 — P1: CI hygiene + dependency vulnerability cleanup
 **From**: Wolf (NXTG-AI CoS) — relayed from Emma /alignment 21:08 CDT analysis + Asif "proceed with best fix solution" 16:04 PDT
-**Priority**: P1 | **Injected**: 2026-05-03 14:10 PDT | **Estimate**: M (1-2h, 4-6 small PRs) | **Status**: PENDING
+**Priority**: P1 | **Injected**: 2026-05-03 14:10 PDT | **Estimate**: M (1-2h, 4-6 small PRs) | **Status**: IN PROGRESS
 
 **Authority**: Asif explicit GO in /alignment 16:04 PDT after PR #16 (canonical-positioning) surfaced 3 pre-existing CI failures (CLA, Quality Gate parser, Dependency Audit). This unblocks PR #16 merge AND closes the dependabot-PR-no-watch backlog flagged at 21:00 CDT (PR #13 unmerged 9 days, PR #11 unmerged 19 days).
 
@@ -776,7 +776,7 @@ forge-ui has 16 unreleased commits since v3.1.3. This exceeds the >5 commit thre
 
 ### DIRECTIVE-FORGE-20260503-01 — P1: forge-orchestrator surface alignment (canonical positioning)
 **From**: Wolf (NXTG-AI CoS) — relayed from Emma HANDOFF Note 195 + Asif weekly review 2026-05-03 lock
-**Priority**: P1 | **Injected**: 2026-05-03 13:45 PDT | **Estimate**: S (1-2h) | **Status**: PENDING
+**Priority**: P1 | **Injected**: 2026-05-03 13:45 PDT | **Estimate**: S (1-2h) | **Status**: COMPLETED
 
 **Authority**: Asif weekly review 2026-05-03 — forge-orchestrator is now the highest-visibility primary focus for the portfolio. Surface fragmentation across crates.io / lib.rs / GitHub / forge.nxtg.ai is a HUGE MISS gating the marketing flywheel pivot from Faultline to Forge.
 
