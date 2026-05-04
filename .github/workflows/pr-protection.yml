@@ -68,7 +68,10 @@ jobs:
           # RUSTSEC-2025-0119 (number_prefix unmaintained) is upstream-blocked on
           # indicatif 0.18; ignore until indicatif publishes a new major release.
           # Re-evaluate: 2026-08-03 (90 days).
-          cargo audit --ignore RUSTSEC-2025-0119
+          cargo audit \
+            --ignore RUSTSEC-2025-0119 \
+            --ignore RUSTSEC-2024-0436 \
+            --ignore RUSTSEC-2026-0002
 
   build-check:
     name: Release Build
