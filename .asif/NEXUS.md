@@ -501,6 +501,103 @@ Verdict: {PASS / FAIL / CRITICAL FAIL}
 ---
 
 ## Team Feedback
+> Reflection cycle: 2026-05-03 | Author: forge-orchestrator team
+> Previous reflection: 2026-04-19
+
+### 1. What did you ship since last check-in?
+
+**17 commits on main since 2026-04-19 (still v1.5.0 — all CI/docs/governance, no user-facing features).**
+
+**Clippy sweep (2 commits, `ecae08b`, `1c418ed`)**:
+Restored CI to GREEN after 8-day failure. Root cause: CI runs Rust 1.95.0, local was 1.93.0. Fixed by upgrading local toolchain and sweeping all `collapsible_match` errors in one pass. 12 errors across 5 files.
+
+**ADR-036 Release Protocol Enforcement (2 commits, `0076201`, `3bf5a0c`)**:
+`release-protocol-check` workflow added to CI. Layer 0 governance: enforce release gate discipline at push time, not just in directives.
+
+**DIRECTIVE-FORGE-20260503-01 — canonical positioning (3 commits, PR #16 open)**:
+- `docs/canonical-positioning.md`: 4-register source doc (one-liner, elevator, 80–150 word paragraph, bullet evidence with wedge rationale)
+- README hero rewritten to canonical one-liner. Stale numbers swept: 4MB→4.7 MB, 356→378 tests ×3, 10→11 MCP tools ×2
+- Cargo.toml description replaced ("Universal orchestration engine..." → canonical one-liner)
+- Wedge landed: multi-tool orchestration, not speed/size
+
+**DIRECTIVE-FORGE-20260503-02 — CI hygiene + dep vulnerability cleanup (in progress)**:
+- PR #17 MERGED: CLA @v2→@v2.6.1, dependabot bot skip, test-count parser `tail -1`→awk sum, MIN_TEST_COUNT 362→378
+- PR #18 MERGED: rustls-webpki 0.103.10→0.103.13 — kills 3 RED advisories (RUSTSEC-2026-0104/0098/0099)
+- PR #19 OPEN: ratatui 0.29→0.30 — drops paste+lru transitives (2 YELLOWs)
+- PR #20 OPEN: cargo-audit ignore RUSTSEC-2025-0119 (number_prefix, upstream-blocked, 90d)
+- PR #21 OPEN: rand 0.9.3 (RUSTSEC-2026-0097)
+- `awaliuddin` CLA signature committed to main → unblocks all 4 open PRs
+
+**Test count**: 378 (356 unit + 10 CLI + 12 MCP) — unchanged since v1.5.0.
+
+---
+
+### 2. What surprised me?
+
+**The CLA chicken-and-egg problem was harder than it looked.** `pull_request_target` runs the CLA workflow from the BASE branch (main), not the PR branch. So PR #17 (which fixed the CLA action) couldn't fix its own CLA check — it still ran the broken `@v2`. Took Asif's admin merge to break the cycle. This is a structural property of `pull_request_target` I hadn't fully internalized. Lesson: ANY change to CLA/merge-gate workflows needs an admin merge path documented upfront.
+
+**Dependabot branches carry stale CI debt forward silently.** PR #13 (rustls bump) had been open 9 days. It wasn't failing because of the dep change — it was failing because the BRANCH was based on a commit before the clippy sweep. `cargo clippy` locally on the branch showed 12 errors none of which were caused by rustls. Dependabot PRs age invisibly: they pass when created, then break as main evolves. A rebase-stale-after-N-days bot would catch this earlier.
+
+**Cross-advisory dependency hell between PRs.** Each dep bump PR needed temporary ignores for advisories fixed by OTHER dep bump PRs. Five advisories across four PRs meant each branch needed a custom set of `--ignore` flags to pass independently. The underlying cause: our Dependency Audit job doesn't have a merge-order-aware baseline — it runs `cargo audit` clean against whatever's on the branch, which is always behind where all the PRs together will land. A composite `--ignore` file checked into the repo (updated once, used by all branches) would have avoided this gymnastics.
+
+**The test-count parser bug had been wrong since PR protection shipped.** `tail -1` was always taking only the MCP binary's 12 tests. The Quality Gate check was effectively checking 12 ≥ 362 and failing every PR silently. The fix was one character (`tail -1` → awk sum) but the bug had been quietly blocking every PR since `e1df662` (2026-03-27 — 37 days).
+
+---
+
+### 3. Cross-project signals
+
+| Signal | Relevant to |
+|--------|-------------|
+| **CLA `pull_request_target` structural constraint**: Any change to the CLA workflow itself requires an admin merge to bootstrap. Document this in CONTRIBUTING.md and any repo that adds a CLA gate. | forge-ui, forge-plugin (if they ever add CLA) |
+| **Dependabot PR staleness pattern**: Dependabot PRs don't rebase automatically. They pass CI when created, then fail silently as main evolves. Consider adding `dependabot.yml` `rebase-strategy: auto` or a rebase-on-staleness bot. | forge-ui, forge-plugin |
+| **`cargo audit` cross-PR ignore gymnastics**: A shared `audit.toml` (or `.cargo/audit.toml`) with a known-good ignore list checked into main eliminates per-branch ignore duplication. Each PR only needs to add ignores for its OWN new advisories. | Any Rust repo running multi-PR dep cleanup |
+| **`tail -1` test-count parser anti-pattern**: Any CI script parsing `cargo test` output with `tail` or `head` will only see one binary. Must use `awk '{s+=$1} END{print s}'` to sum across all test binaries. | forge-ui (vitest may have similar accumulation risk), any multi-binary Rust project |
+| **Canonical positioning process**: `docs/canonical-positioning.md` as a 4-register source doc (one-liner, elevator, paragraph, bullets) feeds crates.io description, README hero, and landing page copy from a single commit. forge-plugin and forge-ui both have fragmented positioning — same process applies. | forge-plugin, forge-ui |
+
+---
+
+### 4. What would I prioritize next with fresh directives?
+
+**P0 — Cut v1.5.1** (18+ unreleased commits on main — all non-user-facing but threshold breached)
+Content: clippy sweep, ADR-036 release protocol, canonical positioning docs, CI hygiene, rustls security bump, CLA fix. The security dep bump (rustls-webpki 0.103.13 patches 3 CVEs) alone justifies a release.
+
+**P0 — Merge + clean PRs #19/20/21/16** then v1.5.1 tag
+PRs are CI-ready (CLA signature landed, branches rebased with cross-advisory ignores). Needs Asif to merge them. Once merged: main is advisory-clean, canonical positioning is live on crates.io/lib.rs.
+
+**P1 — Remove temporary `--ignore` flags from main after #19/20/21 merge**
+After those three PRs land, the per-branch `--ignore` flags are on branches that no longer exist. But the main `pr-protection.yml` still has no ignores (just `cargo audit`). Nothing to clean up on main — the ignores were on the PR branches only. ✓ Already clean.
+
+**P1 — Gate 5 event_logger swallows** (open since 2026-03-09, deadline 2026-04-07 passed)
+`let _ = event_logger.log(...)` in mcp/tools.rs. 7 silent swallows against the audit trail. Implement option (b): stderr logging. Will proceed as default this session unless redirected.
+
+**P2 — Rustdoc CI gate**
+`#![warn(missing_docs)]` on public modules. The audit from `e22f03c` improved coverage; a CI gate prevents regression. One-line Cargo.toml change + CI step.
+
+**P2 — ratatui 0.30 cleanup**
+After PR #19 merges, the strum bump (0.26→0.27) and unicode-truncate bump (1.1→2.0) that came with ratatui should be verified for any behavioral changes in TUI rendering.
+
+---
+
+### 5. Blockers and questions for CoS
+
+**Q6 (NEW) — v1.5.1 release authorization**
+18+ non-user-facing commits on main since v1.5.0 (2026-03-27 — 37 days). Security dep bump (rustls) warrants a release. Can I cut v1.5.1 without explicit CoS directive, or is a directive required per release gate protocol?
+
+**Q7 (NEW) — PR merge authorization**
+PRs #19/20/21/16 are CI-ready pending Asif's merge. Should I issue a request via NEXUS or will Wolf/Emma relay to Asif directly? Unclear who has merge authority and how to route the request.
+
+**Q1 — Gate 5 MCP error surfacing (OVERDUE — originally 2026-03-09, deadline 2026-04-07 passed)**
+Implementing option (b) — stderr logging — as default unless redirected. No CoS response in 55 days.
+
+**Q2 — TUI coverage floor (OVERDUE — originally 2026-03-09)**
+Proceeding with ratatui TestBackend spike. No CoS response in 55 days.
+
+**Q3 — forge-plugin CRUCIBLE ownership (OVERDUE — originally 2026-03-09)**
+Proceeding: forge-orchestrator team runs the audit, hands findings to forge-plugin team.
+
+---
+
+## Team Feedback
 > Reflection cycle: 2026-04-19 | Author: forge-orchestrator team
 > Previous reflection: 2026-03-31
 
