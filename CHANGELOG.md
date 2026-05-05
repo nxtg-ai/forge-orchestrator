@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-05-05
+
+### Security & Dependencies
+
+- **RUSTSEC-2026-0097 fixed** — `rand` 0.9.2 → 0.9.3 (unsoundness when a custom logger calls `rand::rng()`). PR #21.
+- **ratatui** 0.29 → 0.30 — drops `paste` (RUSTSEC-2024-0436) and `lru` (RUSTSEC-2026-0002) transitive dependencies. Clears two YELLOW CI advisories. PR #19.
+- **CI audit** — `RUSTSEC-2025-0119` (`number_prefix` unmaintained, upstream-blocked on indicatif) permanently ignored with 90-day re-evaluation date (2026-08-03). PR #20.
+
+### Documentation
+
+- **Canonical positioning** — README hero section rewritten with multi-tool orchestration framing. `Cargo.toml` description updated. `docs/canonical-positioning.md` added. PR #16.
+
 ## [1.4.1] - 2026-03-16
 
 ### Tier 2 Observability
