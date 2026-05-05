@@ -501,6 +501,45 @@ Verdict: {PASS / FAIL / CRITICAL FAIL}
 ---
 
 ## Team Feedback
+> Health check: 2026-05-05 | Author: forge-orchestrator team
+
+**v1.5.1 SHIPPED.** All pending dep PRs merged. Significant advisory reduction.
+
+### What landed since last meaningful check (692eb79 → e319616)
+
+| Commit | What |
+|--------|------|
+| `66b3fd9` | rand 0.9.3 — RUSTSEC-2026-0097 cleared |
+| `02e73e3` | ratatui 0.29→0.30 — paste + lru advisories cleared |
+| `5368035` | cargo-audit ignore RUSTSEC-2025-0119 (number_prefix permanent) |
+| `2d2f2a8` | canonical positioning docs |
+| `90f73ec` | NEXUS DIRECTIVE-01 DONE |
+| `eaf8532` | **v1.5.1 release** |
+| `e319616` | Cargo.lock version sync |
+
+### Tests
+
+**378/378 PASS** — 356 unit + 10 CLI + 12 MCP. Clippy 0 errors.
+
+### Dependency audit
+
+**1 warning (was 4) — exits 0**
+
+| Advisory | Crate | Status |
+|----------|-------|--------|
+| RUSTSEC-2025-0119 | number_prefix 0.4.0 | Permanent ignore — upstream-blocked on indicatif 0.18. Re-evaluate 2026-08-03. |
+
+Cleared this cycle: RUSTSEC-2026-0097 (rand), RUSTSEC-2024-0436 (paste), RUSTSEC-2026-0002 (lru).
+
+### Open PRs
+
+None blocking. PR #16 (canonical positioning) appears merged to main via `2d2f2a8`.
+
+### Status: **GREEN** — v1.5.1 on main, advisory debt at minimum viable floor.
+
+---
+
+## Team Feedback
 > Health check: 2026-05-04 (2nd check) | Author: forge-orchestrator team
 
 378/378 PASS. Clippy 0 errors. Audit 4 YELLOW (exits 0) — unchanged. PRs #16/19/20/21 still open, no overnight activity. No new advisories, no dep updates available. Identical to prior check; no action needed.
