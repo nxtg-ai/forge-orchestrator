@@ -374,17 +374,21 @@ fn handle_claim_task(args: &Value, forge_dir: &Path) -> CallToolResult {
     }
 
     // Log event
-    let _ = event_logger.log(
+    if let Err(e) = event_logger.log(
         &ForgeEvent::new(
             EventType::TaskAssigned,
             format!("Task {task_id} claimed by {agent}"),
         )
         .with_task(task_id)
         .with_agent(agent.clone()),
-    );
+    ) {
+        eprintln!("[forge-orchestrator] event log error: {e}");
+    }
 
     // Refresh task summary so state.json stays current
-    let _ = state_mgr.refresh_task_summary();
+    if let Err(e) = state_mgr.refresh_task_summary() {
+        eprintln!("[forge-orchestrator] state summary refresh error: {e}");
+    }
 
     CallToolResult::text(format!(
         "Task {task_id} claimed by {agent}. Files locked: {}",
@@ -428,19 +432,25 @@ fn handle_complete_task(args: &Value, forge_dir: &Path) -> CallToolResult {
     }
 
     // Unlock files
-    let _ = state_mgr.unlock_files(task_id);
+    if let Err(e) = state_mgr.unlock_files(task_id) {
+        eprintln!("[forge-orchestrator] file unlock error for {task_id}: {e}");
+    }
 
     // Log event
-    let _ = event_logger.log(
+    if let Err(e) = event_logger.log(
         &ForgeEvent::new(
             EventType::TaskCompleted,
             format!("Task {task_id} completed: {result_summary}"),
         )
         .with_task(task_id),
-    );
+    ) {
+        eprintln!("[forge-orchestrator] event log error: {e}");
+    }
 
     // Refresh task summary so state.json stays current
-    let _ = state_mgr.refresh_task_summary();
+    if let Err(e) = state_mgr.refresh_task_summary() {
+        eprintln!("[forge-orchestrator] state summary refresh error: {e}");
+    }
 
     // Check for newly unblocked tasks
     let completed_ids = task_mgr.get_completed_task_ids().unwrap_or_default();
@@ -548,10 +558,12 @@ fn handle_capture_knowledge(args: &Value, forge_dir: &Path) -> CallToolResult {
     }
 
     // Log event
-    let _ = event_logger.log(&ForgeEvent::new(
+    if let Err(e) = event_logger.log(&ForgeEvent::new(
         EventType::KnowledgeCaptured,
         format!("Knowledge captured: {title} (category: {cat_name})"),
-    ));
+    )) {
+        eprintln!("[forge-orchestrator] event log error: {e}");
+    }
 
     CallToolResult::text(format!(
         "Knowledge captured:\n  ID: {entry_id}\n  Category: {cat_name}\n  Title: {title}"
@@ -667,10 +679,12 @@ fn handle_check_drift(project_root: &Path) -> CallToolResult {
     // Log governance event
     let forge_dir = project_root.join(".forge");
     let event_logger = EventLogger::new(&forge_dir);
-    let _ = event_logger.log(&ForgeEvent::new(
+    if let Err(e) = event_logger.log(&ForgeEvent::new(
         EventType::GovernanceCheck,
         format!("Drift check: {}", report.summary),
-    ));
+    )) {
+        eprintln!("[forge-orchestrator] event log error: {e}");
+    }
 
     let output = json!({
         "drift": drift_json,
@@ -690,10 +704,12 @@ fn handle_get_health(project_root: &Path) -> CallToolResult {
     // Log governance event
     let forge_dir = project_root.join(".forge");
     let event_logger = EventLogger::new(&forge_dir);
-    let _ = event_logger.log(&ForgeEvent::new(
+    if let Err(e) = event_logger.log(&ForgeEvent::new(
         EventType::GovernanceCheck,
         format!("Health check: {}", report.summary),
-    ));
+    )) {
+        eprintln!("[forge-orchestrator] event log error: {e}");
+    }
 
     let output = json!({
         "health_score": report.health_score,
