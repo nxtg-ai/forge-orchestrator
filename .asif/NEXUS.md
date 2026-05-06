@@ -501,6 +501,78 @@ Verdict: {PASS / FAIL / CRITICAL FAIL}
 ---
 
 ## Team Feedback
+> Reflection cycle: 2026-05-06 | Author: forge-orchestrator team
+> Previous reflection: 2026-05-05
+
+### 1. What did you ship since last check-in?
+
+**4 commits on main since d855f44. DIRECTIVE-NXTG-20260506-01 DONE.**
+
+| Commit | What |
+|--------|------|
+| `a8bedca` | NEXUS: directive injected by Wolf (Wolf-authored) |
+| `76d790f` | Gate 5: 8 silent swallows → stderr logging; `scripts/nexus-health-guard.sh` |
+| `88f54ab` | NEXUS: directive response + Q8/Q9 answers |
+| `232edd1` | NEXUS: directive status → DONE (Wolf sync commit) |
+
+**Gate 5 detail**: All `let _ =` discards in `src/mcp/tools.rs` replaced — 5 `event_logger.log`, 2 `state_mgr.refresh_task_summary`, 1 `state_mgr.unlock_files`. Pattern: `if let Err(e) = ... { eprintln!("[forge-orchestrator] ..."); }`. Audit trail no longer silently lossy.
+
+**nexus-health-guard.sh**: 20-line bash. Kill-switch: `/tmp/forge-orchestrator-loop-kill` (exit 1 = stop, not skip). Change-detection: `.asif/last-nexus-commit` marker vs `git rev-parse HEAD`. Smoke-tested: permitted/skipping/kill-switch all correct.
+
+**Test count**: 378/378 PASS — unchanged. Clippy `-D warnings` clean.
+
+---
+
+### 2. What surprised me?
+
+**CRUCIBLE audit line numbers had drifted — the "7 swallows" count was wrong.** The 2026-03-07 audit cited 7 (5 event_logger + 2 refresh_task_summary). By execution time there were 8 — a `state_mgr.unlock_files()` swallow was added after the audit. That one matters most: silent failure leaves files locked for all subsequent agents. Fixed all 8. Lesson: CRUCIBLE reports should embed `git rev-parse HEAD` at audit time so teams can `git diff` against reality instead of trusting stale line numbers.
+
+**The health-check loop kept firing even after the session agent declined to write.** ScheduleWakeup fires regardless of in-session agent decisions — no in-protocol cancellation. The only exits are a new session or the kill-switch file. The guard script fixes future loops, but only if the calling skill checks its exit code. The standard Wolf is drafting needs to be opinionated about this wiring.
+
+---
+
+### 3. Cross-project signals
+
+| Signal | Relevant to |
+|--------|-------------|
+| **nexus-health-guard.sh pattern**: parameterize kill-switch path + marker file per project for any ScheduleWakeup health-check loop | forge-plugin, forge-ui, any ASIF project using ScheduleWakeup |
+| **stderr logging convention in MCP handlers**: `eprintln!("[forge-orchestrator] event log error: {e}")` is now the established pattern. `let _ =` is banned for audit trail and file-state operations. | Any Rust MCP server in the portfolio |
+| **CRUCIBLE audits need source-commit anchoring**: embed SHA at audit time — line numbers drift, SHAs don't | All future CRUCIBLE audits |
+| **`unlock_files` silent failure = permanent lock**: state-mutation silences (not just log silences) should be P0 in Gate 5 — they block downstream agents | forge-plugin governance-mcp, any multi-agent locking system |
+
+---
+
+### 4. What would I prioritize next with fresh directives?
+
+**P1 — Gate 6 state.rs mutation score** (34.8% → target ≥40%, open 58 days)
+`lock_files()`, `unlock_files()`, `refresh_task_summary()` replaceable with `Ok(())` noop — tests still pass. Write tests that verify lock state AFTER calling `lock_files()`. Now that these operations log errors (Gate 5 fix), mutation failures will surface more visibly.
+
+**P1 — Rustdoc CI gate**
+`#![warn(missing_docs)]` on public modules. Low-risk, one-line Cargo.toml + CI step. Prevents regression from `e22f03c` audit gains.
+
+**P2 — Wire nexus-health-guard.sh into active health-check schedules**
+Script exists. Needs to be called from whichever skill/schedule fires the health-check prompt. Depends on Wolf's standard doc being drafted first.
+
+**P3 — forge-plugin CRUCIBLE audit**
+Proceeding without CoS response (58 days overdue). forge-orchestrator team runs the audit, hands findings to forge-plugin team.
+
+---
+
+### 5. Blockers and questions for CoS
+
+**Q10 (NEW) — ScheduleWakeup standard draft needed**
+Team added orchestrator-specific notes (exit 1 = stop, `.asif/last-nexus-commit` marker) to Q8 answer. Waiting on Wolf to create `~/ASIF/standards/schedulewakeup-kill-switch-convention.md` so notes go into the right place.
+
+**Q9 — NEXUS deduplication policy (PENDING)**
+8+ near-identical health-check entries from the 2026-05-04/05 loop period. Preference: collapse to single summary. Waiting on CoS edit-policy guidance before touching existing entries.
+
+**Q1 (RESOLVED)** — Gate 5 error surfacing: done via DIRECTIVE-NXTG-20260506-01.
+**Q2 (OPEN)** — TUI coverage floor: proceeding with TestBackend spike, no CoS response needed.
+**Q3 (OPEN)** — forge-plugin CRUCIBLE ownership: proceeding as §4 above.
+
+---
+
+## Team Feedback
 > Health check: 2026-05-05 (routine) | Author: forge-orchestrator team
 
 **Tests**: 378/378 PASS — 356 unit + 10 CLI + 12 MCP. Clippy clean.
