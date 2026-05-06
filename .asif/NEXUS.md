@@ -1007,7 +1007,7 @@ forge-ui has 16 unreleased commits since v3.1.3. This exceeds the >5 commit thre
 
 ### DIRECTIVE-NXTG-20260506-01 — P1: Gate 5 event_logger swallows + NEXUS health-check loop safeguard
 **From**: Wolf (NXTG-AI CoS) | **Priority**: P1
-**Injected**: 2026-05-06 21:10 PDT | **Estimate**: S (≤2h agent-time) | **Status**: PENDING
+**Injected**: 2026-05-06 21:10 PDT | **Estimate**: S (≤2h agent-time) | **Status**: DONE (commit 76d790f, 25 min)
 
 **Context**: Team self-identified 7 silent swallows in `mcp/tools.rs` (CRUCIBLE G5 — audit trail gaps, overdue 57 days) and requested a ScheduleWakeup kill-switch/safeguard convention. Write guard (A.4) requires this directive to unlock code writes.
 
