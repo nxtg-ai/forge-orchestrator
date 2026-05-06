@@ -501,6 +501,19 @@ Verdict: {PASS / FAIL / CRITICAL FAIL}
 ---
 
 ## Team Feedback
+> Health check: 2026-05-05 (routine) | Author: forge-orchestrator team
+
+**Tests**: 378/378 PASS — 356 unit + 10 CLI + 12 MCP. Clippy clean.
+
+**Audit**: 1 warning (RUSTSEC-2025-0119, number_prefix — permanent ignore). Exits 0. No new advisories.
+
+**Dependency updates available** (`cargo update --dry-run`): ~30 transitive patches available including clap 4.5→4.6, chrono 0.4.43→0.4.44, anstream 0.6→1.0, anstyle-parse 0.2→1.0. No action taken — no security advisories in the set. Recommend a scheduled `cargo update` + test pass before next release.
+
+**Status: GREEN** — v1.5.1 on main, no blockers.
+
+---
+
+## Team Feedback
 > Reflection cycle: 2026-05-05 | Author: forge-orchestrator team
 > Previous reflection: 2026-05-03
 
@@ -992,9 +1005,38 @@ forge-ui has 16 unreleased commits since v3.1.3. This exceeds the >5 commit thre
 
 ## CoS Directives
 
+### DIRECTIVE-NXTG-20260506-01 — P1: Gate 5 event_logger swallows + NEXUS health-check loop safeguard
+**From**: Wolf (NXTG-AI CoS) | **Priority**: P1
+**Injected**: 2026-05-06 21:10 PDT | **Estimate**: S (≤2h agent-time) | **Status**: PENDING
+
+**Context**: Team self-identified 7 silent swallows in `mcp/tools.rs` (CRUCIBLE G5 — audit trail gaps, overdue 57 days) and requested a ScheduleWakeup kill-switch/safeguard convention. Write guard (A.4) requires this directive to unlock code writes.
+
+**Action Items**:
+1. Fix all 7 `let _ = event_logger.log(...)` swallows in `src/mcp/tools.rs` — replace with `if let Err(e) = event_logger.log(...) { eprintln!("[forge-orchestrator] event log error: {e}"); }` (or equivalent stderr pattern). No silent discard.
+2. Write `scripts/nexus-health-guard.sh` — 10-line bash script that reads the last commit SHA from NEXUS (or a `.asif/last-nexus-commit` marker file) and exits 0 (no-op) if `git rev-parse HEAD` matches. Prevents health-check loop from writing identical entries. Include a `FORGE_LOOP_KILL=/tmp/forge-orchestrator-loop-kill` check at line 1 (kill-switch pattern per Q8).
+3. Answer Q8 inline in `## Team Questions` section: kill-switch convention is being codified as a **STANDARD** (not ADR — it's portfolio policy, not an architecture decision). File at `~/ASIF/standards/schedulewakeup-kill-switch-convention.md`. Wolf will draft; team adds any orchestrator-specific notes.
+4. Confirm Gate 5 fix via `cargo test` (test count must not regress from 378). Commit.
+5. Write directive response inline below with Started/Completed/Actual/Commit SHA.
+
+**Allowed write paths** (directive-scoped):
+- `src/mcp/tools.rs`
+- `scripts/nexus-health-guard.sh` (new file)
+- `.asif/NEXUS.md` (always)
+- `.asif/last-nexus-commit` (optional marker file)
+
+**DoD**:
+- PASS: all 7 swallows replaced with logging, `cargo test` shows ≥378 PASS, `nexus-health-guard.sh` exists and tested, Q8 answered inline.
+- FAIL: any `let _ = event_logger` remaining, test count regression, new code writes outside allowed paths.
+
+**Constraints**: NO writes to forge-plugin, forge-ui, or ASIF. NO new features. NO `--no-verify`.
+
+**Response** (filled by team):
+
+---
+
 ### DIRECTIVE-FORGE-20260503-02 — P1: CI hygiene + dependency vulnerability cleanup
 **From**: Wolf (NXTG-AI CoS) — relayed from Emma /alignment 21:08 CDT analysis + Asif "proceed with best fix solution" 16:04 PDT
-**Priority**: P1 | **Injected**: 2026-05-03 14:10 PDT | **Estimate**: M (1-2h, 4-6 small PRs) | **Status**: IN PROGRESS
+**Priority**: P1 | **Injected**: 2026-05-03 14:10 PDT | **Estimate**: M (1-2h, 4-6 small PRs) | **Status**: DONE (Wolf header sync 2026-05-06 — all PRs merged by DIRECTIVE-NXTG-20260504-FORGE13: #17/18 in session, #19/20/21/16 via FORGE13)
 
 **Authority**: Asif explicit GO in /alignment 16:04 PDT after PR #16 (canonical-positioning) surfaced 3 pre-existing CI failures (CLA, Quality Gate parser, Dependency Audit). This unblocks PR #16 merge AND closes the dependabot-PR-no-watch backlog flagged at 21:00 CDT (PR #13 unmerged 9 days, PR #11 unmerged 19 days).
 
