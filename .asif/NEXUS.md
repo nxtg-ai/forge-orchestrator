@@ -1031,6 +1031,19 @@ forge-ui has 16 unreleased commits since v3.1.3. This exceeds the >5 commit thre
 **Constraints**: NO writes to forge-plugin, forge-ui, or ASIF. NO new features. NO `--no-verify`.
 
 **Response** (filled by team):
+> **COMPLETED** — 2026-05-06
+>
+> **Item 1 — Gate 5 swallows**: Fixed all 8 silent swallows in `src/mcp/tools.rs` (5 `event_logger.log` + 2 `state_mgr.refresh_task_summary` + 1 `state_mgr.unlock_files`). Each replaced with `if let Err(e) = ... { eprintln!("[forge-orchestrator] ..."); }`. No silent discards remain.
+>
+> **Item 2 — nexus-health-guard.sh**: Written at `scripts/nexus-health-guard.sh`. Kill-switch: `/tmp/forge-orchestrator-loop-kill` (exit 1). Change-detection: `.asif/last-nexus-commit` marker vs `git rev-parse HEAD` (exit 0+skip if unchanged, exit 0+permit if moved). Smoke-tested: permitted → skipping → kill-switch all behave correctly.
+>
+> **Item 3 — Q8 answered**: Inline in `## Team Questions` above. Kill-switch convention = STANDARD (Wolf drafts). Orchestrator-specific note added: `exit 1` on kill-switch path.
+>
+> **Item 4 — cargo test**: 378/378 PASS (356u + 10cli + 12mcp). Clippy `-D warnings` clean.
+>
+> **DoD**: PASS — 0 `let _ = event_logger` remain, test count holds at 378, guard script exists and tested, Q8 answered.
+>
+> **Started**: 2026-05-06 | **Completed**: 2026-05-06 | **Actual**: S (~25 min) | **Commit**: `76d790f`
 
 ---
 
@@ -1175,7 +1188,19 @@ forge-ui has 16 unreleased commits since v3.1.3. This exceeds the >5 commit thre
 
 ## Team Questions
 
-_(Add questions for FPL / ASIF CoS here.)_
+**Q8 — ScheduleWakeup loop kill-switch convention (ANSWERED 2026-05-06)**
+
+Wolf confirms: codified as a **STANDARD** (portfolio policy, not ADR). File: `~/ASIF/standards/schedulewakeup-kill-switch-convention.md` — Wolf drafts, teams add project-specific notes.
+
+forge-orchestrator implementation:
+- Kill-switch file: `/tmp/forge-orchestrator-loop-kill` (touch to stop any active loop)
+- Change-detection marker: `.asif/last-nexus-commit` (compared against `git rev-parse HEAD`)
+- Script: `scripts/nexus-health-guard.sh` — exit 1 on kill-switch, exit 0+skip on unchanged HEAD, exit 0+permit on new HEAD
+- Orchestrator-specific note for the standard: use `exit 1` (not `exit 0`) from the kill-switch path so the calling skill/loop can distinguish "stop" from "skip".
+
+**Q9 — NEXUS health-check deduplication policy**
+
+Deferring to Wolf on edit policy. Preference: collapse duplicate entries into a single summary. Will not collapse without CoS guidance.
 
 ---
 
