@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-07-18
+
+Release-discipline catch-up: two fixes shipped to `main` on 2026-05-05 were never cut into a release.
+No new MCP tools (the tool count stays at 11). 378 tests green.
+
+### Fixed
+
+- **Silent error swallows in the MCP tool layer** (`src/mcp/tools.rs`) — 8 `let _ = …` discards of
+  `event_logger.log()`, `state_mgr.unlock_files()`, and `state_mgr.refresh_task_summary()` results now
+  log to stderr on failure instead of dropping the error. A failed audit-log write or lock release is no
+  longer invisible. CRUCIBLE Gate 5 remediation, 57-day backlog closed. (`76d790f`)
+
+### Added
+
+- **`scripts/nexus-health-guard.sh`** — change-detection gate and kill-switch for `ScheduleWakeup`
+  NEXUS health-check loops, preventing unbounded self-rescheduling. Shipped in the same commit as the
+  Gate 5 fix above. (`76d790f`)
+- **`docs/rfc/0001-forge-artifact-schema-versioning.md`** — PROPOSAL (no code change) for a semver
+  schema-version handshake on `.forge/state.json` and `.forge/events.jsonl`, with the consumer
+  compatibility rule for forge-ui and forge-plugin, and a position on the `forge_get_health` MCP name
+  collision. Closes deep-dive gaps G-05 and G-04 at the design level; implementation is a later wave.
+
 ## [1.5.1] - 2026-05-05
 
 ### Security & Dependencies

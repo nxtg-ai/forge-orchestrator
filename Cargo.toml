@@ -1,6 +1,6 @@
 [package]
 name = "forge-orchestrator"
-version = "1.5.1"
+version = "1.5.2"
 edition = "2024"
 description = "Orchestrate Claude Code, Codex CLI, and Gemini CLI on shared repos — single Rust binary, zero deps."
 license = "FSL-1.1-ALv2"
