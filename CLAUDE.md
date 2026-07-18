@@ -10,7 +10,7 @@ cargo build --release          # Optimized binary (4 MB, LTO + strip)
 cp target/release/forge ~/.local/bin/forge-orca
 
 # Test
-cargo test                     # All 362 tests (340 unit + 10 CLI + 12 MCP)
+cargo test                     # All 378 tests (356 unit + 10 CLI + 12 MCP)
 cargo clippy -- -W clippy::all # Lint
 
 # Run
@@ -160,8 +160,8 @@ forge-orchestrator          ──headless──►   runs CLI or TUI dashboard 
 
 - **Language:** Rust 1.93.0, Edition 2024
 - **Binary:** ~4 MB (release, LTO, stripped)
-- **Tests:** 362 (340 unit + 10 CLI + 12 MCP integration)
-- **Version:** 1.2.0
+- **Tests:** 378 (356 unit + 10 CLI + 12 MCP integration)
+- **Version:** 1.5.2
 - **Repo:** github.com/nxtg-ai/forge-orchestrator
 
 ## ASIF Governance
@@ -205,3 +205,14 @@ This is how the portfolio compounds intelligence. Your work benefits from every 
 **Use**: every cycle-complete, every P0/P1 completion, every directive response.
 
 Speak via: `~/ASIF/scripts/cos-speak-remote --voice am_onyx "text"`
+
+<!-- ASIF:TEAM-ALIGNMENT-WIRING:START -->
+## ASIF Alignment Wiring
+
+@/home/axw/ASIF/standards/claude-team-alignment-wiring.md
+
+- Team alignment id: `forge`.
+- Cross-team room: `/alignment`, written through `~/ASIF/scripts/alignment-say`.
+- If an `[ALIGNMENT ...]` message appears, respond through `alignment-say`; do not answer only in this private TUI.
+- Deterministic state first: typed Dx3/asifctl, `.asif/NEXUS.md`, git/tests/runtime probes. Prose is backup and local steering only.
+<!-- ASIF:TEAM-ALIGNMENT-WIRING:END -->
