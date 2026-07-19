@@ -190,6 +190,12 @@ pub struct App {
     pub quality_gate_pending: bool,
     /// DX-052: Number of gate retry attempts (max 3 before force-transition).
     pub quality_gate_attempts: u32,
+    /// W2-C: show the fleet ctx% budget strip (toggle with `b`). Off by default — purely additive.
+    pub show_budget: bool,
+    /// Cached fleet ctx% rows; refreshed on a throttle so render never spawns tmux subprocesses.
+    pub fleet_rows: Vec<crate::fleet::HudRow>,
+    /// Throttle: last time the fleet strip was refreshed.
+    pub last_fleet_refresh: Instant,
 }
 
 impl App {
@@ -257,9 +263,18 @@ impl App {
             quality_gate_rx: None,
             quality_gate_pending: false,
             quality_gate_attempts: 0,
+            show_budget: false,
+            fleet_rows: Vec::new(),
+            last_fleet_refresh: Instant::now(),
         };
 
         (app, rx, tx)
+    }
+
+    /// W2-C: read the fleet ctx% gauges (read-only, gauge-only) into the cached strip rows.
+    pub fn refresh_fleet(&mut self) {
+        self.fleet_rows = crate::fleet::read_fleet();
+        self.last_fleet_refresh = Instant::now();
     }
 
     pub fn reload_tasks(&mut self) -> anyhow::Result<()> {
@@ -948,6 +963,13 @@ impl App {
             KeyCode::Char('c') if self.focus == FocusArea::TaskBoard => {
                 self.cycle_agent_assignment();
             }
+            // W2-C: toggle the fleet ctx% budget strip; refresh immediately on enable.
+            KeyCode::Char('b') => {
+                self.show_budget = !self.show_budget;
+                if self.show_budget {
+                    self.refresh_fleet();
+                }
+            }
             KeyCode::Char('r') if self.focus == FocusArea::TaskBoard => {
                 self.retry_selected_task(tx);
             }
@@ -1165,6 +1187,13 @@ impl App {
             self.last_task_reload = Instant::now();
             // Check phase transitions on each reload
             self.check_phase_transition();
+        }
+        // W2-C: refresh the fleet ctx% strip on a throttle, and ONLY while it is shown — so the
+        // dashboard spawns tmux capture subprocesses at most every 10s, and not at all by default.
+        if self.show_budget
+            && self.last_fleet_refresh.elapsed() > std::time::Duration::from_secs(10)
+        {
+            self.refresh_fleet();
         }
         self.check_backoff_timers(agent_tx);
         if self.pty_mode {
@@ -2797,6 +2826,34 @@ mod tests {
     fn test_is_all_done_empty() {
         let (app, _rx, _tx) = App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
         assert!(app.is_all_done());
+    }
+
+    #[test]
+    fn budget_strip_toggles_off_by_default_and_on_with_b() {
+        // Isolate the fleet read behind a nonexistent private socket, so the toggle test never
+        // touches the operator's live tmux server (advisor's live-surface discipline).
+        // SAFETY: single-threaded test; the env var is restored immediately after.
+        unsafe {
+            std::env::set_var(
+                crate::fleet::TMUX_SOCKET_ENV,
+                "forge-fleet-test-nonexistent",
+            )
+        };
+        let (mut app, _rx, tx) =
+            App::new(PathBuf::from("/tmp/test"), PathBuf::from("/tmp"), 3, false);
+        assert!(
+            !app.show_budget,
+            "the strip is OFF by default — purely additive"
+        );
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('b')), &tx);
+        assert!(app.show_budget, "`b` enables the strip");
+        // Enabling refreshed against the empty private socket → no panes, no panic.
+        assert!(app.fleet_rows.is_empty());
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('b')), &tx);
+        assert!(!app.show_budget, "`b` toggles it back off");
+        unsafe { std::env::remove_var(crate::fleet::TMUX_SOCKET_ENV) };
     }
 
     #[test]

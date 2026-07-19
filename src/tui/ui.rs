@@ -20,18 +20,47 @@ pub fn render(f: &mut Frame, app: &App) {
         return;
     }
 
-    let chunks = Layout::vertical([
+    // W2-C: the fleet ctx% strip is a single extra line, inserted only when toggled on (`b`) — so
+    // the default layout is byte-identical to before.
+    let mut constraints = vec![
         Constraint::Percentage(30), // Task board
         Constraint::Percentage(50), // Agent panes 2x2
         Constraint::Percentage(20), // Event log
-        Constraint::Length(2),      // Footer (keys + quota)
-    ])
-    .split(f.area());
+    ];
+    if app.show_budget {
+        constraints.push(Constraint::Length(1)); // Fleet ctx% strip
+    }
+    constraints.push(Constraint::Length(2)); // Footer (keys + quota)
+    let chunks = Layout::vertical(constraints).split(f.area());
 
     render_task_board(f, app, chunks[0]);
     render_agent_panes(f, app, chunks[1]);
     render_event_log(f, app, chunks[2]);
-    render_footer(f, app, chunks[3]);
+    let mut idx = 3;
+    if app.show_budget {
+        render_budget_strip(f, app, chunks[idx]);
+        idx += 1;
+    }
+    render_footer(f, app, chunks[idx]);
+}
+
+/// W2-C: the fleet context-budget strip — one line, colour keyed to the worst band on screen.
+fn render_budget_strip(f: &mut Frame, app: &App, area: Rect) {
+    use ratatui::style::{Color, Style};
+    use ratatui::widgets::Paragraph;
+
+    let summary = crate::fleet::strip_summary(&app.fleet_rows);
+    // Colour by the most-severe band currently tracked, so the strip reads at a glance.
+    let worst = app.fleet_rows.iter().filter_map(|r| r.level).max();
+    let colour = match worst {
+        Some(crate::core::budget::BudgetLevel::Emergency)
+        | Some(crate::core::budget::BudgetLevel::Stop) => Color::Red,
+        Some(crate::core::budget::BudgetLevel::Compact) => Color::Yellow,
+        Some(crate::core::budget::BudgetLevel::Prep) => Color::Cyan,
+        _ => Color::Green,
+    };
+    let line = Paragraph::new(summary).style(Style::default().fg(colour));
+    f.render_widget(line, area);
 }
 
 fn render_footer(f: &mut Frame, app: &App, area: Rect) {
@@ -49,9 +78,9 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     } else if app.expanded_pane.is_some() {
         "Esc:Back | \u{2191}\u{2193}:Scroll | Home/End:Jump | q:Quit"
     } else if app.pty_mode {
-        "q:Quit | Tab:Focus | \u{2191}\u{2193}:Navigate | a:Assign | c:Cycle | Enter/f:Expand | i:Attach | s:Shell"
+        "q:Quit | Tab:Focus | \u{2191}\u{2193}:Navigate | a:Assign | c:Cycle | Enter/f:Expand | i:Attach | s:Shell | b:Budget"
     } else {
-        "q:Quit | Tab:Focus | \u{2191}\u{2193}:Navigate | c:Cycle | Enter/f:Expand | r:Retry | s:Shell"
+        "q:Quit | Tab:Focus | \u{2191}\u{2193}:Navigate | c:Cycle | Enter/f:Expand | r:Retry | s:Shell | b:Budget"
     };
 
     let key_paragraph = Paragraph::new(Line::from(Span::styled(

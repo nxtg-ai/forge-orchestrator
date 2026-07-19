@@ -163,6 +163,34 @@ pub fn render_table(rows: &[HudRow], show_all: bool) -> String {
     out
 }
 
+/// A compact one-line fleet summary for the dashboard strip — **pure**. Lists panes at PREP or
+/// worse, most-severe first, and counts the rest as OK. Empty fleet / all-n/a → a plain note.
+pub fn strip_summary(rows: &[HudRow]) -> String {
+    let mut tracked: Vec<(&str, u8, BudgetLevel)> = rows
+        .iter()
+        .filter_map(|r| match (r.used_pct, r.level) {
+            (Some(p), Some(l)) => Some((r.pane.as_str(), p, l)),
+            _ => None,
+        })
+        .collect();
+    if tracked.is_empty() {
+        return "fleet: no ctx gauges".to_string();
+    }
+    // Most-severe first; ties broken by higher used%.
+    tracked.sort_by(|a, b| b.2.cmp(&a.2).then(b.1.cmp(&a.1)));
+    let flagged: Vec<String> = tracked
+        .iter()
+        .filter(|(_, _, l)| *l >= BudgetLevel::Prep)
+        .map(|(pane, pct, level)| format!("{pane} {pct}% {}", level.label()))
+        .collect();
+    let ok = tracked.len() - flagged.len();
+    if flagged.is_empty() {
+        format!("fleet: {} panes, all OK", tracked.len())
+    } else {
+        format!("fleet ({ok} OK): {}", flagged.join(" · "))
+    }
+}
+
 /// Machine-readable JSON for scripts (the `--json` surface).
 pub fn render_json(rows: &[HudRow]) -> String {
     let arr: Vec<serde_json::Value> = rows
@@ -259,6 +287,37 @@ mod tests {
         assert_eq!(v[0]["level"], "STOP");
         assert_eq!(v[1]["ctx_used_pct"], serde_json::Value::Null);
         assert_eq!(v[1]["level"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn strip_summary_orders_by_severity_and_counts_ok() {
+        let rows = hud_rows(&[
+            ("wolf".into(), "ctx:36%".into()),    // PREP
+            ("kestrel".into(), "ctx:82%".into()), // STOP
+            ("dx3".into(), "ctx:12%".into()),     // OK
+            ("codex".into(), "5% left".into()),   // 95 used → EMERGENCY
+            ("idle".into(), "bash".into()),       // n/a — excluded
+        ]);
+        let s = strip_summary(&rows);
+        // 2 OK? no — dx3 is OK (1). Flagged: codex(EMERGENCY), kestrel(STOP), wolf(PREP) in order.
+        assert!(s.starts_with("fleet (1 OK):"), "{s}");
+        let emerg = s.find("codex 95% EMERGENCY").unwrap();
+        let stop = s.find("kestrel 82% STOP").unwrap();
+        let prep = s.find("wolf 36% PREP").unwrap();
+        assert!(emerg < stop && stop < prep, "most-severe first: {s}");
+        assert!(!s.contains("idle"), "n/a panes excluded: {s}");
+    }
+
+    #[test]
+    fn strip_summary_handles_all_ok_and_empty() {
+        assert_eq!(
+            strip_summary(&hud_rows(&[("a".into(), "ctx:5%".into())])),
+            "fleet: 1 panes, all OK"
+        );
+        assert_eq!(
+            strip_summary(&hud_rows(&[("a".into(), "bash".into())])),
+            "fleet: no ctx gauges"
+        );
     }
 
     #[test]
