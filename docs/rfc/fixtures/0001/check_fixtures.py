@@ -24,6 +24,7 @@ HERE = pathlib.Path(__file__).parent
 
 ACCEPT = "ACCEPT"
 ACCEPT_FORWARD = "ACCEPT_FORWARD"
+ACCEPT_PARTIAL = "ACCEPT_PARTIAL"
 REFUSE = "REFUSE"
 
 
@@ -76,16 +77,23 @@ def read_state(path, baseline):
     return file_version, unknown
 
 
-def read_events(path, baseline, known_event_types):
-    """Skip-and-count per RFC-0001 §3.2 rule 4.
+def read_events(path, supported, baseline, known_event_types):
+    """Per-record version comparison + batch semantics, RFC-0001 §3.2.2.
 
-    Returns (file_version, parsed, skipped, unknown_variants). The file version is
-    taken from the first parseable record; a log with no v is baseline.
+    An events.jsonl is append-only and therefore inherently mixed-version (§1 D-2):
+    one file can hold records written by several forge releases. EVERY record's own
+    `v` is compared; a single verdict for the whole log would silently trust a
+    major-ahead record appended after compatible history.
+
+    Returns a dict with the batch verdict, per-record counts, and the versions seen.
     """
-    file_version = None
-    parsed = 0
-    skipped = 0
+    parsed = 0          # records accepted into the result set
+    skipped = 0         # malformed lines (§3.2 rule 4)
+    refused = 0         # records quarantined as major-incompatible (§3.2.2)
     unknown_variants = []
+    versions_seen = []
+    refused_versions = []
+    forward = False
 
     for line in path.read_text().splitlines():
         if not line.strip():
@@ -96,14 +104,46 @@ def read_events(path, baseline, known_event_types):
             # One bad line must not zero out the history.
             skipped += 1
             continue
+
+        rec_version = rec.get("v", baseline)
+        if rec_version not in versions_seen:
+            versions_seen.append(rec_version)
+
+        rec_verdict, _ = verdict(supported, rec_version)
+        if rec_verdict == REFUSE:
+            # Quarantined, not parsed: this reader cannot trust the shape.
+            refused += 1
+            if rec_version not in refused_versions:
+                refused_versions.append(rec_version)
+            continue
+        if rec_verdict == ACCEPT_FORWARD:
+            forward = True
+
         parsed += 1
-        if file_version is None:
-            file_version = rec.get("v", baseline)
         et = rec.get("event_type")
         if et is not None and et not in known_event_types and et not in unknown_variants:
             unknown_variants.append(et)
 
-    return (file_version or baseline), parsed, skipped, sorted(unknown_variants)
+    # Batch verdict (§3.2.2). Refusing the whole log because one future record
+    # appeared would zero a history — the failure §3.2 rule 4 exists to prevent.
+    if refused and parsed == 0:
+        batch = REFUSE          # nothing in the file is readable by this reader
+    elif refused:
+        batch = ACCEPT_PARTIAL  # compatible history readable, incompatible tail counted
+    elif forward:
+        batch = ACCEPT_FORWARD
+    else:
+        batch = ACCEPT
+
+    return {
+        "verdict": batch,
+        "parsed": parsed,
+        "skipped": skipped,
+        "refused": refused,
+        "unknown_variants": sorted(unknown_variants),
+        "versions_seen": sorted(versions_seen),
+        "refused_versions": sorted(refused_versions),
+    }
 
 
 def check_case(case, spec, verbose):
@@ -116,49 +156,65 @@ def check_case(case, spec, verbose):
         return [f"fixture missing: {case['fixture']}"]
 
     if case["artifact"] == "state":
+        # state.json is rewritten whole, so it has exactly one version.
         file_version, unknown_fields = read_state(path, baseline)
-        parsed = skipped = None
-        unknown_variants = []
+        if file_version != case["expected_file_version"]:
+            failures.append(
+                f"file version: expected {case['expected_file_version']}, got {file_version}"
+            )
+        got_verdict, message = verdict(case["supported_version"], file_version)
+
+        for needle in case.get("expected_message_contains", []):
+            if needle not in message:
+                failures.append(f"refusal message must name {needle!r}; got: {message}")
+
+        expected_unknown_fields = case.get("expected_unknown_fields")
+        if expected_unknown_fields is not None and unknown_fields != expected_unknown_fields:
+            failures.append(
+                f"unknown fields: expected {expected_unknown_fields}, got {unknown_fields}"
+            )
     else:
-        file_version, parsed, skipped, unknown_variants = read_events(
-            path, baseline, set(spec["known_event_types"])
+        # events.jsonl is append-only and mixed-version: every record is compared.
+        result = read_events(
+            path, case["supported_version"], baseline, set(spec["known_event_types"])
         )
-        unknown_fields = []
+        got_verdict = result["verdict"]
 
-    if file_version != case["expected_file_version"]:
-        failures.append(
-            f"file version: expected {case['expected_file_version']}, got {file_version}"
-        )
+        expected_versions = case.get("expected_versions_seen")
+        if expected_versions is not None and result["versions_seen"] != sorted(expected_versions):
+            failures.append(
+                f"versions seen: expected {sorted(expected_versions)}, got {result['versions_seen']}"
+            )
 
-    got_verdict, message = verdict(case["supported_version"], file_version)
+        for key in ("parsed", "skipped", "refused"):
+            expected_key = f"expected_{key}"
+            if expected_key in case and result[key] != case[expected_key]:
+                failures.append(
+                    f"{key}: expected {case[expected_key]}, got {result[key]}"
+                )
+
+        expected_refused_versions = case.get("expected_refused_versions")
+        if (
+            expected_refused_versions is not None
+            and result["refused_versions"] != sorted(expected_refused_versions)
+        ):
+            failures.append(
+                f"refused versions: expected {sorted(expected_refused_versions)}, "
+                f"got {result['refused_versions']}"
+            )
+
+        expected_unknown_variants = case.get("expected_unknown_variants")
+        if (
+            expected_unknown_variants is not None
+            and result["unknown_variants"] != expected_unknown_variants
+        ):
+            failures.append(
+                f"unknown variants: expected {expected_unknown_variants}, "
+                f"got {result['unknown_variants']}"
+            )
+
     if got_verdict != case["expected_verdict"]:
-        failures.append(
-            f"verdict: expected {case['expected_verdict']}, got {got_verdict} ({message})"
-        )
-
-    for needle in case.get("expected_message_contains", []):
-        if needle not in message:
-            failures.append(f"refusal message must name {needle!r}; got: {message}")
-
-    # A REFUSE verdict means the reader stops before trusting record contents,
-    # so record-level expectations only apply to the accepting verdicts.
-    if got_verdict != REFUSE:
-        if "expected_parsed" in case and parsed != case["expected_parsed"]:
-            failures.append(f"parsed: expected {case['expected_parsed']}, got {parsed}")
-        if "expected_skipped" in case and skipped != case["expected_skipped"]:
-            failures.append(f"skipped: expected {case['expected_skipped']}, got {skipped}")
-
-    expected_unknown_fields = case.get("expected_unknown_fields")
-    if expected_unknown_fields is not None and unknown_fields != expected_unknown_fields:
-        failures.append(
-            f"unknown fields: expected {expected_unknown_fields}, got {unknown_fields}"
-        )
-
-    expected_unknown_variants = case.get("expected_unknown_variants")
-    if expected_unknown_variants is not None and unknown_variants != expected_unknown_variants:
-        failures.append(
-            f"unknown variants: expected {expected_unknown_variants}, got {unknown_variants}"
-        )
+        failures.append(f"verdict: expected {case['expected_verdict']}, got {got_verdict}")
 
     if verbose and not failures:
         print(f"      {case['why']}")

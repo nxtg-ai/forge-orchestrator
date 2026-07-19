@@ -1,5 +1,5 @@
 {
-  "rfc": "RFC-0001 — Schema-Version Handshake for .forge/ Cross-Repo Artifacts",
+  "rfc": "RFC-0001 \u2014 Schema-Version Handshake for .forge/ Cross-Repo Artifacts",
   "spec_section": "3.2.1 (supported-version comparison) + 3.2 (compatibility rules)",
   "absent_version_baseline": "1.0.0",
   "first_versioned_release": "1.1.0",
@@ -45,8 +45,10 @@
       "supported_version": "1.1.0",
       "expected_file_version": "1.2.0",
       "expected_verdict": "ACCEPT_FORWARD",
-      "expected_unknown_fields": ["provenance_ledger"],
-      "why": "Downgrade case, MINOR: an older reader meets a newer file. Additive discipline means this must keep working — the unknown root field is ignored, not fatal."
+      "expected_unknown_fields": [
+        "provenance_ledger"
+      ],
+      "why": "Downgrade case, MINOR: an older reader meets a newer file. Additive discipline means this must keep working \u2014 the unknown root field is ignored, not fatal."
     },
     {
       "id": "state-major-ahead-refused",
@@ -55,8 +57,11 @@
       "supported_version": "1.1.0",
       "expected_file_version": "2.0.0",
       "expected_verdict": "REFUSE",
-      "expected_message_contains": ["2.0.0", "1.1.0"],
-      "why": "Downgrade case, MAJOR: task_summary was renamed to task_counts. Reader must refuse loudly and name both versions — never silently return zeroed data."
+      "expected_message_contains": [
+        "2.0.0",
+        "1.1.0"
+      ],
+      "why": "Downgrade case, MAJOR: task_summary was renamed to task_counts. Reader must refuse loudly and name both versions \u2014 never silently return zeroed data."
     },
     {
       "id": "state-file-older-major-refused",
@@ -65,52 +70,131 @@
       "supported_version": "2.0.0",
       "expected_file_version": "1.1.0",
       "expected_verdict": "REFUSE",
-      "expected_message_contains": ["1.1.0", "2.0.0"],
+      "expected_message_contains": [
+        "1.1.0",
+        "2.0.0"
+      ],
       "why": "Reader built for a later major cannot assume the older shape is a subset. Distinct message; the only case a future migration step could replace."
+    },
+    {
+      "id": "events-mixed-major-ahead-record-quarantined",
+      "artifact": "events",
+      "fixture": "events/v1_1_0_mixed_major_ahead.jsonl",
+      "supported_version": "1.1.0",
+      "expected_verdict": "ACCEPT_PARTIAL",
+      "expected_parsed": 2,
+      "expected_skipped": 0,
+      "expected_refused": 1,
+      "expected_versions_seen": [
+        "1.1.0",
+        "2.0.0"
+      ],
+      "expected_refused_versions": [
+        "2.0.0"
+      ],
+      "why": "Codex re-gate round 2 counterexample. A major-ahead record appended after compatible history must NOT be silently trusted because the log opened at 1.1.0. Per-record comparison quarantines it and counts it; the compatible history stays readable."
+    },
+    {
+      "id": "events-mixed-minor-ahead-record-tolerated",
+      "artifact": "events",
+      "fixture": "events/v1_1_0_mixed_minor_ahead.jsonl",
+      "supported_version": "1.1.0",
+      "expected_verdict": "ACCEPT_FORWARD",
+      "expected_parsed": 3,
+      "expected_skipped": 0,
+      "expected_refused": 0,
+      "expected_versions_seen": [
+        "1.1.0",
+        "1.2.0"
+      ],
+      "expected_unknown_variants": [
+        "provenance_recorded"
+      ],
+      "why": "The mirror case: a minor-ahead record mid-log is additive, so all three records parse. Batch reports ACCEPT_FORWARD because at least one record is ahead."
+    },
+    {
+      "id": "events-mixed-all-three-classes",
+      "artifact": "events",
+      "fixture": "events/v1_1_0_mixed_all_three.jsonl",
+      "supported_version": "1.1.0",
+      "expected_verdict": "ACCEPT_PARTIAL",
+      "expected_parsed": 3,
+      "expected_skipped": 1,
+      "expected_refused": 1,
+      "expected_versions_seen": [
+        "1.1.0",
+        "1.2.0",
+        "2.0.0"
+      ],
+      "expected_refused_versions": [
+        "2.0.0"
+      ],
+      "expected_unknown_variants": [
+        "provenance_recorded"
+      ],
+      "why": "All three defect classes in one log, with a baseline record AFTER the major-ahead one \u2014 proves the reader does not stop at the first incompatible record and does not let position determine the verdict."
     },
     {
       "id": "events-absent-field-accepted-as-1.0.0",
       "artifact": "events",
       "fixture": "events/v1_0_0_absent_field.jsonl",
       "supported_version": "1.1.0",
-      "expected_file_version": "1.0.0",
       "expected_verdict": "ACCEPT",
       "expected_parsed": 3,
       "expected_skipped": 0,
-      "why": "Pre-RFC event logs carry no per-record v."
+      "why": "Pre-RFC event logs carry no per-record v.",
+      "expected_versions_seen": [
+        "1.0.0"
+      ],
+      "expected_refused": 0
     },
     {
       "id": "events-unknown-variant-not-fatal",
       "artifact": "events",
       "fixture": "events/v1_2_0_unknown_variant.jsonl",
       "supported_version": "1.1.0",
-      "expected_file_version": "1.2.0",
       "expected_verdict": "ACCEPT_FORWARD",
       "expected_parsed": 3,
       "expected_skipped": 0,
-      "expected_unknown_variants": ["provenance_recorded"],
-      "why": "The core G-05 hazard: a new EventType variant must map to the catch-all, not error the batch. Without #[serde(other)], this fixture is what turns an old dashboard blank."
+      "expected_unknown_variants": [
+        "provenance_recorded"
+      ],
+      "why": "The core G-05 hazard: a new EventType variant must map to the catch-all, not error the batch. Without #[serde(other)], this fixture is what turns an old dashboard blank.",
+      "expected_versions_seen": [
+        "1.2.0"
+      ],
+      "expected_refused": 0
     },
     {
       "id": "events-corrupt-line-skipped-and-counted",
       "artifact": "events",
       "fixture": "events/v1_1_0_corrupt_line.jsonl",
       "supported_version": "1.1.0",
-      "expected_file_version": "1.1.0",
       "expected_verdict": "ACCEPT",
       "expected_parsed": 3,
       "expected_skipped": 1,
-      "why": "One truncated line must not zero out the history. Skip and count, report the count."
+      "why": "One truncated line must not zero out the history. Skip and count, report the count.",
+      "expected_versions_seen": [
+        "1.1.0"
+      ],
+      "expected_refused": 0
     },
     {
       "id": "events-major-ahead-refused",
       "artifact": "events",
       "fixture": "events/v2_0_0_major_ahead.jsonl",
       "supported_version": "1.1.0",
-      "expected_file_version": "2.0.0",
       "expected_verdict": "REFUSE",
-      "expected_message_contains": ["2.0.0", "1.1.0"],
-      "why": "Fields renamed (timestamp->ts, event_type->kind). Refuse before parsing records."
+      "why": "Every record is major-ahead, so nothing is readable by this reader and the BATCH refuses. Contrast with the mixed fixtures: whole-log refusal is correct only when no compatible record survives.",
+      "expected_versions_seen": [
+        "2.0.0"
+      ],
+      "expected_parsed": 0,
+      "expected_skipped": 0,
+      "expected_refused": 2,
+      "expected_refused_versions": [
+        "2.0.0"
+      ]
     }
   ]
 }

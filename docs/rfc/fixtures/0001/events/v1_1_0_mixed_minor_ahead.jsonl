@@ -1,0 +1,3 @@
+{"v":"1.1.0","timestamp":"2026-07-18T00:00:00Z","event_type":"task_created","task_id":"T-001","agent":null,"message":"baseline record","metadata":null}
+{"v":"1.2.0","timestamp":"2026-07-18T00:00:01Z","event_type":"provenance_recorded","task_id":"T-001","agent":"claude","message":"appended by a minor-ahead forge","metadata":{"model":"claude-opus-4-8"}}
+{"v":"1.1.0","timestamp":"2026-07-18T00:00:02Z","event_type":"task_completed","task_id":"T-001","agent":"claude","message":"baseline record","duration_ms":1200,"exit_code":0,"metadata":null}

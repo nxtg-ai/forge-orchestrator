@@ -2,12 +2,16 @@
 
 **Status**: PROPOSED (no implementation in `src/`)
 **Author**: forge-orchestrator team
-**Date**: 2026-07-18 | **Revised**: 2026-07-18 (rev 2)
+**Date**: 2026-07-18 | **Revised**: 2026-07-18 (rev 3)
 **Origin**: DIRECTIVE-NXTG-20260718-03 items 3 & 4 — deep-dive gaps G-04, G-05
-**Revision**: DIRECTIVE-NXTG-20260718-06 — reconciled against Codex Wave-1 review
-(`ecosystem/forge/research/2026-07-18-codex-wave1-review.md`). Rev 2 withdraws §4's false
-collision premise (verified against forge-plugin `v3.10.2`) and corrects the schema baseline
-from `2.0.0` to `1.1.0`, now pinned by executable fixtures (§3.5).
+**Rev 2** (DIRECTIVE-NXTG-20260718-06, Codex Wave-1 review
+`ecosystem/forge/research/2026-07-18-codex-wave1-review.md`): withdrew §4's false collision
+premise (verified against forge-plugin `v3.10.2`) and corrected the schema baseline from
+`2.0.0` to `1.1.0`, pinned by executable fixtures (§3.5).
+**Rev 3** (Codex re-gate round 2, `ecosystem/forge/research/2026-07-18-codex-regate-2.md` §3):
+added §3.2.2 — per-record comparison and batch semantics for mixed-version event logs. Rev 2's
+checker derived one version from the first record, so a `1.1.0` reader silently accepted a
+`2.0.0` record appended later. Three mixed-order fixtures now pin it.
 **Consumers affected**: forge-ui, forge-plugin (governance-mcp), forge-orchestrator
 **Decision needed from**: FPL (circulate), forge-ui team, forge-plugin team
 
@@ -160,6 +164,51 @@ verdict(supported S, file F):
   subset. It is a distinct message (`file is older major`) and is the only case where a migration step,
   not a refusal, may later be specified.
 
+### 3.2.2 Batch semantics for mixed-version event logs (normative)
+
+`state.json` is rewritten whole and therefore has exactly one version. **`events.jsonl` does not.** It is
+append-only, so one file routinely holds records written by several forge releases (§1 D-2) — that is
+precisely why `v` is per-record and not a file header.
+
+It follows that **the version comparison of §3.2.1 runs per record, not once per file.** Deriving one
+version from the first record and applying it to the whole log silently trusts a major-ahead record
+appended after compatible history — the exact hazard the per-record design exists to prevent.
+
+For each parseable record, with `F` = that record's `v` (absent ⇒ `1.0.0`):
+
+| Record verdict | Record disposition |
+|---|---|
+| `ACCEPT` / `ACCEPT_FORWARD` | Parsed into the result set; counted in `parsed` |
+| `REFUSE` | **Quarantined** — never parsed, counted in `refused`, its version recorded |
+| unparseable line | Counted in `skipped` (§3.2 rule 4) |
+
+The batch verdict is then:
+
+| Condition | Batch verdict |
+|---|---|
+| `refused > 0` and `parsed == 0` | `REFUSE` — nothing in the file is readable by this reader |
+| `refused > 0` and `parsed > 0` | `ACCEPT_PARTIAL` — compatible history readable, incompatible records counted |
+| `refused == 0`, any record minor-ahead | `ACCEPT_FORWARD` |
+| otherwise | `ACCEPT` |
+
+`ACCEPT_PARTIAL` exists because the two obvious alternatives are both wrong. Refusing the whole log
+because one future record appeared would zero a history — the failure §3.2 rule 4 forbids. Accepting it
+silently is the round-2 defect. So the reader returns what it can prove it understands and **surfaces the
+count and the offending version(s) loudly**; a caller that treats `refused > 0` as fatal may do so, but
+that is the caller's policy, not the reader's silent choice.
+
+Two consequences worth stating explicitly, because both are easy to get wrong:
+
+- **Position must not determine the verdict.** A baseline record appearing *after* a major-ahead one is
+  still readable. A reader that stops at the first incompatible record loses valid history behind it.
+- **A quarantined record is not a corrupt record.** They are counted separately (`refused` vs `skipped`)
+  because they mean different things operationally: `skipped` is data damage, `refused` is a reader that
+  is behind the writer and may simply need upgrading.
+
+Origin: Codex re-gate round 2 (`ecosystem/forge/research/2026-07-18-codex-regate-2.md` §3) — rev 2's
+checker read only the first record's version, so a `1.1.0` reader silently accepted a `2.0.0` record. The
+mixed-order fixtures in §3.5 now pin all of the above.
+
 ### 3.3 Rollout
 
 | Phase | Orchestrator | Consumers |
@@ -203,13 +252,14 @@ the comparison rule*, deliberately not an implementation of the handshake in `sr
 build their readers against the same matrix in parallel, and let any repo table-drive it in CI later.
 
 ```bash
-python3 docs/rfc/fixtures/0001/check_fixtures.py    # 9/9 passing as of rev 2
+python3 docs/rfc/fixtures/0001/check_fixtures.py    # 12/12 passing as of rev 3
 ```
 
 The checker also refuses to run if `expectations.json` violates the §3.1 baseline rule (exit `2`), which
 is what makes the `2.0.0` regression mechanically impossible to reintroduce rather than merely documented.
 
-Coverage (all four directions the rule distinguishes, plus the two parse-robustness cases):
+Coverage — all four directions the rule distinguishes, the two parse-robustness cases, and the three
+mixed-version orderings (§3.2.2):
 
 | Fixture | File version | Reader | Expected |
 |---|---|---|---|
@@ -218,10 +268,13 @@ Coverage (all four directions the rule distinguishes, plus the two parse-robustn
 | `state/v1_2_0_minor_ahead.json` | 1.2.0 | 1.1.0 | ACCEPT_FORWARD (unknown field ignored) |
 | `state/v2_0_0_major_ahead.json` | 2.0.0 | 1.1.0 | REFUSE (both versions named) |
 | `state/v1_1_0_baseline.json` | 1.1.0 | 2.0.0 | REFUSE (file older major) |
-| `events/v1_0_0_absent_field.jsonl` | absent ⇒ 1.0.0 | 1.1.0 | ACCEPT, 3 parsed / 0 skipped |
-| `events/v1_2_0_unknown_variant.jsonl` | 1.2.0 | 1.1.0 | ACCEPT_FORWARD, 3 parsed / 0 skipped — unknown `event_type` maps to the catch-all, never fatal |
+| `events/v1_0_0_absent_field.jsonl` | absent ⇒ 1.0.0 | 1.1.0 | ACCEPT, 3 parsed / 0 skipped / 0 refused |
+| `events/v1_2_0_unknown_variant.jsonl` | 1.2.0 | 1.1.0 | ACCEPT_FORWARD, 3 parsed — unknown `event_type` maps to the catch-all, never fatal |
 | `events/v1_1_0_corrupt_line.jsonl` | 1.1.0 | 1.1.0 | ACCEPT, 3 parsed / 1 skipped — one bad line must not zero the history |
-| `events/v2_0_0_major_ahead.jsonl` | 2.0.0 | 1.1.0 | REFUSE |
+| `events/v2_0_0_major_ahead.jsonl` | 2.0.0 (all records) | 1.1.0 | REFUSE, 0 parsed / 2 refused — whole-log refusal only when nothing survives |
+| `events/v1_1_0_mixed_major_ahead.jsonl` | 1.1.0 + 2.0.0 | 1.1.0 | **ACCEPT_PARTIAL**, 2 parsed / 1 refused — the round-2 counterexample |
+| `events/v1_1_0_mixed_minor_ahead.jsonl` | 1.1.0 + 1.2.0 | 1.1.0 | ACCEPT_FORWARD, 3 parsed / 0 refused |
+| `events/v1_1_0_mixed_all_three.jsonl` | 1.1.0 + 1.2.0 + 2.0.0 + corrupt | 1.1.0 | **ACCEPT_PARTIAL**, 3 parsed / 1 skipped / 1 refused — baseline record *after* the major-ahead one still parses |
 
 
 

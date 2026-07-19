@@ -1,0 +1,3 @@
+{"v":"1.1.0","timestamp":"2026-07-18T00:00:00Z","event_type":"task_created","task_id":"T-001","agent":null,"message":"written by forge 1.6.0","metadata":null}
+{"v":"1.1.0","timestamp":"2026-07-18T00:00:01Z","event_type":"task_started","task_id":"T-001","agent":"claude","message":"written by forge 1.6.0","metadata":null}
+{"v":"2.0.0","timestamp":"2026-07-18T00:00:02Z","event_type":"task_completed","task_id":"T-001","agent":"claude","message":"appended later by a major-ahead forge","metadata":null}

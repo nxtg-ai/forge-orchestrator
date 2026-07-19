@@ -10,11 +10,11 @@ agreement with the RFC prose.
 ## Run
 
 ```bash
-python3 check_fixtures.py       # 9 cases; exit 0 = conform
+python3 check_fixtures.py       # 12 cases; exit 0 = conform
 python3 check_fixtures.py -v    # also print why each case exists
 ```
 
-Stdlib only, no dependencies, no repo coupling. Current state: **9/9 passing.**
+Stdlib only, no dependencies, no repo coupling. Current state: **12/12 passing.**
 
 ## What is here
 
@@ -41,16 +41,26 @@ MAJOR-ahead must refuse.
 | `events-absent-field-accepted-as-1.0.0` | absent ⇒ 1.0.0 | 1.1.0 | ACCEPT, 3 parsed / 0 skipped |
 | `events-unknown-variant-not-fatal` | 1.2.0 | 1.1.0 | ACCEPT_FORWARD, 3 parsed / 0 skipped |
 | `events-corrupt-line-skipped-and-counted` | 1.1.0 | 1.1.0 | ACCEPT, 3 parsed / 1 skipped |
-| `events-major-ahead-refused` | 2.0.0 | 1.1.0 | REFUSE |
+| `events-major-ahead-refused` | 2.0.0 (all records) | 1.1.0 | REFUSE, 0 parsed / 2 refused |
+| `events-mixed-major-ahead-record-quarantined` | 1.1.0 + 2.0.0 | 1.1.0 | ACCEPT_PARTIAL, 2 parsed / 1 refused |
+| `events-mixed-minor-ahead-record-tolerated` | 1.1.0 + 1.2.0 | 1.1.0 | ACCEPT_FORWARD, 3 parsed / 0 refused |
+| `events-mixed-all-three-classes` | 1.1.0 + 1.2.0 + 2.0.0 + corrupt | 1.1.0 | ACCEPT_PARTIAL, 3 parsed / 1 skipped / 1 refused |
 
-The two highest-value rows:
+The highest-value rows:
 
+- **`events-mixed-major-ahead-record-quarantined`** is the reason `events.jsonl` versions are per-record.
+  The log opens at `1.1.0` and a `2.0.0` record is appended later. A reader that derives one version from
+  the first record silently trusts that record — rev 2's checker did exactly this (Codex re-gate round 2).
+  Per RFC §3.2.2 the record is quarantined and counted while the compatible history stays readable.
+- **`events-mixed-all-three-classes`** puts a baseline record *after* the major-ahead one, so a reader that
+  bails at the first incompatible record loses valid history behind it.
 - **`events-unknown-variant-not-fatal`** carries an `event_type` of `provenance_recorded`, which is not
   one of the 14 known variants. This is the actual G-05 hazard: without `#[serde(other)]` on `EventType`,
   a single record like this errors the whole batch and turns an older dashboard blank. The fixture is what
   a *future* forge release's log looks like to *today's* reader.
 - **`events-corrupt-line-skipped-and-counted`** has a truncated line 2. One bad line must not zero out a
-  10,000-line history.
+  10,000-line history. Note `skipped` (data damage) and `refused` (reader behind the writer) are counted
+  separately — they mean different things operationally.
 
 ## Baseline rule (guarded)
 
