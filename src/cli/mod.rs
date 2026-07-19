@@ -275,6 +275,19 @@ pub enum PodVerb {
         against: Option<String>,
     },
 
+    /// Adopt the cosmux store: install the shim, rebind live hooks to forge, become the writer
+    Adopt {
+        /// Roll the journal deterministically back to unadopted (recovery from an inconsistent state)
+        #[arg(long, conflicts_with = "abort")]
+        repair: bool,
+        /// Reverse an interrupted adoption back to unadopted
+        #[arg(long)]
+        abort: bool,
+    },
+
+    /// Roll back adoption: restore cosmux hooks, remove the shim, cosmux writes again
+    Unadopt,
+
     /// Internal: re-spawn dead panes for a session (invoked by the tmux pane-died hook)
     #[command(name = "_pane-recover", hide = true)]
     PaneRecover {

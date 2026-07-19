@@ -73,7 +73,25 @@ pub fn parse_dead_panes(listing: &str, pod: &state::PodState) -> Vec<DeadPane> {
     dead
 }
 
+/// The tmux `pane-died` hook entry point.
+///
+/// During an in-flight adoption forge holds no production authority yet, so respawning here would
+/// act ahead of the single-writer cutover. Instead it records a **durable** recovery intent (§1.5
+/// step 3, round-7 C3) that the adopt drain executes once the transition is safe. In every other
+/// state it recovers inline, exactly as before.
 pub fn pane_recover(session: &str) -> Result<()> {
+    use super::journal::{self, Authority, TransitionState};
+    if let Authority::InTransition(TransitionState::Adopting) = journal::authority() {
+        journal::append_recovery(session)?;
+        tracing::info!("pane-recover: adoption in flight, deferred recovery for '{session}'");
+        return Ok(());
+    }
+    pane_recover_inline(session)
+}
+
+/// Respawn every dead pane in a session immediately. Used both in the normal (adopted / unadopted)
+/// path and by the adopt drain once deferral is over.
+pub fn pane_recover_inline(session: &str) -> Result<()> {
     let Some(pod_state) = state::pod(session)? else {
         tracing::warn!("pane-recover: no state for pod '{session}'");
         return Ok(());

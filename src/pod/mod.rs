@@ -16,6 +16,8 @@
 //! The surfaces that act on that authority — `adopt`, the `cosmux` shim, hook rebinding — land on
 //! top of it, never beside it.
 
+/// Adoption state machine — shim, hook rebind, adopt/unadopt/repair (RFC §1.5).
+pub mod adopt;
 /// Pod YAML parsing, validation, and the legacy config search order.
 pub mod config;
 /// Error type shared across the pod modules.

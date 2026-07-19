@@ -109,6 +109,16 @@ async fn main() -> anyhow::Result<()> {
                     pod.as_deref(),
                     against.as_deref().map(std::path::Path::new),
                 ),
+                PodVerb::Adopt { repair, abort } => {
+                    if repair {
+                        crate::pod::adopt::repair()
+                    } else if abort {
+                        crate::pod::adopt::abort()
+                    } else {
+                        crate::pod::adopt::adopt()
+                    }
+                }
+                PodVerb::Unadopt => crate::pod::adopt::unadopt(),
                 PodVerb::PaneRecover { session } => cli::pod::pane_recover(&session),
                 PodVerb::AfterDetach { session } => cli::pod::after_detach(&session),
             };

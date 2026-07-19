@@ -11,7 +11,7 @@
 //! The command **construction** is pure and separately tested ([`spawn_plan`]), so the argument
 //! sequence for the 14 live pod shapes is verifiable without any tmux server at all.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use super::config::{Pane, PodConfig, Window, expand_path};
@@ -257,30 +257,113 @@ impl<'a> PodSpawner<'a> {
     /// on a session this process just created is ordinary `start` behaviour.
     fn install_session_hooks(&self) -> Result<()> {
         let session = &self.pod.name;
-        let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("forge"));
+        let exe = current_exe();
 
         if !self.pod.on_pane_dead.is_empty() {
-            let cmd = format!(
-                "run-shell '{} pod _pane-recover {} >> /tmp/forge-pod-{}.log 2>&1'",
-                exe.display(),
-                session,
-                session
-            );
             // Best-effort: older tmux versions may not support the pane-died hook target.
-            let _ = Tmux::run(&["set-hook", "-t", session, "pane-died", &cmd]);
+            let _ = Tmux::run(&[
+                "set-hook",
+                "-t",
+                session,
+                "pane-died",
+                &forge_hook(&exe, SessionHook::PaneDied, session),
+            ]);
             // Keep dead panes around so the hook can observe them.
             let _ = Tmux::run(&["set-option", "-t", session, "remain-on-exit", "on"]);
         }
 
         if !self.pod.after_detach.is_empty() {
-            let cmd = format!(
-                "run-shell '{} pod _after-detach {} >> /tmp/forge-pod-{}.log 2>&1'",
-                exe.display(),
+            let _ = Tmux::run(&[
+                "set-hook",
+                "-t",
                 session,
-                session
-            );
-            let _ = Tmux::run(&["set-hook", "-t", session, "client-detached", &cmd]);
+                "client-detached",
+                &forge_hook(&exe, SessionHook::ClientDetached, session),
+            ]);
         }
+        Ok(())
+    }
+}
+
+/// The forge binary path, used verbatim inside the hooks it installs. Falls back to the bare name
+/// so a hook is still meaningful if the exe path cannot be read.
+pub fn current_exe() -> PathBuf {
+    std::env::current_exe().unwrap_or_else(|_| PathBuf::from("forge"))
+}
+
+/// Which tmux session hook a value belongs to. The two forge drives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionHook {
+    PaneDied,
+    ClientDetached,
+}
+
+impl SessionHook {
+    /// The tmux option name.
+    pub fn tmux_name(self) -> &'static str {
+        match self {
+            Self::PaneDied => "pane-died",
+            Self::ClientDetached => "client-detached",
+        }
+    }
+
+    /// The forge subcommand the hook invokes.
+    fn subcommand(self) -> &'static str {
+        match self {
+            Self::PaneDied => "_pane-recover",
+            Self::ClientDetached => "_after-detach",
+        }
+    }
+
+    pub const ALL: [SessionHook; 2] = [SessionHook::PaneDied, SessionHook::ClientDetached];
+}
+
+/// Build the forge form of a session hook — `<exe> pod _pane-recover <session>`.
+///
+/// The `pod ` infix is the exact discriminator [`crate::pod::adopt::classify_hook`] keys on: cosmux
+/// invokes `<exe> _pane-recover`, forge invokes `<exe> pod _pane-recover`, so ownership is readable
+/// straight off the hook string with no separate marker.
+pub fn forge_hook(exe: &Path, kind: SessionHook, session: &str) -> String {
+    format!(
+        "run-shell '{} pod {} {} >> /tmp/forge-pod-{}.log 2>&1'",
+        exe.display(),
+        kind.subcommand(),
+        session,
+        session
+    )
+}
+
+impl Tmux {
+    /// Read a session hook's value, `None` when the hook is unset.
+    ///
+    /// tmux prints `pane-died[0] <value>`; the value is everything after the first `] `. An unset
+    /// hook makes `show-options` fail, which is reported as `None`, not an error.
+    pub fn show_hook(session: &str, kind: SessionHook) -> Option<String> {
+        let out = tmux_command()
+            .args(["show-options", "-t", session, kind.tmux_name()])
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let line = String::from_utf8_lossy(&out.stdout);
+        let line = line.trim_end();
+        if line.is_empty() {
+            return None;
+        }
+        line.split_once("] ").map(|(_, value)| value.to_string())
+    }
+
+    /// Set a session hook to a literal value (passed as one argv element — no shell re-parse).
+    pub fn set_hook(session: &str, kind: SessionHook, value: &str) -> Result<()> {
+        Tmux::run(&["set-hook", "-t", session, kind.tmux_name(), value])?;
+        Ok(())
+    }
+
+    /// Remove a session hook entirely.
+    pub fn unset_hook(session: &str, kind: SessionHook) -> Result<()> {
+        // `-u` on an already-unset hook is not an error in practice; ignore a benign failure.
+        let _ = Tmux::run(&["set-hook", "-u", "-t", session, kind.tmux_name()]);
         Ok(())
     }
 }

@@ -55,11 +55,12 @@ silent after a pod YAML omitted a window the heartbeat targeted.
 
 ## Dependency delta
 
-**+1 dependency total** (`clap_complete`), not +3:
+**+2 dependencies declared, 0 new crates compiled** (`clap_complete`, `libc`):
 
 | Dep | Disposition | Instrument |
 |---|---|---|
-| `clap_complete` | **added** | Required by the `completions` verb; FPL ruled the parity contract outranks dependency minimization |
+| `clap_complete` | **added (1 new crate)** | Required by the `completions` verb; FPL ruled the parity contract outranks dependency minimization |
+| `libc` | **declared direct — 0 new crates** | `flock(2)` for the §1.5 adoption journal lock (`journal.rs`). Already resolved transitively before this change: `grep -A1 'name = "libc"' Cargo.lock` → `0.2.180`, so declaring it grows `Cargo.lock` by one line and compiles nothing new. Declared so the direct use is not silent. |
 | `shell-words` | **not added — dead upstream** | `grep -rn "shell_words\|shell-words" --include=*.rs` over the whole cosmux tree returns nothing. Declared in its `Cargo.toml`, referenced by zero lines of its source. |
 | `shellexpand` | **not added — vendored** | One call site (`config.rs:110`). Replaced by `pod::config::expand_path`. |
 | `log`, `env_logger` | **dropped** | → `tracing`, already a forge dependency |
@@ -95,8 +96,27 @@ the full tmux argument sequence without executing anything. Asserting `start`/`s
 observing a real tmux server would require touching the live fleet sessions this work is
 constrained not to touch.
 
-## Not implemented (gated migration surface)
+## Migration surface (§1.5) — implemented
 
-`forge pod adopt`, the `cosmux` shim, and hook-rebinding of **existing live sessions** are the
-migration protocol, tracked separately. Installing hooks on a pod forge itself spawns is ordinary
-`start` behaviour and is implemented; re-pointing sessions cosmux already created is not.
+`forge pod adopt` / `unadopt` / `adopt --repair` / `adopt --abort` and the standalone
+`scripts/forge-pod-unadopt.sh` implement the consolidation RFC §1.5 adoption protocol. These are
+**forge-only additions** (cosmux has no equivalent), not parity verbs.
+
+| Surface | Flags | Exit codes | Behaviour |
+|---|---|---|---|
+| `adopt` | `--repair`, `--abort` | 0 ok · 1 error/refused | Preflight → write `adopting` → install shim → rebind live cosmux hooks → drain recoveries → terminal commit. Idempotent: re-run resumes. |
+| `unadopt` | — | 0 ok · 1 error | Restore hooks from backup, remove shim, clear journal. |
+| `scripts/forge-pod-unadopt.sh` | — | 0 ok · 1 error | Standalone rollback: `flock` + `rm` + `tmux`, no forge binary. Same lock as the binary. |
+
+Authority is the transition journal (`~/.local/state/forge/pod-adoption.json`, schema v1) — until it
+reads terminal `adopted`, every forge pod-store write is refused and cosmux is the sole writer. See
+`docs/POD-ADOPTION-RESUME.md` and `src/pod/journal.rs` / `src/pod/adopt.rs`.
+
+**Verified by** `tests/pod_adopt.rs` (6 cases against a private tmux socket): full adopt rebinds
+cosmux hooks + installs shim + reaches terminal; the standalone script and `forge unadopt` both
+restore the captured originals; a crash injected at every ledger sub-point resumes to a single
+writer; `--repair` rolls a corrupt journal back to unadopted; and the standalone script **blocks**
+on a held lock rather than racing it.
+
+Still gated to the ecosystem repo (not this repo): archiving the cosmux binary/repo itself, which
+is gated on `forge pod adopt` exiting 0 across the live fleet.
