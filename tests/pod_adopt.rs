@@ -513,6 +513,35 @@ fn script_fails_closed_when_the_backup_is_absent_or_truncated_for_recorded_hooks
         "a truncated journal must be preserved, not deleted"
     );
     assert!(w3.shim.exists());
+
+    // (d) LATE-truncated journal (regate-15 round-2 P1): the Codex shape — all tokens present, a
+    // recorded session extractable, but the final top-level brace is MISSING. A grep/awk gate
+    // accepted this and deleted a malformed authority journal; real JSON parsing must reject it.
+    let w4 = World::new("latetrunc");
+    w4.make_session_with_cosmux_hooks("node", false);
+    assert_eq!(w4.forge(&["adopt"]).0, 0);
+    let good = std::fs::read_to_string(w4.journal_path()).unwrap();
+    let malformed = good.trim_end().trim_end_matches('}'); // drop the closing brace, keep the tokens
+    assert!(
+        malformed.contains("\"state\"")
+            && malformed.contains("\"hooks\"")
+            && malformed.contains("node")
+    );
+    std::fs::write(w4.journal_path(), malformed).unwrap();
+    let status = w4.run_script(&w4.socket);
+    assert!(
+        !status.success(),
+        "a late-truncated (missing-final-brace) journal must fail JSON validation, not delete"
+    );
+    assert!(
+        w4.journal_exists(),
+        "malformed authority journal must be preserved"
+    );
+    assert!(w4.shim.exists(), "shim must be preserved");
+    assert!(
+        w4.hook("node", "pane-died").contains("pod _pane-recover"),
+        "the live hook must be untouched — no false success"
+    );
 }
 
 #[test]

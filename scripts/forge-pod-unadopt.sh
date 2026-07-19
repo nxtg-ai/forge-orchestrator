@@ -37,13 +37,39 @@ tmuxc() {
 is_forge_hook() { grep -qE 'pod _pane-recover|pod _after-detach'; }
 
 # The sessions adopt recorded under steps.hooks — the authoritative "these were rebound" list.
-recorded_hook_sessions() {
-  awk '
-    /"hooks"[[:space:]]*:[[:space:]]*\{[[:space:]]*\}/ { next }
-    /"hooks"[[:space:]]*:[[:space:]]*\{/ { inh=1; next }
-    inh && /\}/ { inh=0; next }
-    inh { line=$0; gsub(/^[[:space:]]*"/,"",line); sub(/".*/,"",line); if (length(line)>0) print line }
-  ' "$JOURNAL"
+# Validate the journal as REAL JSON + schema and print its recorded hook sessions, one per line.
+# Exit 0 (+ sessions on stdout) only when the journal parses AND matches schema v1; exit 1 on any
+# parse/schema error; exit 3 when no validator is available.
+#
+# regate-15 round-2 P1: a grep-for-tokens + awk/sed gate is NOT parsing — a journal missing its final
+# brace but still containing the `state`/`hooks` tokens passed it, and the awk scanner happily
+# extracted a session, so the script deleted a malformed authority journal and claimed success. Real
+# JSON parsing is the only defensible gate against arbitrary structural corruption (not just prefix
+# truncation). jq was excluded by the RFC; python3 is present fleet-wide (declared dep amendment:
+# flock+rm+tmux+python3). If python3 is somehow absent, the script FAILS CLOSED rather than guessing.
+validate_and_list_hooks() {
+  command -v python3 >/dev/null 2>&1 || return 3
+  python3 - "$JOURNAL" <<'PY'
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        j = json.load(f)
+except Exception:
+    sys.exit(1)
+if not isinstance(j, dict) or j.get("schema") != 1:
+    sys.exit(1)
+if j.get("state") not in ("adopting", "adopted", "unadopting"):
+    sys.exit(1)
+steps = j.get("steps")
+if not isinstance(steps, dict):
+    sys.exit(1)
+hooks = steps.get("hooks", {})
+if not isinstance(hooks, dict):
+    sys.exit(1)
+for k in hooks:
+    if isinstance(k, str) and k:
+        print(k)
+PY
 }
 
 mkdir -p "$STATE_HOME"
@@ -57,14 +83,19 @@ if [[ ! -e "$JOURNAL" ]]; then
   exit 0
 fi
 
-# --- P1-4: a journal we cannot parse cannot tell us what to restore → fail closed, DON'T touch it.
-if ! grep -q '"state"' "$JOURNAL" || ! grep -q '"hooks"' "$JOURNAL"; then
-  echo "forge-pod-unadopt: FAIL — adoption journal is truncated/unparseable; preserving it and the shim" >&2
+# --- P1 (round-2): REAL JSON/schema validation BEFORE the freeze or any extraction. A journal we
+# cannot fully parse cannot tell us what to restore → fail closed, DON'T touch it.
+VRC=0
+RECORDED_RAW="$(validate_and_list_hooks)" || VRC=$?
+if [[ "$VRC" -ne 0 ]]; then
+  if [[ "$VRC" -eq 3 ]]; then
+    echo "forge-pod-unadopt: FAIL — python3 is required to validate the adoption journal; preserving journal+shim" >&2
+  else
+    echo "forge-pod-unadopt: FAIL — adoption journal failed JSON/schema validation (malformed/truncated); preserving journal+shim" >&2
+  fi
   exit 1
 fi
-
-# Capture the recorded rebinds BEFORE the freeze (freeze preserves them, but read from the original).
-mapfile -t RECORDED < <(recorded_hook_sessions)
+mapfile -t RECORDED < <(printf '%s\n' "$RECORDED_RAW" | sed '/^[[:space:]]*$/d')
 
 # --- P1-1: FREEZE authority, PRESERVING steps.hooks (flip only `state`). Atomic temp+rename.
 TMP="$STATE_HOME/.pod-adoption.json.rollback.$$"
