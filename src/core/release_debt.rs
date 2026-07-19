@@ -301,13 +301,41 @@ fn parse_toml_string_value(line: &str, key: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
-/// Extract a top-level `"version"` from JSON (`package.json`, `plugin.json`, …).
+/// Extract a top-level `"version"` from JSON (`package.json`, `plugin.json`, `package-lock.json`).
 pub fn parse_json_version(text: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(text).ok()?;
     value
         .get("version")
         .and_then(|v| v.as_str())
         .map(|v| v.to_string())
+}
+
+/// Extract `(plugin_name, version)` pairs from a Claude Code `marketplace.json`.
+///
+/// A marketplace manifest has **no top-level `version`** — each entry in `plugins[]` carries its
+/// own. Reading it with [`parse_json_version`] yields `None`, which the evaluator would report as
+/// `version-unreadable`: a **false FAIL on a perfectly clean checkout**. That is not a hypothetical
+/// — forge-plugin's `.claude-plugin/marketplace.json` is exactly this shape, and it is why this
+/// function exists rather than a generic JSON reader.
+pub fn parse_marketplace_versions(text: &str) -> Vec<(String, String)> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Vec::new();
+    };
+    let Some(plugins) = value.get("plugins").and_then(|p| p.as_array()) else {
+        return Vec::new();
+    };
+    plugins
+        .iter()
+        .filter_map(|entry| {
+            let version = entry.get("version")?.as_str()?.to_string();
+            let name = entry
+                .get("name")
+                .and_then(|n| n.as_str())
+                .unwrap_or("<unnamed>")
+                .to_string();
+            Some((name, version))
+        })
+        .collect()
 }
 
 #[cfg(test)]

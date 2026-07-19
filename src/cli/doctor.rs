@@ -16,6 +16,7 @@ use crate::core::governance::GovernanceChecker;
 use crate::core::release_debt::{
     DEFAULT_COMMIT_WARN_THRESHOLD, ReleaseDebtInput, VersionSurface, evaluate,
     parse_cargo_lock_version, parse_cargo_toml_version, parse_json_version,
+    parse_marketplace_versions,
 };
 
 /// Run the doctor and return its fail-closed exit code.
@@ -150,50 +151,143 @@ fn collect_release_debt(root: &Path) -> anyhow::Result<Option<ReleaseDebtInput>>
     }))
 }
 
-/// Every file in this repo that declares a version.
+/// Directories never descended into when inventorying version surfaces.
 ///
-/// Deliberately a *set*, not a single detected manifest: a repo whose manifests disagree with
-/// each other is broken, and a single-manifest probe reports it as healthy.
+/// Dependency and build trees contain thousands of `package.json` files belonging to *other*
+/// projects. Including them would compare forge's version against every transitive dependency's.
+const EXCLUDED_DIRS: &[&str] = &[
+    "node_modules",
+    "target",
+    "dist",
+    "dist-ui",
+    "build",
+    "out",
+    "coverage",
+    "vendor",
+    ".git",
+    ".next",
+    ".venv",
+    "__pycache__",
+    ".turbo",
+    ".vite",
+];
+
+/// How the version is extracted from a given manifest filename.
+///
+/// Declarative on purpose: adding a manifest shape is one row here, not a new branch in the
+/// walker. Each row is a real layout observed in this program's three repos.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SurfaceKind {
+    /// `Cargo.toml` — `[package] version`.
+    CargoManifest,
+    /// `Cargo.lock` — the `[[package]]` block matching the crate name.
+    CargoLock,
+    /// Top-level `"version"` (`package.json`, `plugin.json`).
+    JsonManifest,
+    /// Top-level `"version"` in a lockfile (`package-lock.json`).
+    JsonLock,
+    /// `marketplace.json` — versions live in `plugins[]`, NOT at the top level.
+    Marketplace,
+}
+
+fn classify(file_name: &str) -> Option<SurfaceKind> {
+    match file_name {
+        "Cargo.toml" => Some(SurfaceKind::CargoManifest),
+        "Cargo.lock" => Some(SurfaceKind::CargoLock),
+        "package.json" | "plugin.json" => Some(SurfaceKind::JsonManifest),
+        "package-lock.json" => Some(SurfaceKind::JsonLock),
+        "marketplace.json" => Some(SurfaceKind::Marketplace),
+        _ => None,
+    }
+}
+
+/// Inventory every file in the repo that declares a version — **at any depth**.
+///
+/// A root-only scan was the defect Codex round 4 proved in both directions: it missed
+/// forge-plugin's nested `servers/governance-mcp/{package.json,package-lock.json}` (so real
+/// version drift reported PASS) and it read `marketplace.json` as a top-level manifest (so a clean
+/// checkout reported FAIL). Discovery is therefore repo-aware: walk the tree, skip dependency and
+/// build directories, and extract per the manifest's actual shape.
 fn collect_version_surfaces(root: &Path) -> anyhow::Result<Vec<VersionSurface>> {
     let mut surfaces = Vec::new();
 
-    // Rust: Cargo.toml + its lockfile entry for the same package.
-    let cargo_toml = root.join("Cargo.toml");
-    if cargo_toml.is_file() {
-        let text = std::fs::read_to_string(&cargo_toml)?;
-        let version = parse_cargo_toml_version(&text);
-        surfaces.push(VersionSurface::manifest("Cargo.toml", version.clone()));
+    let walker = walkdir::WalkDir::new(root)
+        .max_depth(6)
+        .into_iter()
+        .filter_entry(|e| {
+            if e.depth() == 0 {
+                return true;
+            }
+            let name = e.file_name().to_string_lossy();
+            !(e.file_type().is_dir() && EXCLUDED_DIRS.contains(&name.as_ref()))
+        });
 
-        let cargo_lock = root.join("Cargo.lock");
-        if cargo_lock.is_file()
-            && let Some(package_name) = parse_cargo_package_name(&text)
-        {
-            let lock_text = std::fs::read_to_string(&cargo_lock)?;
-            surfaces.push(VersionSurface::lockfile(
-                "Cargo.lock",
-                parse_cargo_lock_version(&lock_text, &package_name),
-            ));
+    for entry in walker.filter_map(|e| e.ok()) {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        let Some(kind) = classify(&file_name) else {
+            continue;
+        };
+        let rel = entry
+            .path()
+            .strip_prefix(root)
+            .unwrap_or(entry.path())
+            .display()
+            .to_string();
+        let Ok(text) = std::fs::read_to_string(entry.path()) else {
+            continue;
+        };
+
+        match kind {
+            SurfaceKind::CargoManifest => {
+                surfaces.push(VersionSurface::manifest(
+                    rel.clone(),
+                    parse_cargo_toml_version(&text),
+                ));
+            }
+            SurfaceKind::CargoLock => {
+                // A lockfile lists every dependency; only the block for THIS crate is the repo's
+                // own version, so the sibling manifest supplies the package name.
+                let manifest = entry.path().with_file_name("Cargo.toml");
+                let package_name = std::fs::read_to_string(&manifest)
+                    .ok()
+                    .and_then(|t| parse_cargo_package_name(&t));
+                if let Some(name) = package_name {
+                    surfaces.push(VersionSurface::lockfile(
+                        rel.clone(),
+                        parse_cargo_lock_version(&text, &name),
+                    ));
+                }
+            }
+            SurfaceKind::JsonManifest => {
+                surfaces.push(VersionSurface::manifest(
+                    rel.clone(),
+                    parse_json_version(&text),
+                ));
+            }
+            SurfaceKind::JsonLock => {
+                surfaces.push(VersionSurface::lockfile(
+                    rel.clone(),
+                    parse_json_version(&text),
+                ));
+            }
+            SurfaceKind::Marketplace => {
+                // Each plugin entry is its own surface, labelled so a human knows which entry
+                // disagrees rather than just "marketplace.json".
+                for (name, version) in parse_marketplace_versions(&text) {
+                    surfaces.push(VersionSurface::manifest(
+                        format!("{rel}#plugins[{name}]"),
+                        Some(version),
+                    ));
+                }
+            }
         }
     }
 
-    // Node: package.json + package-lock.json.
-    for (path, is_lock) in [
-        ("package.json", false),
-        ("package-lock.json", true),
-        (".claude-plugin/plugin.json", false),
-        (".claude-plugin/marketplace.json", false),
-    ] {
-        let candidate = root.join(path);
-        if candidate.is_file() {
-            let version = parse_json_version(&std::fs::read_to_string(&candidate)?);
-            surfaces.push(if is_lock {
-                VersionSurface::lockfile(path, version)
-            } else {
-                VersionSurface::manifest(path, version)
-            });
-        }
-    }
-
+    // Deterministic order: the findings text is compared in tests and read by humans.
+    surfaces.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(surfaces)
 }
 

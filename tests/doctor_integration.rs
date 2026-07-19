@@ -226,3 +226,106 @@ fn uninitialized_project_skips_governance_rather_than_failing_it() {
         .expect("quality dimension present");
     assert_eq!(quality["status"], "SKIP");
 }
+
+/// Build a fixture mirroring the REAL forge-plugin layout: a marketplace manifest whose versions
+/// live in `plugins[]`, a root plugin manifest, and a nested Node package with its own lockfile
+/// three directories down.
+fn plugin_shaped_fixture(fx: &Fixture, marketplace: &str, nested_pkg: &str, nested_lock: &str) {
+    fx.write(
+        ".claude-plugin/marketplace.json",
+        &format!(
+            r#"{{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "nxtg-forge",
+  "plugins": [
+    {{ "name": "nxtg-forge", "source": "./plugins/nxtg-forge", "version": "{marketplace}" }}
+  ]
+}}"#
+        ),
+    )
+    .write(
+        ".claude-plugin/plugin.json",
+        &format!(r#"{{"name":"nxtg-forge","version":"{marketplace}"}}"#),
+    )
+    .write(
+        "plugins/nxtg-forge/.claude-plugin/plugin.json",
+        &format!(r#"{{"name":"nxtg-forge","version":"{marketplace}"}}"#),
+    )
+    .write(
+        "plugins/nxtg-forge/servers/governance-mcp/package.json",
+        &format!(r#"{{"name":"@nxtg-forge/governance-mcp","version":"{nested_pkg}"}}"#),
+    )
+    .write(
+        "plugins/nxtg-forge/servers/governance-mcp/package-lock.json",
+        &format!(r#"{{"name":"@nxtg-forge/governance-mcp","version":"{nested_lock}","lockfileVersion":3}}"#),
+    );
+}
+
+#[test]
+fn clean_plugin_layout_passes_marketplace_is_not_a_top_level_manifest() {
+    // Codex round 4, direction 1: a CLEAN checkout reported FAIL because marketplace.json has no
+    // top-level "version" — its versions live in plugins[]. Reading it generically produced
+    // "version-unreadable" on a repo where every surface actually agreed.
+    let fx = Fixture::new("pluginclean");
+    plugin_shaped_fixture(&fx, "3.10.3", "3.10.3", "3.10.3");
+    fx.git_init(Some("v3.10.3"));
+
+    let (code, out) = fx.doctor(&["--strict"]);
+    assert_eq!(code, 0, "a clean plugin checkout must pass:\n{out}");
+    assert!(!out.contains("version-unreadable"), "{out}");
+}
+
+#[test]
+fn nested_manifest_drift_is_detected() {
+    // Codex round 4, direction 2: a root-only scan never saw
+    // servers/governance-mcp/package.json, so genuine drift three levels down reported PASS.
+    let fx = Fixture::new("pluginnested");
+    plugin_shaped_fixture(&fx, "3.10.3", "3.7.0", "3.7.0");
+    fx.git_init(Some("v3.10.3"));
+
+    let (code, out) = fx.doctor(&[]);
+    assert_eq!(code, 1, "nested drift must FAIL:\n{out}");
+    assert!(out.contains("multi-surface-drift"), "{out}");
+    assert!(
+        out.contains("governance-mcp/package.json"),
+        "the finding must name the nested file: {out}"
+    );
+}
+
+#[test]
+fn nested_lockfile_desync_is_detected() {
+    // The nested equivalent of the v1.5.1 Cargo.lock incident: manifest and its own lockfile
+    // disagree, three directories below the repo root.
+    let fx = Fixture::new("pluginlock");
+    plugin_shaped_fixture(&fx, "3.10.3", "3.10.3", "3.10.2");
+    fx.git_init(Some("v3.10.3"));
+
+    let (code, out) = fx.doctor(&[]);
+    assert_eq!(code, 1, "nested lockfile desync must FAIL:\n{out}");
+    assert!(out.contains("lockfile-desync"), "{out}");
+    assert!(out.contains("3.10.2"), "{out}");
+}
+
+#[test]
+fn dependency_directories_are_not_inventoried() {
+    // node_modules holds thousands of OTHER projects' manifests. Including them would compare
+    // this repo's version against every transitive dependency and fail every real repo.
+    let fx = Fixture::new("pluginexclude");
+    plugin_shaped_fixture(&fx, "3.10.3", "3.10.3", "3.10.3");
+    fx.write(
+        "plugins/nxtg-forge/servers/governance-mcp/node_modules/left-pad/package.json",
+        r#"{"name":"left-pad","version":"1.3.0"}"#,
+    )
+    .write(
+        "target/debug/build/something/package.json",
+        r#"{"version":"0.0.1"}"#,
+    )
+    .git_init(Some("v3.10.3"));
+
+    let (code, out) = fx.doctor(&["--strict"]);
+    assert_eq!(
+        code, 0,
+        "dependency manifests must not be treated as this repo's surfaces:\n{out}"
+    );
+    assert!(!out.contains("1.3.0"), "{out}");
+}
