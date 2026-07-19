@@ -1,0 +1,24 @@
+# Voice & Media pod — Podcast-Pipeline (PP) + voice-jib-jab (VJJ).
+# Both teams share the audio toolchain (Kokoro TTS, RVC, Whisper).
+#
+# Spawn: cosmux start pod-voice-media
+name: pod-voice-media
+root: "~/projects"
+
+before_start:
+  - "git -C ~/projects/Podcast-Pipeline pull --rebase || true"
+  - "git -C ~/projects/voice-jib-jab pull --rebase || true"
+
+after_start: []
+
+on_pane_dead:
+  - "echo \"$(date -Iseconds) pod-voice-media pane died\" >> /tmp/cosmux-pane-dead.log"
+
+windows:
+  - name: voice-media
+    layout: tiled
+    panes:
+      - cwd: "~/projects/Podcast-Pipeline"
+        command: "ccyolo"
+      - cwd: "~/projects/voice-jib-jab"
+        command: "ccyolo"

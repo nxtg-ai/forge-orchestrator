@@ -1,0 +1,19 @@
+# Dx3_Program — replaces the legacy `Dx3_Program` tmux session 1:1.
+# Spawn: cosmux start Dx3_Program
+name: Dx3_Program
+root: "~/projects/dx3"
+template: claude-team-pane
+
+before_start:
+  - "git -C ~/projects/dx3 pull --rebase || true"
+
+after_start: []
+
+on_pane_dead:
+  - "echo \"$(date -Iseconds) Dx3_Program pane died\" >> /tmp/cosmux-pane-dead.log"
+
+windows:
+  - name: claude
+    layout: tiled
+    panes:
+      - cwd: "~/projects/dx3"

@@ -15,6 +15,9 @@ path = "src/main.rs"
 [dependencies]
 # CLI
 clap = { version = "4", features = ["derive", "env"] }
+# Shell completions for `forge pod completions` — cosmux parity (FPL ruling 2026-07-18:
+# the parity contract outranks dependency minimization).
+clap_complete = "4"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }

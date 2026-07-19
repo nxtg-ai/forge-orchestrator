@@ -86,6 +86,45 @@ async fn main() -> anyhow::Result<()> {
                 cli::start::execute(&project_root, agent.as_deref()).await?;
             }
         }
+        Commands::Pod { verb } => {
+            use cli::PodVerb;
+            // Pod verbs carry cosmux-parity exit codes (2 = uncovered preflight targets), so the
+            // verdict is the process status, as it is for `forge doctor`.
+            let result = match verb {
+                PodVerb::Start {
+                    name,
+                    force,
+                    attach,
+                } => cli::pod::start(&name, force, attach),
+                PodVerb::Stop { name } => cli::pod::stop(&name),
+                PodVerb::List => cli::pod::list(),
+                PodVerb::Validate { name } => cli::pod::validate(&name),
+                PodVerb::Show { name } => cli::pod::show(&name),
+                PodVerb::State => cli::pod::show_state(),
+                PodVerb::Ps => cli::pod::ps(),
+                PodVerb::Gc => cli::pod::gc(),
+                PodVerb::Reload { name, force } => cli::pod::reload(&name, force),
+                PodVerb::Completions { shell } => cli::pod::completions(shell),
+                PodVerb::Preflight { pod, against } => cli::pod::preflight_cmd(
+                    pod.as_deref(),
+                    against.as_deref().map(std::path::Path::new),
+                ),
+                PodVerb::PaneRecover { session } => cli::pod::pane_recover(&session),
+                PodVerb::AfterDetach { session } => cli::pod::after_detach(&session),
+            };
+            use std::io::Write;
+            let code = match result {
+                Ok(code) => code,
+                Err(error) => {
+                    // Operational errors exit 1, matching cosmux; a check that RAN and found
+                    // problems exits 2 via its own return value.
+                    eprintln!("forge pod: {error}");
+                    1
+                }
+            };
+            std::io::stdout().flush().ok();
+            std::process::exit(code);
+        }
         Commands::Doctor { strict, json } => {
             let code = cli::doctor::execute(&project_root, strict, json)?;
             // Fail-closed: the verdict IS the exit status, so CI can gate on it directly.

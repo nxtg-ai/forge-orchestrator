@@ -1,0 +1,26 @@
+# Faultline pod — AI Trust & Safety vertical (3 surfaces, one engine).
+# Faultline-Pro (engine) + faultline-web (consumer) + Faultline (frozen Kaggle demo).
+#
+# Spawn: cosmux start pod-faultline
+name: pod-faultline
+root: "~/projects"
+
+before_start:
+  - "git -C ~/projects/Faultline-Pro pull --rebase || true"
+  - "git -C ~/projects/faultline-web pull --rebase || true"
+
+after_start: []
+
+on_pane_dead:
+  - "echo \"$(date -Iseconds) pod-faultline pane died\" >> /tmp/cosmux-pane-dead.log"
+
+windows:
+  - name: faultline
+    layout: tiled
+    panes:
+      - cwd: "~/projects/Faultline-Pro"
+        command: "ccyolo"
+      - cwd: "~/projects/faultline-web"
+        command: "ccyolo"
+      - cwd: "~/projects/Faultline"
+        command: "ccyolo"

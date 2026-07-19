@@ -1,0 +1,21 @@
+# Sandbox spike — validates cosmux end-to-end without touching real pods.
+# IMPORTANT: in YAML, bare `~` means null. Always quote tildes: "~", "~/path".
+name: cosmux-test
+root: "~"
+
+before_start:
+  - "echo 'before_start ok' > /tmp/cosmux-before.txt"
+
+after_start:
+  - "echo 'after_start ok' > /tmp/cosmux-after.txt"
+
+windows:
+  - name: main
+    layout: tiled
+    panes:
+      - cwd: "~"
+        command: "echo pane0 && pwd"
+      - cwd: "/tmp"
+        command: "echo pane1 && pwd"
+      - cwd: "~/ASIF"
+        command: "echo pane2 && pwd"

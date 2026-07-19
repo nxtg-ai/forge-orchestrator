@@ -10,6 +10,8 @@ pub mod init;
 pub mod mcp;
 /// Master plan generation and display from SPEC.md or UAT findings.
 pub mod plan;
+/// Declarative tmux pod management (cosmux parity surface).
+pub mod pod;
 /// Headless task execution — single-task or autonomous parallel mode.
 pub mod run;
 /// Ship phase — changelog generation, artifact archival, and state cleanup.
@@ -155,6 +157,12 @@ pub enum Commands {
         json: bool,
     },
 
+    /// Declarative tmux pod management — start, stop, and recover multi-pane agent pods
+    Pod {
+        #[command(subcommand)]
+        verb: PodVerb,
+    },
+
     /// Generate verify subtasks for completed build tasks
     Verify,
 
@@ -192,5 +200,92 @@ pub enum Commands {
         /// Value to set
         #[arg()]
         value: Option<String>,
+    },
+}
+
+/// `forge pod` verbs. Parity surface with cosmux v0.4.2: 11 public + 2 hidden.
+#[derive(Subcommand, Debug)]
+pub enum PodVerb {
+    /// Spawn a pod (creates the tmux session detached)
+    Start {
+        /// Pod name or path to a pod YAML
+        name: String,
+        /// Replace an existing session of the same name
+        #[arg(long)]
+        force: bool,
+        /// Print the attach command after starting
+        #[arg(long)]
+        attach: bool,
+    },
+
+    /// Kill a pod's tmux session
+    Stop {
+        /// Pod name
+        name: String,
+    },
+
+    /// List running tmux sessions
+    List,
+
+    /// Validate a pod YAML config (no side effects)
+    Validate {
+        /// Pod name or path to a pod YAML
+        name: String,
+    },
+
+    /// Print the resolved pod config (after template merge)
+    Show {
+        /// Pod name or path to a pod YAML
+        name: String,
+    },
+
+    /// Print HUD state.json path + contents
+    ///
+    /// `hud` is an alias, not a separate verb — cosmux registers it that way and users type both.
+    #[command(alias = "hud")]
+    State,
+
+    /// List forge-managed pods only (vs `list`, which shows all tmux sessions)
+    Ps,
+
+    /// Garbage-collect state.json: drop entries whose tmux session no longer exists
+    Gc,
+
+    /// Reload a pod (stop + start). Re-reads YAML; loses agent conversation context.
+    Reload {
+        /// Pod name
+        name: String,
+        /// Replace an existing session of the same name
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Print shell completion script (bash | zsh | fish | powershell | elvish)
+    Completions {
+        /// Target shell
+        shell: clap_complete::Shell,
+    },
+
+    /// Verify every heartbeat target has a matching pod window (exit 2 when uncovered)
+    Preflight {
+        /// Pod name or path to check (omit to check every session referenced by heartbeat)
+        pod: Option<String>,
+        /// Path to heartbeat script to parse (default: auto-detect by hostname)
+        #[arg(long)]
+        against: Option<String>,
+    },
+
+    /// Internal: re-spawn dead panes for a session (invoked by the tmux pane-died hook)
+    #[command(name = "_pane-recover", hide = true)]
+    PaneRecover {
+        /// tmux session name
+        session: String,
+    },
+
+    /// Internal: run after_detach hooks (invoked by the tmux client-detached hook)
+    #[command(name = "_after-detach", hide = true)]
+    AfterDetach {
+        /// tmux session name
+        session: String,
     },
 }

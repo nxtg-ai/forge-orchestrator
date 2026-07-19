@@ -19,6 +19,8 @@ pub mod config;
 pub mod error;
 /// Lifecycle hooks (`before_start`, `on_pane_dead`, …).
 pub mod hooks;
+/// Heartbeat-coverage preflight — fail-closed on an empty target set.
+pub mod preflight;
 /// Dead-pane recovery, including `.forge/` task re-claim.
 pub mod recover;
 /// Pod state store (`~/.cosmux/state.json`) with a fail-closed test-isolation seam.

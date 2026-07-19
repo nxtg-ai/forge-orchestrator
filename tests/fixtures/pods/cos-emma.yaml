@@ -1,0 +1,19 @@
+# Emma — CLX9 Senior Chief of Staff session.
+# Mirror of cos-wolf for the CLX9 machine.
+#
+# Spawn (on CLX9): cosmux start cos-emma
+name: cos-emma
+root: "~/ASIF"
+
+before_start: []
+after_start: []
+
+on_pane_dead:
+  - "echo \"$(date -Iseconds) cos-emma pane died\" >> /tmp/cosmux-pane-dead.log"
+
+windows:
+  - name: emma
+    layout: tiled
+    panes:
+      - cwd: "~/ASIF"
+        command: "ccyolo"
