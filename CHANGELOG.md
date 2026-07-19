@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `forge pod` (W2-A, cosmux consolidation, rides the v1.6.0 train)
+
+- **`forge pod`** — declarative tmux pod management vendored from cosmux v0.4.2, operating on the
+  **same store and pod locations in place** (`~/.cosmux/state.json`, `~/.config/cosmux/templates/`,
+  the legacy search order). 11 public verbs (`start`/`stop`/`list`/`validate`/`show`/`state`
+  (alias `hud`)/`ps`/`gc`/`reload`/`completions`/`preflight`) + 2 hidden recovery verbs. Full
+  parity matrix in `docs/pod-parity-matrix.md`, verified against the 14 live fleet pod shapes.
+- **`.forge/` synergy** — a pod pane may declare a `task:` binding so dead-pane recovery re-claims
+  the forge task and appends a `PaneRecovered` event; the first real consumer of RFC-0001's
+  `#[serde(other)]` forward-compat sink.
+- **`forge pod adopt` / `unadopt` / `adopt --repair` / `adopt --abort`** + standalone
+  `scripts/forge-pod-unadopt.sh` — the §1.5 migration protocol: a single-writer cutover guarded by
+  a transition journal (`~/.local/state/forge/pod-adoption.json`) whose terminal `adopted` state is
+  the sole production-write authority. One `flock` serializes all journal read-modify-write; the
+  standalone rollback restores hooks, removes the shim, and clears the journal using only
+  `flock`, `rm`, `tmux`, `python3` (all journal parsing/validation/mutation goes through one JSON
+  parser — no grep/sed/awk shortcuts).
+- Test-isolation seams (`FORGE_POD_STATE_DIR`, `FORGE_POD_TMUX_SOCKET`, `FORGE_POD_JOURNAL_DIR`,
+  `FORGE_POD_SHIM_PATH`) default to their live locations, so production is byte-identical to cosmux;
+  the live `~/.cosmux/state.json` is untouched by the entire test suite.
+
+### Added — fleet ctx% budget HUD (W2-C, rides the v1.6.0 train)
+
+- **`forge status --budget [--json] [--all]`** — a fleet-wide context-budget HUD reading each agent
+  pane's `ctx` gauge (read-only, gauge-only). Extraction is **adapter-based**: Claude `ctx:NN%`
+  (used), Codex `NN% left` (normalized to `100 - left`), other tools degrade to `n/a`. Bands follow
+  the token-budget canon: `<30 OK · ≥30 PREP · ≥50 COMPACT · ≥80 STOP · ≥90 EMERGENCY`. A CLI verb,
+  not a new MCP tool — the tool count stays at 11.
+- **Dashboard fleet strip** — a one-line ctx% strip in the TUI dashboard, toggled with `b`, off by
+  default (the default layout is unchanged), refreshed on a 10s throttle only while shown.
+
+### Fixed — per-invocation MCP project binding (DIRECTIVE-16)
+
+- **`forge mcp` now honors `FORGE_PROJECT_ROOT`** as an authoritative per-connection project binding
+  (it was previously read nowhere, so the plugin's `.mcp.json` binding contract was silently
+  dropped). A server started with an explicit `--project` or `FORGE_PROJECT_ROOT` **refuses**
+  `forge_set_project`, so one consumer's global switch can no longer repoint another consumer's
+  health/state; an unbound server still switches, preserving single-project UX. Fixes cross-product
+  contamination where a running consumer's project leaked into a differently-bound one.
+
 ### Added — `forge doctor` (W2-B phase 1, rides the v1.6.0 train)
 
 - **`forge doctor`** — aggregates quality health, release debt, and drift into one fail-closed
