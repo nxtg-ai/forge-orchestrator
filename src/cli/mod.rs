@@ -2,6 +2,8 @@
 pub mod config;
 /// Live TUI dashboard with task board, agent output panes, and event log.
 pub mod dashboard;
+/// Aggregate health verdict — quality gates, release debt, and drift in one exit code.
+pub mod doctor;
 /// Project initialization — scaffolds `.forge/` directory and detects AI tools.
 pub mod init;
 /// MCP server startup (stdio JSON-RPC 2.0 transport).
@@ -140,6 +142,17 @@ pub enum Commands {
         /// Enable Stargate PTY mode — agents render with full terminal colors and interactivity
         #[arg(long)]
         pty: bool,
+    },
+
+    /// Aggregate health verdict — quality, release debt, and drift in one fail-closed exit code
+    Doctor {
+        /// Escalate WARN to a non-zero exit (FAIL always exits non-zero)
+        #[arg(long)]
+        strict: bool,
+
+        /// Emit the report as JSON (schema `forge.doctor.report.v1`)
+        #[arg(long)]
+        json: bool,
     },
 
     /// Generate verify subtasks for completed build tasks

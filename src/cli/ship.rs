@@ -1,3 +1,4 @@
+use crate::cli::doctor::{Preflight, release_preflight};
 use crate::core::ship;
 use colored::Colorize;
 use std::path::Path;
@@ -10,6 +11,34 @@ pub fn execute(project_root: &Path, auto: bool, dry_run: bool) -> anyhow::Result
 
     println!("{}", "FORGE SHIP — Post-UAT Wrap-Up".bold());
     println!("{}", "=".repeat(40));
+    println!();
+
+    // Step 0: release-debt preflight. Ship is the moment version surfaces must agree — shipping
+    // with a desynced lockfile is how the v1.5.1 train produced a --locked build failure.
+    // FAIL blocks; WARN is surfaced and allowed, since unreleased-commit debt is often exactly
+    // what this command is about to discharge.
+    println!("{}", "Step 0: Release Preflight".bold());
+    match release_preflight(project_root) {
+        Preflight::Blocked(details) => {
+            for detail in &details {
+                println!("  {} {detail}", "✗".red());
+            }
+            anyhow::bail!(
+                "release preflight FAILED — fix the version surfaces above, or run `forge doctor` for the full report"
+            );
+        }
+        Preflight::Warned(details) => {
+            for detail in &details {
+                println!("  {} {detail}", "!".yellow());
+            }
+        }
+        Preflight::Clean(summary) => {
+            println!("  {} {summary}", "✓".green());
+        }
+        Preflight::Skipped(reason) => {
+            println!("  {} {reason}", "-".dimmed());
+        }
+    }
     println!();
 
     // Step 1: Generate changelog

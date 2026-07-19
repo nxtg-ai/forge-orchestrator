@@ -85,6 +85,14 @@ async fn main() -> anyhow::Result<()> {
                 cli::start::execute(&project_root, agent.as_deref()).await?;
             }
         }
+        Commands::Doctor { strict, json } => {
+            let code = cli::doctor::execute(&project_root, strict, json)?;
+            // Fail-closed: the verdict IS the exit status, so CI can gate on it directly.
+            // Flush explicitly — process::exit does not run destructors or flush stdout.
+            use std::io::Write;
+            std::io::stdout().flush().ok();
+            std::process::exit(code);
+        }
         Commands::Verify => {
             cli::verify::execute(&project_root)?;
         }

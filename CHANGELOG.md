@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `forge doctor` (W2-B phase 1, rides the v1.6.0 train)
+
+- **`forge doctor`** — aggregates quality health, release debt, and drift into one fail-closed
+  verdict. `FAIL` always exits 1; `--strict` escalates `WARN` to 1; `--json` emits the report
+  under schema `forge.doctor.report.v1`. No new MCP tools (the count stays at 11) and no new
+  runtime dependencies.
+- **Release-debt evaluator** (`core::release_debt`) — commits-since-tag, tag↔manifest drift,
+  **lockfile agreement** (`Cargo.toml`↔`Cargo.lock`, `package.json`↔`package-lock.json`), and
+  **multi-surface agreement** across every file in a repo that declares a version. Checking a
+  single manifest reports an internally inconsistent repo as healthy; this compares them all.
+- **`forge ship` release preflight** — a `FAIL`-level release-debt verdict now blocks the ship;
+  `WARN` is surfaced and allowed, since shipping is often what discharges that debt.
+
+### Changed
+
+- A **critical** governance finding now fails the doctor's quality dimension regardless of the
+  numeric health score. The 5-dimension score is an average, so a critical defect could sit under
+  a comfortable 80/100 and pass unnoticed.
+- The doctor's drift dimension reports **SKIP** rather than OK when the configured brain cannot
+  measure drift. The rule-based brain returns a neutral `0.0` that is indistinguishable from
+  "genuinely aligned"; reporting it as a pass manufactured a green.
+
 ## [1.5.2] - 2026-07-18
 
 Release-discipline catch-up: two fixes shipped to `main` on 2026-05-05 were never cut into a release.
