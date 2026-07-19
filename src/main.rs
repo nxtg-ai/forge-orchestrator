@@ -23,9 +23,25 @@ async fn main() -> anyhow::Result<()> {
     init_tracing();
 
     let cli = Cli::parse();
-    let project_root = PathBuf::from(&cli.project)
+
+    // Project-binding priority (DIRECTIVE-16 — per-invocation authority):
+    //   1. an explicit `--project` (anything but the `.` default) — authoritative,
+    //   2. else `FORGE_PROJECT_ROOT` — the per-connection binding the plugin's `.mcp.json` sets
+    //      (previously read NOWHERE, so the contract was silently dropped) — authoritative,
+    //   3. else the current directory (`.`) — unbound; a server started this way may still switch
+    //      via `forge_set_project` (global active-project as default-when-unspecified only).
+    // An authoritative binding must never be overridden by another consumer's `set_project`.
+    let (raw_project, explicit_binding) = if cli.project != "." {
+        (cli.project.clone(), true)
+    } else if let Some(env_root) = std::env::var_os("FORGE_PROJECT_ROOT").filter(|v| !v.is_empty())
+    {
+        (env_root.to_string_lossy().into_owned(), true)
+    } else {
+        (cli.project.clone(), false)
+    };
+    let project_root = PathBuf::from(&raw_project)
         .canonicalize()
-        .unwrap_or_else(|_| PathBuf::from(&cli.project));
+        .unwrap_or_else(|_| PathBuf::from(&raw_project));
 
     // Also try loading .env from the project root (for --project /other/dir usage)
     dotenvy::from_path(project_root.join(".env")).ok();
@@ -153,7 +169,7 @@ async fn main() -> anyhow::Result<()> {
             cli::sync::execute(&project_root)?;
         }
         Commands::Mcp => {
-            cli::mcp::execute(&project_root)?;
+            cli::mcp::execute(&project_root, explicit_binding)?;
         }
         Commands::Dashboard {
             watch,

@@ -12,7 +12,7 @@ use super::tools;
 ///
 /// Protocol: JSON-RPC 2.0, one message per line.
 /// Handles: initialize, notifications/initialized, tools/list, tools/call
-pub fn run_stdio(project_root: &Path) -> anyhow::Result<()> {
+pub fn run_stdio(project_root: &Path, explicit_binding: bool) -> anyhow::Result<()> {
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut reader = stdin.lock();
@@ -22,8 +22,13 @@ pub fn run_stdio(project_root: &Path) -> anyhow::Result<()> {
 
     // Log to stderr so it doesn't interfere with the JSON-RPC protocol on stdout
     eprintln!(
-        "[forge-mcp] Server starting for project: {}",
-        project_root.display()
+        "[forge-mcp] Server starting for project: {} (binding: {})",
+        project_root.display(),
+        if explicit_binding {
+            "explicit — set_project disabled"
+        } else {
+            "default — set_project enabled"
+        }
     );
 
     loop {
@@ -50,8 +55,8 @@ pub fn run_stdio(project_root: &Path) -> anyhow::Result<()> {
             }
         };
 
-        // Handle the request (may mutate current_project for set_project)
-        let response = handle_request(&request, &mut current_project);
+        // Handle the request (may mutate current_project for set_project, unless bound)
+        let response = handle_request(&request, &mut current_project, explicit_binding);
 
         // Notifications (no id) don't get responses
         if request.id.is_none() {
@@ -70,6 +75,7 @@ pub fn run_stdio(project_root: &Path) -> anyhow::Result<()> {
 fn handle_request(
     request: &JsonRpcRequest,
     project_root: &mut std::path::PathBuf,
+    explicit_binding: bool,
 ) -> Option<JsonRpcResponse> {
     let id = request.id.clone();
 
@@ -124,18 +130,37 @@ fn handle_request(
 
             eprintln!("[forge-mcp] Calling tool: {tool_name}");
 
-            // Special handling for forge_set_project — mutates server state
+            // Special handling for forge_set_project — mutates server state.
+            //
+            // DIRECTIVE-16: an explicit binding (`--project` / `FORGE_PROJECT_ROOT`) is
+            // authoritative for this connection. `set_project` MUST NOT override it, or a second
+            // consumer sharing the server could repoint this one's health/state at its own project.
+            // A server started unbound (default cwd) still allows switching — global active-project
+            // as default-when-unspecified only.
             if tool_name == "forge_set_project" {
-                let result = match tools::handle_set_project(&arguments) {
-                    Ok(new_path) => {
-                        eprintln!("[forge-mcp] Project switched to: {}", new_path.display());
-                        *project_root = new_path.clone();
-                        super::protocol::CallToolResult::text(format!(
-                            "Project switched to: {}",
-                            new_path.display()
-                        ))
+                let result = if explicit_binding {
+                    eprintln!(
+                        "[forge-mcp] Refused set_project: project is explicitly bound to {}",
+                        project_root.display()
+                    );
+                    super::protocol::CallToolResult::error(format!(
+                        "Project is explicitly bound to {} via --project/FORGE_PROJECT_ROOT and \
+                         cannot be switched at runtime. Start the server without an explicit \
+                         binding to enable forge_set_project.",
+                        project_root.display()
+                    ))
+                } else {
+                    match tools::handle_set_project(&arguments) {
+                        Ok(new_path) => {
+                            eprintln!("[forge-mcp] Project switched to: {}", new_path.display());
+                            *project_root = new_path.clone();
+                            super::protocol::CallToolResult::text(format!(
+                                "Project switched to: {}",
+                                new_path.display()
+                            ))
+                        }
+                        Err(err_result) => err_result,
                     }
-                    Err(err_result) => err_result,
                 };
                 return Some(JsonRpcResponse::success(
                     id,
@@ -184,7 +209,7 @@ mod tests {
         };
 
         let mut root = std::path::PathBuf::from("/tmp");
-        let response = handle_request(&request, &mut root).unwrap();
+        let response = handle_request(&request, &mut root, false).unwrap();
         let result = response.result.unwrap();
         assert_eq!(result["protocolVersion"], "2024-11-05");
         assert_eq!(result["serverInfo"]["name"], "forge-mcp");
@@ -200,7 +225,7 @@ mod tests {
         };
 
         let mut root = std::path::PathBuf::from("/tmp");
-        let response = handle_request(&request, &mut root).unwrap();
+        let response = handle_request(&request, &mut root, false).unwrap();
         let result = response.result.unwrap();
         let tools = result["tools"].as_array().unwrap();
         assert_eq!(tools.len(), 11);
@@ -216,7 +241,7 @@ mod tests {
         };
 
         let mut root = std::path::PathBuf::from("/tmp");
-        let response = handle_request(&request, &mut root).unwrap();
+        let response = handle_request(&request, &mut root, false).unwrap();
         assert!(response.result.is_some());
         assert!(response.error.is_none());
     }
@@ -231,9 +256,64 @@ mod tests {
         };
 
         let mut root = std::path::PathBuf::from("/tmp");
-        let response = handle_request(&request, &mut root).unwrap();
+        let response = handle_request(&request, &mut root, false).unwrap();
         assert!(response.error.is_some());
         assert_eq!(response.error.unwrap().code, -32601);
+    }
+
+    fn set_project_request(path: &str) -> JsonRpcRequest {
+        JsonRpcRequest {
+            jsonrpc: "2.0".into(),
+            id: Some(Value::Number(9.into())),
+            method: "tools/call".into(),
+            params: Some(json!({
+                "name": "forge_set_project",
+                "arguments": {"path": path},
+            })),
+        }
+    }
+
+    #[test]
+    fn set_project_is_refused_and_leaves_the_root_unchanged_under_an_explicit_binding() {
+        // DIRECTIVE-16: an explicitly bound server must not let set_project repoint it — that is
+        // the exact override another consumer used to contaminate this connection.
+        let bound = std::path::PathBuf::from("/tmp/projA");
+        let mut root = bound.clone();
+        let response = handle_request(&set_project_request("/tmp/projB"), &mut root, true).unwrap();
+
+        assert_eq!(
+            root, bound,
+            "an explicit binding must not be mutated by set_project"
+        );
+        let text = response.result.unwrap()["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(text.contains("explicitly bound"), "{text}");
+        assert!(text.contains("cannot be switched"), "{text}");
+    }
+
+    #[test]
+    fn set_project_still_switches_when_the_server_is_unbound() {
+        // The single-project UX default the DoD protects: a server started without an explicit
+        // binding may still switch (global active-project as default-when-unspecified only).
+        let tmp = std::env::temp_dir().join(format!("forge-mcp-bind-{}", std::process::id()));
+        std::fs::create_dir_all(tmp.join(".forge")).unwrap();
+        let mut root = std::path::PathBuf::from("/tmp/does-not-matter");
+        let response = handle_request(
+            &set_project_request(&tmp.display().to_string()),
+            &mut root,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(root, tmp, "an unbound server must honour set_project");
+        let text = response.result.unwrap()["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(text.contains("Project switched to"), "{text}");
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
@@ -246,7 +326,7 @@ mod tests {
         };
 
         let mut root = std::path::PathBuf::from("/tmp");
-        let response = handle_request(&request, &mut root);
+        let response = handle_request(&request, &mut root, false);
         assert!(response.is_none());
     }
 }
