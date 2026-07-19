@@ -14,9 +14,8 @@ use crate::brain::rule_based::RuleBasedBrain;
 use crate::core::doctor::{DoctorOptions, DoctorReport, run_doctor};
 use crate::core::governance::GovernanceChecker;
 use crate::core::release_debt::{
-    DEFAULT_COMMIT_WARN_THRESHOLD, ReleaseDebtInput, VersionSurface, evaluate,
-    parse_cargo_lock_version, parse_cargo_toml_version, parse_json_version,
-    parse_marketplace_versions,
+    DEFAULT_COMMIT_WARN_THRESHOLD, MarketplaceParse, ReleaseDebtInput, VersionSurface, evaluate,
+    parse_cargo_lock_version, parse_cargo_toml_version, parse_json_version, parse_marketplace,
 };
 
 /// Run the doctor and return its fail-closed exit code.
@@ -135,8 +134,10 @@ fn print_report(report: &DoctorReport) {
 /// Returns `Ok(None)` when the directory holds no recognized manifest — that is a legitimate
 /// "nothing to check", distinct from a probe that failed.
 fn collect_release_debt(root: &Path) -> anyhow::Result<Option<ReleaseDebtInput>> {
-    let surfaces = collect_version_surfaces(root)?;
-    if surfaces.is_empty() {
+    let (surfaces, inventory_errors) = collect_version_surfaces(root)?;
+    // An inventory error with no surfaces still has to be reported: "I could not read anything"
+    // is a failure, not a "nothing to check".
+    if surfaces.is_empty() && inventory_errors.is_empty() {
         return Ok(None);
     }
 
@@ -148,6 +149,7 @@ fn collect_release_debt(root: &Path) -> anyhow::Result<Option<ReleaseDebtInput>>
         latest_tag,
         commits_since_tag,
         commit_warn_threshold: DEFAULT_COMMIT_WARN_THRESHOLD,
+        inventory_errors,
     }))
 }
 
@@ -208,8 +210,12 @@ fn classify(file_name: &str) -> Option<SurfaceKind> {
 /// version drift reported PASS) and it read `marketplace.json` as a top-level manifest (so a clean
 /// checkout reported FAIL). Discovery is therefore repo-aware: walk the tree, skip dependency and
 /// build directories, and extract per the manifest's actual shape.
-fn collect_version_surfaces(root: &Path) -> anyhow::Result<Vec<VersionSurface>> {
+fn collect_version_surfaces(root: &Path) -> anyhow::Result<(Vec<VersionSurface>, Vec<String>)> {
     let mut surfaces = Vec::new();
+    // Every failure to *see* a surface is recorded and reported. A gate that silently skips what
+    // it cannot read has not verified the repo — it has only verified the part that happened to
+    // parse. Same cure as the Gate 5 remediation in the MCP layer.
+    let mut problems: Vec<String> = Vec::new();
 
     let walker = walkdir::WalkDir::new(root)
         .max_depth(6)
@@ -222,7 +228,15 @@ fn collect_version_surfaces(root: &Path) -> anyhow::Result<Vec<VersionSurface>> 
             !(e.file_type().is_dir() && EXCLUDED_DIRS.contains(&name.as_ref()))
         });
 
-    for entry in walker.filter_map(|e| e.ok()) {
+    for entry in walker {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                // A directory we could not traverse may contain a manifest we needed.
+                problems.push(format!("could not traverse: {error}"));
+                continue;
+            }
+        };
         if !entry.file_type().is_file() {
             continue;
         }
@@ -236,8 +250,12 @@ fn collect_version_surfaces(root: &Path) -> anyhow::Result<Vec<VersionSurface>> 
             .unwrap_or(entry.path())
             .display()
             .to_string();
-        let Ok(text) = std::fs::read_to_string(entry.path()) else {
-            continue;
+        let text = match std::fs::read_to_string(entry.path()) {
+            Ok(text) => text,
+            Err(error) => {
+                problems.push(format!("{rel}: unreadable ({error})"));
+                continue;
+            }
         };
 
         match kind {
@@ -251,14 +269,19 @@ fn collect_version_surfaces(root: &Path) -> anyhow::Result<Vec<VersionSurface>> 
                 // A lockfile lists every dependency; only the block for THIS crate is the repo's
                 // own version, so the sibling manifest supplies the package name.
                 let manifest = entry.path().with_file_name("Cargo.toml");
-                let package_name = std::fs::read_to_string(&manifest)
+                match std::fs::read_to_string(&manifest)
                     .ok()
-                    .and_then(|t| parse_cargo_package_name(&t));
-                if let Some(name) = package_name {
-                    surfaces.push(VersionSurface::lockfile(
+                    .and_then(|t| parse_cargo_package_name(&t))
+                {
+                    Some(name) => surfaces.push(VersionSurface::lockfile(
                         rel.clone(),
                         parse_cargo_lock_version(&text, &name),
-                    ));
+                    )),
+                    // A lockfile whose sibling manifest names no package cannot be checked. Say so
+                    // rather than dropping the surface, which would leave a lockfile unverified.
+                    None => problems.push(format!(
+                        "{rel}: cannot resolve the crate name from its sibling Cargo.toml, so this lockfile was not verified"
+                    )),
                 }
             }
             SurfaceKind::JsonManifest => {
@@ -273,22 +296,30 @@ fn collect_version_surfaces(root: &Path) -> anyhow::Result<Vec<VersionSurface>> 
                     parse_json_version(&text),
                 ));
             }
-            SurfaceKind::Marketplace => {
+            SurfaceKind::Marketplace => match parse_marketplace(&text) {
                 // Each plugin entry is its own surface, labelled so a human knows which entry
-                // disagrees rather than just "marketplace.json".
-                for (name, version) in parse_marketplace_versions(&text) {
-                    surfaces.push(VersionSurface::manifest(
-                        format!("{rel}#plugins[{name}]"),
-                        Some(version),
-                    ));
+                // disagrees rather than just "marketplace.json". Entries with NO usable version
+                // are surfaced with `None` — the evaluator then reports `version-unreadable`
+                // instead of the entry being silently dropped.
+                MarketplaceParse::Entries(entries) => {
+                    for (name, version) in entries {
+                        surfaces.push(VersionSurface::manifest(
+                            format!("{rel}#plugins[{name}]"),
+                            version,
+                        ));
+                    }
                 }
-            }
+                MarketplaceParse::Malformed(reason) => {
+                    problems.push(format!("{rel}: malformed marketplace manifest — {reason}"));
+                }
+            },
         }
     }
 
     // Deterministic order: the findings text is compared in tests and read by humans.
     surfaces.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(surfaces)
+    problems.sort();
+    Ok((surfaces, problems))
 }
 
 /// Read `name` from a `Cargo.toml` `[package]` section, so the right lock block is selected.
@@ -367,8 +398,12 @@ mod tests {
     fn empty_directory_yields_no_surfaces() {
         let dir = std::env::temp_dir().join(format!("forge-doctor-empty-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let surfaces = collect_version_surfaces(&dir).unwrap();
+        let (surfaces, problems) = collect_version_surfaces(&dir).unwrap();
         assert!(surfaces.is_empty());
+        assert!(
+            problems.is_empty(),
+            "an empty dir is not a failure: {problems:?}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -377,7 +412,11 @@ mod tests {
         // Runs against the real repo: Cargo.toml and Cargo.lock must agree, which is exactly
         // the invariant the v1.5.1 incident violated.
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let surfaces = collect_version_surfaces(root).unwrap();
+        let (surfaces, problems) = collect_version_surfaces(root).unwrap();
+        assert!(
+            problems.is_empty(),
+            "this repo must inventory cleanly: {problems:?}"
+        );
         let manifest = surfaces
             .iter()
             .find(|s| s.path == "Cargo.toml")

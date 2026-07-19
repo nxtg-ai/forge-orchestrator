@@ -71,6 +71,13 @@ pub struct ReleaseDebtInput {
     pub commits_since_tag: u32,
     /// Threshold above which `commits_since_tag` becomes a WARN.
     pub commit_warn_threshold: u32,
+    /// Problems encountered while *inventorying* surfaces — an unreadable file, a directory that
+    /// could not be traversed, a malformed manifest.
+    ///
+    /// These are failures of the gate itself, not of the repo, and they must be **loud**: a gate
+    /// that cannot see a surface has not verified it. Discarding them is how a broken checkout
+    /// reports OK.
+    pub inventory_errors: Vec<String>,
 }
 
 /// One problem found. `status` is `WARN` or `FAIL`; `OK` never produces a finding.
@@ -117,6 +124,12 @@ fn normalize_tag(tag: &str) -> &str {
 ///   is coherent; it just has not shipped. `--strict` is what turns that into a blocking exit.
 pub fn evaluate(input: &ReleaseDebtInput) -> ReleaseDebtReport {
     let mut findings = Vec::new();
+
+    // Inventory failures first: if the gate could not read something, say so before reporting on
+    // what it *could* read. A partial inventory that looks clean is worse than a loud failure.
+    for problem in &input.inventory_errors {
+        findings.push(finding("inventory-error", "FAIL", problem.clone()));
+    }
 
     let (manifests, lockfiles): (Vec<_>, Vec<_>) =
         input.surfaces.iter().partition(|s| !s.is_lockfile);
@@ -310,32 +323,64 @@ pub fn parse_json_version(text: &str) -> Option<String> {
         .map(|v| v.to_string())
 }
 
-/// Extract `(plugin_name, version)` pairs from a Claude Code `marketplace.json`.
+/// Outcome of reading a Claude Code `marketplace.json`.
+///
+/// The distinction is the whole point: **"no plugins declared" and "this file is broken" are not
+/// the same answer**, and collapsing them into an empty list is how a malformed manifest passes a
+/// gate. See [`parse_marketplace`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MarketplaceParse {
+    /// Readable. Every entry is reported, **including entries with no usable version** — those
+    /// carry `None` so the evaluator reports them rather than dropping them.
+    Entries(Vec<(String, Option<String>)>),
+    /// Not usable as a marketplace manifest, with the reason.
+    Malformed(String),
+}
+
+/// Read the plugin entries from a Claude Code `marketplace.json`.
 ///
 /// A marketplace manifest has **no top-level `version`** — each entry in `plugins[]` carries its
 /// own. Reading it with [`parse_json_version`] yields `None`, which the evaluator would report as
-/// `version-unreadable`: a **false FAIL on a perfectly clean checkout**. That is not a hypothetical
-/// — forge-plugin's `.claude-plugin/marketplace.json` is exactly this shape, and it is why this
-/// function exists rather than a generic JSON reader.
-pub fn parse_marketplace_versions(text: &str) -> Vec<(String, String)> {
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
-        return Vec::new();
+/// `version-unreadable`: a false FAIL on a clean checkout (Codex round 4).
+///
+/// Every discovered entry becomes a surface *with an optional version*. An earlier revision used
+/// `filter_map` to skip entries whose version was missing or non-string, which silently dropped
+/// them — so a required plugin entry with no version at all passed `--strict` with exit 0
+/// (Codex round 5). That is the same silent-swallow class this repo removed from the MCP layer in
+/// Gate 5, and the cure is the same: surface the unreadable thing instead of discarding it.
+pub fn parse_marketplace(text: &str) -> MarketplaceParse {
+    let value: serde_json::Value = match serde_json::from_str(text) {
+        Ok(value) => value,
+        Err(e) => return MarketplaceParse::Malformed(format!("not valid JSON: {e}")),
     };
-    let Some(plugins) = value.get("plugins").and_then(|p| p.as_array()) else {
-        return Vec::new();
+    if !value.is_object() {
+        return MarketplaceParse::Malformed("document is not a JSON object".to_string());
+    }
+    let Some(plugins) = value.get("plugins") else {
+        return MarketplaceParse::Malformed("no `plugins` array".to_string());
     };
-    plugins
-        .iter()
-        .filter_map(|entry| {
-            let version = entry.get("version")?.as_str()?.to_string();
-            let name = entry
-                .get("name")
-                .and_then(|n| n.as_str())
-                .unwrap_or("<unnamed>")
-                .to_string();
-            Some((name, version))
-        })
-        .collect()
+    let Some(plugins) = plugins.as_array() else {
+        return MarketplaceParse::Malformed("`plugins` is not an array".to_string());
+    };
+
+    let mut entries = Vec::new();
+    for (i, entry) in plugins.iter().enumerate() {
+        if !entry.is_object() {
+            return MarketplaceParse::Malformed(format!("plugins[{i}] is not an object"));
+        }
+        let name = entry
+            .get("name")
+            .and_then(|n| n.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("<unnamed #{i}>"));
+        // A missing or non-string version yields None — reported, never dropped.
+        let version = entry
+            .get("version")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        entries.push((name, version));
+    }
+    MarketplaceParse::Entries(entries)
 }
 
 #[cfg(test)]
@@ -348,6 +393,7 @@ mod tests {
             latest_tag: Some("v1.5.2".into()),
             commits_since_tag: 0,
             commit_warn_threshold: DEFAULT_COMMIT_WARN_THRESHOLD,
+            inventory_errors: Vec::new(),
         }
     }
 
@@ -375,6 +421,7 @@ mod tests {
             latest_tag: Some("v1.5.0".into()),
             commits_since_tag: 2,
             commit_warn_threshold: DEFAULT_COMMIT_WARN_THRESHOLD,
+            inventory_errors: Vec::new(),
         });
 
         assert_eq!(report.status, "FAIL");
@@ -433,6 +480,7 @@ mod tests {
             latest_tag: Some("v3.10.2".into()),
             commits_since_tag: 0,
             commit_warn_threshold: DEFAULT_COMMIT_WARN_THRESHOLD,
+            inventory_errors: Vec::new(),
         });
         assert_eq!(single_surface_only.status, "OK");
 
@@ -441,6 +489,7 @@ mod tests {
             latest_tag: Some("v3.10.2".into()),
             commits_since_tag: 0,
             commit_warn_threshold: DEFAULT_COMMIT_WARN_THRESHOLD,
+            inventory_errors: Vec::new(),
         });
         assert_eq!(all_surfaces.status, "FAIL");
     }
@@ -452,6 +501,7 @@ mod tests {
             latest_tag: Some("v1.5.2".into()),
             commits_since_tag: 1,
             commit_warn_threshold: DEFAULT_COMMIT_WARN_THRESHOLD,
+            inventory_errors: Vec::new(),
         });
         assert_eq!(report.status, "WARN");
         assert!(report.findings.iter().any(|f| f.kind == "tag-drift"));
@@ -484,6 +534,7 @@ mod tests {
             latest_tag: None,
             commits_since_tag: 3,
             commit_warn_threshold: DEFAULT_COMMIT_WARN_THRESHOLD,
+            inventory_errors: Vec::new(),
         });
         assert_eq!(report.status, "WARN");
         assert!(report.findings.iter().any(|f| f.kind == "untagged"));
@@ -597,6 +648,103 @@ name = "other"
 version = "9.9.9"
 "#;
         assert_eq!(parse_cargo_lock_version(text, "forge-orchestrator"), None);
+    }
+
+    #[test]
+    fn marketplace_entry_without_a_version_is_surfaced_not_dropped() {
+        // Codex round 5: filter_map silently dropped entries whose version was missing, so a
+        // required plugin entry with no version passed --strict with exit 0.
+        let parsed = parse_marketplace(
+            r#"{"plugins":[
+                {"name":"a","version":"1.0.0"},
+                {"name":"b","source":"./b"}
+            ]}"#,
+        );
+        let MarketplaceParse::Entries(entries) = parsed else {
+            panic!("readable manifest must parse: {parsed:?}");
+        };
+        assert_eq!(entries.len(), 2, "every entry is reported: {entries:?}");
+        assert_eq!(entries[1], ("b".to_string(), None));
+    }
+
+    #[test]
+    fn marketplace_entry_version_is_surfaced_and_fails_the_evaluator() {
+        // End-to-end through the evaluator: a None version must FAIL, not be treated as agreeing.
+        let report = evaluate(&input(vec![
+            VersionSurface::manifest("marketplace.json#plugins[a]", Some("1.0.0".into())),
+            VersionSurface::manifest("marketplace.json#plugins[b]", None),
+        ]));
+        assert_eq!(report.status, "FAIL");
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|f| f.kind == "version-unreadable" && f.detail.contains("plugins[b]")),
+            "{:?}",
+            report.findings
+        );
+    }
+
+    #[test]
+    fn valid_empty_marketplace_is_not_malformed() {
+        // "No plugins declared" is a legitimate answer and must not be confused with "broken".
+        assert_eq!(
+            parse_marketplace(r#"{"name":"m","plugins":[]}"#),
+            MarketplaceParse::Entries(vec![])
+        );
+    }
+
+    #[test]
+    fn malformed_marketplace_shapes_are_reported_not_emptied() {
+        // Each of these previously yielded an empty Vec — indistinguishable from "no plugins",
+        // which is exactly the fail-open.
+        for (text, needle) in [
+            ("not json at all", "not valid JSON"),
+            ("[]", "not a JSON object"),
+            (r#"{"name":"m"}"#, "no `plugins` array"),
+            (r#"{"plugins":{}}"#, "not an array"),
+            (r#"{"plugins":["a string"]}"#, "plugins[0] is not an object"),
+        ] {
+            match parse_marketplace(text) {
+                MarketplaceParse::Malformed(reason) => {
+                    assert!(reason.contains(needle), "{text} -> {reason}");
+                }
+                other => panic!("{text} must be malformed, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_non_string_entry_version_is_treated_as_missing() {
+        let MarketplaceParse::Entries(entries) =
+            parse_marketplace(r#"{"plugins":[{"name":"a","version":3}]}"#)
+        else {
+            panic!("structurally fine, just a bad version type");
+        };
+        assert_eq!(entries[0], ("a".to_string(), None));
+    }
+
+    #[test]
+    fn inventory_errors_fail_the_evaluation_loudly() {
+        // A gate that could not READ a surface has not verified it. Reporting OK because the
+        // readable half agreed is the silent-swallow class Gate 5 removed from the MCP layer.
+        let report = evaluate(&ReleaseDebtInput {
+            surfaces: vec![VersionSurface::manifest("Cargo.toml", Some("1.5.2".into()))],
+            latest_tag: Some("v1.5.2".into()),
+            commits_since_tag: 0,
+            commit_warn_threshold: DEFAULT_COMMIT_WARN_THRESHOLD,
+            inventory_errors: vec!["plugin.json: unreadable (permission denied)".into()],
+        });
+        assert_eq!(
+            report.status, "FAIL",
+            "an unreadable surface cannot yield a passing verdict"
+        );
+        let f = report
+            .findings
+            .iter()
+            .find(|f| f.kind == "inventory-error")
+            .expect("inventory error must be reported");
+        assert!(f.detail.contains("permission denied"), "{}", f.detail);
     }
 
     #[test]

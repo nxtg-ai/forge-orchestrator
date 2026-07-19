@@ -329,3 +329,86 @@ fn dependency_directories_are_not_inventoried() {
     );
     assert!(!out.contains("1.3.0"), "{out}");
 }
+
+#[test]
+fn marketplace_entry_missing_a_version_fails_strict() {
+    // Codex round 5's exact reproduction: remove the version from a required plugin entry and the
+    // strict gate exited 0, because filter_map dropped the entry before it could be judged.
+    let fx = Fixture::new("mktmissing");
+    fx.write(
+        ".claude-plugin/marketplace.json",
+        r#"{
+  "name": "nxtg-forge",
+  "plugins": [
+    { "name": "nxtg-forge", "source": "./plugins/nxtg-forge", "version": "3.10.3" },
+    { "name": "second-plugin", "source": "./plugins/second" }
+  ]
+}"#,
+    )
+    .write(
+        ".claude-plugin/plugin.json",
+        r#"{"name":"nxtg-forge","version":"3.10.3"}"#,
+    )
+    .git_init(Some("v3.10.3"));
+
+    let (code, out) = fx.doctor(&["--strict"]);
+    assert_eq!(code, 1, "a versionless plugin entry must FAIL:\n{out}");
+    assert!(out.contains("version-unreadable"), "{out}");
+    assert!(
+        out.contains("second-plugin"),
+        "the finding must name the offending entry: {out}"
+    );
+}
+
+#[test]
+fn malformed_marketplace_structure_fails_rather_than_yielding_no_surfaces() {
+    // `plugins` present but not an array previously produced an empty surface list, which is
+    // indistinguishable from "this repo declares no plugins" — a broken file passing as clean.
+    let fx = Fixture::new("mktmalformed");
+    fx.write(
+        ".claude-plugin/marketplace.json",
+        r#"{"name":"nxtg-forge","plugins":{"oops":"not an array"}}"#,
+    )
+    .write(
+        ".claude-plugin/plugin.json",
+        r#"{"name":"nxtg-forge","version":"3.10.3"}"#,
+    )
+    .git_init(Some("v3.10.3"));
+
+    let (code, out) = fx.doctor(&[]);
+    assert_eq!(code, 1, "a malformed manifest must FAIL:\n{out}");
+    assert!(out.contains("inventory-error"), "{out}");
+    assert!(out.contains("not an array"), "{out}");
+}
+
+#[test]
+fn unreadable_surface_is_reported_not_skipped() {
+    // A file the gate cannot read has not been verified. Skipping it silently lets a broken
+    // checkout report clean.
+    let fx = Fixture::new("unreadable");
+    fx.write(
+        ".claude-plugin/plugin.json",
+        r#"{"name":"nxtg-forge","version":"3.10.3"}"#,
+    )
+    .write("package.json", r#"{"name":"x","version":"3.10.3"}"#)
+    .git_init(Some("v3.10.3"));
+
+    // Make one surface unreadable. Skipped when running as root, where mode bits do not apply.
+    let target = fx.path.join("package.json");
+    let mut perms = fs::metadata(&target).unwrap().permissions();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        perms.set_mode(0o000);
+    }
+    fs::set_permissions(&target, perms).unwrap();
+    if fs::read_to_string(&target).is_ok() {
+        eprintln!("skipping: running with privileges that bypass file permissions");
+        return;
+    }
+
+    let (code, out) = fx.doctor(&[]);
+    assert_eq!(code, 1, "an unreadable surface must FAIL:\n{out}");
+    assert!(out.contains("inventory-error"), "{out}");
+    assert!(out.contains("package.json"), "{out}");
+}
