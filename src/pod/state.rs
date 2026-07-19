@@ -108,7 +108,18 @@ pub fn parse(raw: &str) -> Result<StateFile> {
     serde_json::from_str(raw).map_err(|e| PodError::Other(anyhow::anyhow!("state.json parse: {e}")))
 }
 
+/// Write the store.
+///
+/// This is the **single choke point** for production writes, so the adoption-journal authority
+/// check lives here rather than on each verb: a future verb that writes the store cannot forget to
+/// ask. Until `forge pod adopt` reaches terminal `adopted`, cosmux is the sole production writer
+/// and this refuses (consolidation RFC §1 Phase A).
+///
+/// The check is a lock-free read of the journal — deliberately **not** the journal `flock`. Those
+/// are two independent files with two independent mechanisms; coupling them would serialize
+/// pod-store writes behind adoption bookkeeping for no safety gain.
 pub fn save(state: &StateFile) -> Result<()> {
+    super::journal::require_production_write()?;
     let dir = state_dir();
     let path = dir.join("state.json");
     assert_write_allowed(&path);
@@ -190,18 +201,25 @@ fn now_iso8601() -> String {
 mod tests {
     use super::*;
 
-    /// Serializes every test that mutates `FORGE_POD_STATE_DIR`.
+    /// Serializes every test that mutates a pod isolation env var.
     ///
     /// Env vars are process-global, so cargo's parallel test threads race on them: one test
     /// clearing the override while another is mid-write made the second resolve to the LIVE store.
     /// The fail-closed guard caught it — the run panicked instead of writing `~/.cosmux` — which
     /// is precisely the outcome it exists for, but the race itself is a test bug, fixed here.
-    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    /// Shared with the journal tests, which redirect a different variable in the same process.
+    use crate::pod::ENV_LOCK;
 
-    /// Redirect the store for the duration of a test, restoring the previous value after.
+    /// Redirect the store **and** the adoption journal for the duration of a test.
+    ///
+    /// The journal comes along because `save` now refuses without terminal `adopted` authority: a
+    /// store test is testing the store, not the authority gate, so the guard grants it explicitly
+    /// (and visibly) rather than the gate having a test-only bypass.
     struct StoreGuard {
         _dir: tempdir::TempDir,
+        _journal_dir: tempdir::TempDir,
         previous: Option<std::ffi::OsString>,
+        previous_journal: Option<std::ffi::OsString>,
         _lock: std::sync::MutexGuard<'static, ()>,
     }
 
@@ -236,14 +254,46 @@ mod tests {
     }
 
     impl StoreGuard {
+        /// Redirect both seams and grant write authority via an adopted journal.
         fn new(tag: &str) -> Self {
+            Self::build(tag, true)
+        }
+
+        /// Redirect both seams but leave the journal absent — i.e. **unadopted**, the Phase A
+        /// production posture in which cosmux is the sole writer.
+        fn unadopted(tag: &str) -> Self {
+            Self::build(tag, false)
+        }
+
+        fn build(tag: &str, adopted: bool) -> Self {
             let lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
             let dir = tempdir::TempDir::new(tag);
+            let journal_dir = tempdir::TempDir::new(&format!("{tag}-journal"));
+
             let previous = std::env::var_os(STATE_DIR_ENV);
+            let previous_journal = std::env::var_os(super::super::journal::JOURNAL_DIR_ENV);
             unsafe { std::env::set_var(STATE_DIR_ENV, dir.path()) };
+            unsafe {
+                std::env::set_var(super::super::journal::JOURNAL_DIR_ENV, journal_dir.path())
+            };
+
+            if adopted {
+                let mut journal = super::super::journal::Journal::new(
+                    super::super::journal::TransitionState::Adopted,
+                );
+                journal.steps.shim = super::super::journal::StepState::Complete;
+                std::fs::write(
+                    journal_dir.path().join("pod-adoption.json"),
+                    serde_json::to_string_pretty(&journal).unwrap(),
+                )
+                .unwrap();
+            }
+
             Self {
                 _dir: dir,
+                _journal_dir: journal_dir,
                 previous,
+                previous_journal,
                 _lock: lock,
             }
         }
@@ -254,6 +304,12 @@ mod tests {
             match &self.previous {
                 Some(value) => unsafe { std::env::set_var(STATE_DIR_ENV, value) },
                 None => unsafe { std::env::remove_var(STATE_DIR_ENV) },
+            }
+            match &self.previous_journal {
+                Some(value) => unsafe {
+                    std::env::set_var(super::super::journal::JOURNAL_DIR_ENV, value)
+                },
+                None => unsafe { std::env::remove_var(super::super::journal::JOURNAL_DIR_ENV) },
             }
         }
     }
@@ -340,6 +396,35 @@ mod tests {
         // The fail-closed guard itself. This is the test that proves a forgetful test cannot
         // damage the live fleet store.
         assert_write_allowed(Path::new("/home/axw/.cosmux/state.json"));
+    }
+
+    #[test]
+    fn a_store_write_is_refused_until_the_journal_says_adopted() {
+        // Phase A: cosmux is the sole production writer. forge must refuse at the choke point, and
+        // the refusal must name the remedy rather than failing opaquely.
+        let _guard = StoreGuard::unadopted("refusal");
+        let error = save(&StateFile::default()).expect_err("unadopted forge must not write");
+        let message = error.to_string();
+        assert!(message.contains("not adopted"), "{message}");
+        assert!(message.contains("forge pod adopt"), "{message}");
+        assert!(
+            !state_path().exists(),
+            "a refused write must not create the store"
+        );
+    }
+
+    #[test]
+    fn a_corrupt_journal_freezes_store_writes_rather_than_allowing_them() {
+        // Negative control for the fail-open arm: if `verdict`'s default were "allow", this passes
+        // a write over a journal nobody can read.
+        let guard = StoreGuard::unadopted("frozen");
+        std::fs::write(
+            guard._journal_dir.path().join("pod-adoption.json"),
+            "{ trunc",
+        )
+        .unwrap();
+        let error = save(&StateFile::default()).expect_err("a corrupt journal must freeze writes");
+        assert!(error.to_string().contains("recovery"), "{error}");
     }
 
     #[test]

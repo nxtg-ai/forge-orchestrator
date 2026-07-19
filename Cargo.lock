@@ -553,6 +553,7 @@ dependencies = [
  "crossterm 0.28.1",
  "dotenvy",
  "indicatif",
+ "libc",
  "portable-pty",
  "predicates",
  "rand",

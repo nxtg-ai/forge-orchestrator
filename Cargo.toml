@@ -46,6 +46,11 @@ indicatif = "0.17"
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
 crossterm = "0.28"
 
+# flock(2) for the pod adoption journal lock — the same primitive `flock(1)` uses, which is what
+# lets the standalone rollback script block against a live locked operation instead of racing it.
+# Already resolved transitively (see Cargo.lock); declaring it adds zero new compiled crates.
+libc = "0.2"
+
 # Filesystem traversal
 walkdir = "2"
 
