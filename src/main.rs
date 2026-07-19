@@ -6,6 +6,7 @@ mod cli;
 mod core;
 mod detect;
 mod mcp;
+mod pod;
 pub(crate) mod tui;
 
 use clap::Parser;
