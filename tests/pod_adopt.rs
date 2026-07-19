@@ -545,6 +545,81 @@ fn script_fails_closed_when_the_backup_is_absent_or_truncated_for_recorded_hooks
 }
 
 #[test]
+fn freeze_takes_effect_before_any_set_hook_on_split_line_valid_json() {
+    // regate-15 round-3 P1: the last sed shortcut. A VALID journal whose `state` key and value
+    // straddle two lines passed JSON validation but defeated the line-oriented sed freeze, so hooks
+    // rolled back while the journal still read `adopted` (dual-writer). The freeze now uses the same
+    // json parser; this asserts the OBSERVED state at the moment `tmux set-hook` runs is
+    // `unadopting`, never `adopted`. Uses a fake tmux (Codex's instrument) to capture that moment.
+    let root = std::env::temp_dir().join(format!("forge-freeze-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let state_dir = root.join("state");
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&state_dir).unwrap();
+    std::fs::create_dir_all(&bin).unwrap();
+    let journal = state_dir.join("pod-adoption.json");
+    let observed = state_dir.join("observed-state.txt");
+    let shim = root.join("cosmux");
+    std::fs::write(&shim, "shim\n").unwrap();
+
+    // Valid schema-v1 JSON with `state` split across two lines.
+    std::fs::write(
+        &journal,
+        "{\n  \"schema\": 1,\n  \"state\":\n    \"adopted\",\n  \"steps\": {\n    \"shim\": \"complete\",\n    \"hooks\": {\n      \"node\": \"complete\"\n    },\n    \"recoveries\": {}\n  },\n  \"ts\": \"t\",\n  \"by\": \"forge\"\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        state_dir.join("pod-adoption.hooks"),
+        "node\tpane-died\t/usr/bin/cosmux _pane-recover node\n",
+    )
+    .unwrap();
+
+    // Fake tmux: on set-hook it records the journal's CURRENT state (the observed moment);
+    // has-session succeeds; show-options prints a cosmux (non-forge) hook so the restore "verifies".
+    let fake = bin.join("tmux");
+    std::fs::write(
+        &fake,
+        format!(
+            "#!/usr/bin/env bash\ncase \" $* \" in\n  *' set-hook '*) python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[\"state\"])' '{}' >> '{}' 2>/dev/null; exit 0 ;;\n  *' has-session '*) exit 0 ;;\n  *' show-options '*) printf '%s\\n' 'pane-died /usr/bin/cosmux _pane-recover node'; exit 0 ;;\nesac\nexit 0\n",
+            journal.display(),
+            observed.display()
+        ),
+    )
+    .unwrap();
+    let mut perms = std::fs::metadata(&fake).unwrap().permissions();
+    use std::os::unix::fs::PermissionsExt;
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&fake, perms).unwrap();
+
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/forge-pod-unadopt.sh");
+    let path_env = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let status = Command::new("bash")
+        .arg(&script)
+        .env("PATH", path_env)
+        .env("FORGE_POD_JOURNAL_DIR", &state_dir)
+        .env("FORGE_POD_SHIM_PATH", &shim)
+        .env("FORGE_POD_TMUX_SOCKET", "fake")
+        .status()
+        .expect("run script");
+
+    let observed_state = std::fs::read_to_string(&observed).unwrap_or_default();
+    assert!(
+        observed_state.contains("unadopting"),
+        "the journal must read `unadopting` when set-hook runs, got: {observed_state:?}"
+    );
+    assert!(
+        !observed_state.contains("adopted"),
+        "authority must be frozen before any hook is touched — no `adopted` during set-hook"
+    );
+    assert!(status.success(), "a valid journal must still roll back");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn repair_freezes_authority_before_restoring_hooks() {
     // regate-15 P1-1: `--repair` on an `adopted` journal must write `unadopting` (freeze) BEFORE
     // restoring cosmux hooks — otherwise, since store-write authority is a lock-free journal read,

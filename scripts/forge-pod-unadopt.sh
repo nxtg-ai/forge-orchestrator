@@ -3,7 +3,9 @@
 #
 # WHY STANDALONE: rollback must work when the forge binary is unavailable (archived, broken,
 # mid-upgrade). It restores cosmux's tmux hooks, removes the shim, and removes the adoption journal
-# using only `flock`, `rm`, `tmux` (+ `sed`/`awk`) — no forge, no jq.
+# using only `flock`, `rm`, `tmux`, `python3` — no forge, no jq, no sed/awk on the journal. Every
+# read, validation, and mutation of the journal goes through the ONE json parser (python3), so a
+# mixed-tool gap (grep/sed sees structure the parser doesn't) cannot reopen.
 #
 # SAFETY (regate-15 cures):
 #   P1-1  FREEZE FIRST — flip the journal to `unadopting` (authority refuses writes) BEFORE touching
@@ -72,6 +74,54 @@ for k in hooks:
 PY
 }
 
+# Freeze authority to `unadopting` via a PARSED, atomic JSON mutation — the SAME parser as
+# validation, never a line-oriented sed. Preserves every other field (incl. steps.hooks). Writes a
+# sibling temp file, fsyncs, and atomically renames. Exit 1 on any error; 3 if no python3.
+freeze_to_unadopting() {
+  command -v python3 >/dev/null 2>&1 || return 3
+  python3 - "$JOURNAL" <<'PY'
+import json, os, sys, tempfile
+path = sys.argv[1]
+try:
+    with open(path) as f:
+        j = json.load(f)
+except Exception:
+    sys.exit(1)
+if not isinstance(j, dict):
+    sys.exit(1)
+j["state"] = "unadopting"
+d = os.path.dirname(path) or "."
+fd, tmp = tempfile.mkstemp(dir=d, prefix=".pod-adoption.freeze.")
+try:
+    with os.fdopen(fd, "w") as f:
+        json.dump(j, f, indent=2)
+        f.write("\n")
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+except Exception:
+    try:
+        os.unlink(tmp)
+    except OSError:
+        pass
+    sys.exit(1)
+PY
+}
+
+# Re-read the frozen journal with the SAME parser and print its `state` — the post-freeze check.
+journal_state() {
+  command -v python3 >/dev/null 2>&1 || return 3
+  python3 - "$JOURNAL" <<'PY'
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        j = json.load(f)
+except Exception:
+    sys.exit(1)
+print(j.get("state", "") if isinstance(j, dict) else "")
+PY
+}
+
 mkdir -p "$STATE_HOME"
 [[ -e "$LOCK" ]] || : >"$LOCK"
 
@@ -95,12 +145,28 @@ if [[ "$VRC" -ne 0 ]]; then
   fi
   exit 1
 fi
-mapfile -t RECORDED < <(printf '%s\n' "$RECORDED_RAW" | sed '/^[[:space:]]*$/d')
+RECORDED=()
+while IFS= read -r line; do
+  [[ -n "$line" ]] && RECORDED+=("$line")
+done <<<"$RECORDED_RAW"
 
-# --- P1-1: FREEZE authority, PRESERVING steps.hooks (flip only `state`). Atomic temp+rename.
-TMP="$STATE_HOME/.pod-adoption.json.rollback.$$"
-sed 's/"state"[[:space:]]*:[[:space:]]*"[a-z]*"/"state": "unadopting"/' "$JOURNAL" >"$TMP"
-mv -f "$TMP" "$JOURNAL"
+# --- P1-1 + round-3 P1: FREEZE authority via a PARSED, atomic JSON mutation, then RE-READ and
+# REFUSE unless the freeze actually took. The old line-oriented sed silently no-opped on valid JSON
+# whose `state` key and value straddled two lines — hooks then rolled back while the journal still
+# read `adopted` (dual-writer). The freeze now uses the SAME json parser as validation, and NO tmux
+# op runs until a fresh parse of the frozen file explicitly reads `unadopting`.
+if ! freeze_to_unadopting; then
+  echo "forge-pod-unadopt: FAIL — could not freeze authority to unadopting; preserving journal+shim" >&2
+  exit 1
+fi
+FROZEN_STATE="$(journal_state)" || {
+  echo "forge-pod-unadopt: FAIL — could not re-read the frozen journal; preserving journal+shim" >&2
+  exit 1
+}
+if [[ "$FROZEN_STATE" != "unadopting" ]]; then
+  echo "forge-pod-unadopt: FAIL — freeze did not take (state='$FROZEN_STATE'); refusing to touch any hook" >&2
+  exit 1
+fi
 
 FAILED=0
 
