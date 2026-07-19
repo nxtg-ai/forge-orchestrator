@@ -156,6 +156,21 @@ impl World {
     fn unadopt_script(&self) -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/forge-pod-unadopt.sh")
     }
+
+    /// Run the standalone script, optionally overriding the tmux socket (e.g. a dead one).
+    fn run_script(&self, socket: &str) -> std::process::ExitStatus {
+        Command::new("bash")
+            .arg(self.unadopt_script())
+            .env("FORGE_POD_TMUX_SOCKET", socket)
+            .env("FORGE_POD_JOURNAL_DIR", &self.journal_dir)
+            .env("FORGE_POD_SHIM_PATH", &self.shim)
+            .status()
+            .expect("run unadopt script")
+    }
+
+    fn backup_exists(&self) -> bool {
+        self.journal_dir.join("pod-adoption.hooks").exists()
+    }
 }
 
 impl Drop for World {
@@ -393,6 +408,75 @@ fn repair_rolls_a_corrupt_journal_back_to_unadopted() {
     assert!(
         w.hook("node", "pane-died").contains("/usr/bin/cosmux"),
         "repair must restore the cosmux hook"
+    );
+}
+
+#[test]
+fn standalone_script_fails_closed_on_a_dead_socket_preserving_everything() {
+    // regate-15 P1-2: Codex reproduced success-with-zero-hooks-restored on a dead socket — the
+    // `|| true` swallowed every set-hook failure, then the script deleted shim+backup+journal and
+    // exited 0. The cure: a restore that cannot be verified preserves state and exits nonzero.
+    if !tmux_available() {
+        eprintln!("SKIP: tmux unavailable");
+        return;
+    }
+    let w = World::new("failclosed");
+    w.make_session_with_cosmux_hooks("node", true);
+    assert_eq!(w.forge(&["adopt"]).0, 0);
+    assert!(w.hook("node", "pane-died").contains("pod _pane-recover"));
+
+    // Roll back pointed at a DEAD socket — the sessions are unreachable there.
+    let dead = format!("forge-dead-{}-{}", std::process::id(), "nonexistent");
+    let status = w.run_script(&dead);
+    assert!(
+        !status.success(),
+        "a rollback that could not verify any hook must exit nonzero"
+    );
+    // Nothing may have been deleted — the real sessions still carry forge hooks.
+    assert!(
+        w.journal_exists(),
+        "journal must be preserved on a failed restore"
+    );
+    assert!(w.backup_exists(), "hook backup must be preserved");
+    assert!(w.shim.exists(), "shim must be preserved");
+    // And the journal must be frozen (`unadopting`), never left `adopted` (P1-1).
+    assert_eq!(w.journal_state().as_deref(), Some("unadopting"));
+
+    // The real session is untouched — still forge-owned, so a retry against the LIVE socket works.
+    assert!(w.hook("node", "pane-died").contains("pod _pane-recover"));
+    let status = w.run_script(&w.socket);
+    assert!(
+        status.success(),
+        "retry against the live socket must complete"
+    );
+    assert!(!w.journal_exists());
+    assert!(w.hook("node", "pane-died").contains("/usr/bin/cosmux"));
+}
+
+#[test]
+fn repair_freezes_authority_before_restoring_hooks() {
+    // regate-15 P1-1: `--repair` on an `adopted` journal must write `unadopting` (freeze) BEFORE
+    // restoring cosmux hooks — otherwise, since store-write authority is a lock-free journal read,
+    // there is a window where cosmux hooks are back while forge is still authorized (dual-writer).
+    // Observed via a repair whose restore fails (dead socket): the journal must already be
+    // `unadopting`, not still `adopted`.
+    if !tmux_available() {
+        eprintln!("SKIP: tmux unavailable");
+        return;
+    }
+    let w = World::new("freeze");
+    w.make_session_with_cosmux_hooks("node", false);
+    assert_eq!(w.forge(&["adopt"]).0, 0);
+    assert_eq!(w.journal_state().as_deref(), Some("adopted"));
+
+    // Kill the private server so the hook restore inside repair fails.
+    w.kill_server();
+    let (code, _out, _err) = w.forge(&["adopt", "--repair"]);
+    assert_ne!(code, 0, "repair with an unreachable server must fail");
+    assert_eq!(
+        w.journal_state().as_deref(),
+        Some("unadopting"),
+        "the journal must be frozen BEFORE the restore is attempted, never left `adopted`"
     );
 }
 

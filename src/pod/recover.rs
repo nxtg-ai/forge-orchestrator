@@ -79,14 +79,42 @@ pub fn parse_dead_panes(listing: &str, pod: &state::PodState) -> Vec<DeadPane> {
 /// act ahead of the single-writer cutover. Instead it records a **durable** recovery intent (§1.5
 /// step 3, round-7 C3) that the adopt drain executes once the transition is safe. In every other
 /// state it recovers inline, exactly as before.
+///
+/// The disposition is driven by [`journal::append_recovery`]'s **atomic locked outcome**, not by a
+/// separate `authority()` pre-check. An earlier version read `authority()` and then appended in two
+/// steps: if the terminal commit won the lock in between, the append returned `NotAdopting` and the
+/// pane was neither deferred nor recovered — stranded (Codex regate-15 P1-3). Appending
+/// unconditionally makes the state decision happen once, inside the lock: `NotAdopting` now means
+/// "forge already holds authority (or never adopted)", so recover inline immediately.
 pub fn pane_recover(session: &str) -> Result<()> {
-    use super::journal::{self, Authority, TransitionState};
-    if let Authority::InTransition(TransitionState::Adopting) = journal::authority() {
-        journal::append_recovery(session)?;
-        tracing::info!("pane-recover: adoption in flight, deferred recovery for '{session}'");
-        return Ok(());
+    match disposition(&super::journal::append_recovery(session)?) {
+        Disposition::Deferred => {
+            tracing::info!("pane-recover: adoption in flight, deferred recovery for '{session}'");
+            Ok(())
+        }
+        Disposition::RecoverInline => pane_recover_inline(session),
     }
-    pane_recover_inline(session)
+}
+
+/// What to do with a pane given the atomic append outcome — **pure**, so the strand-fix is pinned
+/// without needing to reproduce the race.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Disposition {
+    /// A durable intent was recorded; the adopt drain will respawn it.
+    Deferred,
+    /// Forge holds authority (adopted) or never adopted — respawn now.
+    RecoverInline,
+}
+
+fn disposition(outcome: &super::journal::AppendOutcome) -> Disposition {
+    use super::journal::AppendOutcome;
+    match outcome {
+        AppendOutcome::Appended | AppendOutcome::AlreadyPresent(_) => Disposition::Deferred,
+        // `NotAdopting` is returned atomically by `append_recovery` under the journal lock, so it
+        // also covers the race the old two-step TOCTOU stranded: the terminal commit took the lock
+        // between the (removed) authority read and the append. Either way, recover inline.
+        AppendOutcome::NotAdopting => Disposition::RecoverInline,
+    }
 }
 
 /// Respawn every dead pane in a session immediately. Used both in the normal (adopted / unadopted)
@@ -243,6 +271,23 @@ mod tests {
             "a non-numeric index must be skipped, not panic"
         );
         assert!(parse_dead_panes("", &pod).is_empty());
+    }
+
+    #[test]
+    fn disposition_routes_notadopting_to_inline_recovery() {
+        use super::super::journal::AppendOutcome;
+        use super::super::journal::StepState;
+        // The strand-fix, pinned: the race outcome (`NotAdopting`, which journal.rs proves the
+        // terminal commit produces when it wins the lock) must recover inline, never be dropped.
+        assert_eq!(
+            disposition(&AppendOutcome::NotAdopting),
+            Disposition::RecoverInline
+        );
+        assert_eq!(disposition(&AppendOutcome::Appended), Disposition::Deferred);
+        assert_eq!(
+            disposition(&AppendOutcome::AlreadyPresent(StepState::Pending)),
+            Disposition::Deferred
+        );
     }
 
     #[test]

@@ -566,16 +566,6 @@ pub fn unadopt() -> Result<i32> {
         }
         _ => {}
     }
-    // Mark `unadopting` before touching any surface, so authority refuses throughout.
-    journal::with_lock(|lock| {
-        let mut journal = lock
-            .read()?
-            .unwrap_or_else(|| journal::Journal::new(TransitionState::Unadopting));
-        journal.state = TransitionState::Unadopting;
-        journal.touch();
-        lock.write(&journal)
-    })?;
-
     rollback_surfaces()?;
     println!("✓ unadopted — cosmux is the production writer again");
     Ok(0)
@@ -599,6 +589,18 @@ pub fn abort() -> Result<i32> {
 /// shared teardown for unadopt / --abort / --repair. Restores are verified before the journal is
 /// removed, so a failed restore leaves the journal in place to retry rather than declaring success.
 fn rollback_surfaces() -> Result<()> {
+    // FREEZE FIRST (regate-15 P1-1): write `unadopting` under the lock BEFORE any surface change.
+    // Store-write authority is a lock-free journal read (`state::save` → `require_production_write`);
+    // if the journal still read `adopted` while we restore cosmux hooks, forge would stay authorized
+    // with cosmux hooks already back = a dual-writer window. `unadopting` is `InTransition`, which
+    // refuses production writes throughout the rollback. Written unconditionally (not read-modify)
+    // so it also freezes a corrupt/unreadable journal, whose direction is deterministically rollback.
+    journal::with_lock(|lock| {
+        let mut journal = journal::Journal::new(TransitionState::Unadopting);
+        journal.touch();
+        lock.write(&journal)
+    })?;
+
     let restores = read_hook_backup()?;
     for restore in &restores {
         let Some(kind) = hook_name_to_kind(&restore.hook) else {
