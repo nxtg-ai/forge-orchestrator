@@ -26,14 +26,34 @@ ACCEPT = "ACCEPT"
 ACCEPT_FORWARD = "ACCEPT_FORWARD"
 ACCEPT_PARTIAL = "ACCEPT_PARTIAL"
 REFUSE = "REFUSE"
+# The document itself is unreadable — distinct from REFUSE, which means "readable but too new".
+MALFORMED = "MALFORMED"
 
 
 def parse_version(raw):
     """'1.2.3' -> (1, 2, 3). Raises ValueError on anything that is not 3 ints."""
+    version = try_parse_version(raw)
+    if version is None:
+        raise ValueError(f"not a 3-part semver: {raw!r}")
+    return version
+
+
+def try_parse_version(raw):
+    """Total version parser: returns None instead of raising on any malformed input.
+
+    Data read from a file is untrusted — a version may be a non-string (`{"v": 2}`), a
+    non-numeric string (`"1.x.0"`), or the wrong shape (`"1.1"`). Callers that are validating
+    records use this and skip; only the spec's own declared versions use the raising form.
+    """
+    if not isinstance(raw, str):
+        return None
     parts = raw.split(".")
     if len(parts) != 3:
-        raise ValueError(f"not a 3-part semver: {raw!r}")
-    return tuple(int(p) for p in parts)
+        return None
+    try:
+        return tuple(int(p) for p in parts)
+    except ValueError:
+        return None
 
 
 def verdict(supported, file_version):
@@ -65,9 +85,22 @@ def verdict(supported, file_version):
 
 
 def read_state(path, baseline):
-    """Returns (file_version, unknown_root_fields_relative_to_baseline_shape)."""
-    doc = json.loads(path.read_text())
+    """Returns (file_version, unknown_root_fields_relative_to_baseline_shape).
+
+    Returns `(None, [])` when the document is structurally unreadable — not an object, or
+    carrying a version that is not a valid semver string. The caller reports that as MALFORMED
+    rather than letting an exception escape. Same isolation rule as the event path: bad data is
+    a reported verdict, never a crash.
+    """
+    try:
+        doc = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return None, []
+    if not isinstance(doc, dict):
+        return None, []
     file_version = doc.get("state_schema", baseline)
+    if try_parse_version(file_version) is None:
+        return None, []
     known = {
         "state_schema", "version", "project_name", "created_at", "updated_at",
         "tools", "brain", "task_summary", "active_locks", "agent_auth",
@@ -105,7 +138,19 @@ def read_events(path, supported, baseline, known_event_types):
             skipped += 1
             continue
 
+        # A line can be valid JSON and still not be a record: `[]`, `"str"`, `123`, `null` all
+        # decode cleanly. Structural malformation is data damage, same bucket as a syntax error —
+        # it must not escape as an exception and take the whole batch down with it.
+        if not isinstance(rec, dict):
+            skipped += 1
+            continue
+
         rec_version = rec.get("v", baseline)
+        # An unparseable version is malformed data, not an incompatible reader: the record cannot
+        # be placed on the version axis at all, so it is skipped rather than refused.
+        if try_parse_version(rec_version) is None:
+            skipped += 1
+            continue
         if rec_version not in versions_seen:
             versions_seen.append(rec_version)
 
@@ -158,6 +203,14 @@ def check_case(case, spec, verbose):
     if case["artifact"] == "state":
         # state.json is rewritten whole, so it has exactly one version.
         file_version, unknown_fields = read_state(path, baseline)
+        if file_version is None:
+            # Structurally unreadable: report it, never raise.
+            if case["expected_verdict"] != MALFORMED:
+                failures.append(
+                    f"verdict: expected {case['expected_verdict']}, got {MALFORMED} "
+                    "(document is not a versioned JSON object)"
+                )
+            return failures
         if file_version != case["expected_file_version"]:
             failures.append(
                 f"file version: expected {case['expected_file_version']}, got {file_version}"

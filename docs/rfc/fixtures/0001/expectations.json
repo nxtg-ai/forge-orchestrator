@@ -195,6 +195,50 @@
       "expected_refused_versions": [
         "2.0.0"
       ]
+    },
+    {
+      "id": "events-non-object-lines-skipped-not-fatal",
+      "artifact": "events",
+      "fixture": "events/v1_1_0_non_object_lines.jsonl",
+      "supported_version": "1.1.0",
+      "expected_verdict": "ACCEPT",
+      "expected_parsed": 2,
+      "expected_skipped": 4,
+      "expected_refused": 0,
+      "expected_versions_seen": [
+        "1.1.0"
+      ],
+      "why": "Codex re-gate round 3. `[]`, `\"str\"`, `123` and `null` are all VALID JSON but are not records; rev 3 only caught json.JSONDecodeError, so these reached rec.get and crashed the whole batch with AttributeError \u2014 violating the one-bad-record isolation rule. Structural malformation is data damage: skipped and counted, never fatal."
+    },
+    {
+      "id": "events-malformed-version-skipped-not-fatal",
+      "artifact": "events",
+      "fixture": "events/v1_1_0_malformed_version.jsonl",
+      "supported_version": "1.1.0",
+      "expected_verdict": "ACCEPT",
+      "expected_parsed": 2,
+      "expected_skipped": 3,
+      "expected_refused": 0,
+      "expected_versions_seen": [
+        "1.1.0"
+      ],
+      "why": "Adjacent invariant found by self-probe, not reported by Codex: a non-string v (2), a non-numeric v ('1.x.0') and a two-part v ('1.1') each crashed parse_version. A record that cannot be placed on the version axis is malformed data, so it is SKIPPED \u2014 not REFUSED, which would wrongly imply a readable-but-too-new record."
+    },
+    {
+      "id": "state-non-object-document-is-malformed",
+      "artifact": "state",
+      "fixture": "state/malformed_non_object.json",
+      "supported_version": "1.1.0",
+      "expected_verdict": "MALFORMED",
+      "why": "The same crash class in the state path, which Codex did not report: read_state called doc.get on a decoded list. A state.json that is not a versioned object is unreadable \u2014 reported as MALFORMED, distinct from REFUSE (readable but too new)."
+    },
+    {
+      "id": "state-non-string-version-is-malformed",
+      "artifact": "state",
+      "fixture": "state/malformed_version_type.json",
+      "supported_version": "1.1.0",
+      "expected_verdict": "MALFORMED",
+      "why": "state_schema present but not a semver string. Must be reported, not raised."
     }
   ]
 }

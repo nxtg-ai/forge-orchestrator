@@ -2,7 +2,7 @@
 
 **Status**: PROPOSED (no implementation in `src/`)
 **Author**: forge-orchestrator team
-**Date**: 2026-07-18 | **Revised**: 2026-07-18 (rev 3)
+**Date**: 2026-07-18 | **Revised**: 2026-07-18 (rev 4)
 **Origin**: DIRECTIVE-NXTG-20260718-03 items 3 & 4 — deep-dive gaps G-04, G-05
 **Rev 2** (DIRECTIVE-NXTG-20260718-06, Codex Wave-1 review
 `ecosystem/forge/research/2026-07-18-codex-wave1-review.md`): withdrew §4's false collision
@@ -12,6 +12,11 @@ premise (verified against forge-plugin `v3.10.2`) and corrected the schema basel
 added §3.2.2 — per-record comparison and batch semantics for mixed-version event logs. Rev 2's
 checker derived one version from the first record, so a `1.1.0` reader silently accepted a
 `2.0.0` record appended later. Three mixed-order fixtures now pin it.
+**Rev 4** (Codex re-gate round 3, `…/2026-07-18-codex-regate-3.md` §3): added §3.2.3 — malformed
+records are skipped, never fatal. A structurally-invalid but JSON-valid line (`[]`) crashed the whole
+batch. Self-probing adjacent invariants found three more of the same class Codex had not reported
+(non-string `v`, non-numeric `v`, and the identical crash on the `state.json` path); all four are
+fixtures, and `state.json` gained a `MALFORMED` verdict.
 **Consumers affected**: forge-ui, forge-plugin (governance-mcp), forge-orchestrator
 **Decision needed from**: FPL (circulate), forge-ui team, forge-plugin team
 
@@ -181,6 +186,39 @@ For each parseable record, with `F` = that record's `v` (absent ⇒ `1.0.0`):
 | `ACCEPT` / `ACCEPT_FORWARD` | Parsed into the result set; counted in `parsed` |
 | `REFUSE` | **Quarantined** — never parsed, counted in `refused`, its version recorded |
 | unparseable line | Counted in `skipped` (§3.2 rule 4) |
+| **structurally malformed record** | Counted in `skipped` — see §3.2.3 |
+
+### 3.2.3 Malformed records are skipped, never fatal (normative)
+
+"One bad record must not break the batch" (§3.2 rule 4) is stated in terms of *unparseable lines*,
+which is too narrow. A line can be **syntactically valid JSON and still not be a record**. Before a
+reader touches any field it must establish that the line is usable:
+
+1. **The decoded value MUST be a JSON object.** `[]`, `"a string"`, `123`, and `null` all decode
+   without error and none of them is a record. A reader that goes straight to field access on the
+   decoded value raises on the first such line and loses the whole log.
+2. **`v`, when present, MUST be a valid three-part numeric semver string.** A non-string (`{"v": 2}`),
+   a non-numeric part (`"1.x.0"`), or the wrong arity (`"1.1"`) are all malformed.
+
+A record failing either check is counted in `skipped` — **not** `refused`. The distinction is
+meaningful: `refused` says *this record is readable but newer than me, upgrade the reader*, while
+`skipped` says *this record is damaged*. Reporting a malformed record as `refused` would send an
+operator chasing a version-compatibility problem that does not exist.
+
+The same rule governs `state.json`, which is a single document rather than a stream: a state file
+that is not a JSON object, or whose `state_schema` is not a valid semver string, is reported as
+**`MALFORMED`**. That verdict is distinct from `REFUSE` — `REFUSE` means *readable but too new*,
+`MALFORMED` means *not readable at all* — and, like every other case here, it is a returned verdict
+rather than a raised exception.
+
+**The general rule: version comparison operates on validated input.** Any value read from a file is
+untrusted, so a reader needs a *total* version parser — one that returns "not a version" instead of
+raising — and must treat structural validation as part of reading, not as an assumption.
+
+Origin: Codex re-gate round 3 (`ecosystem/forge/research/2026-07-18-codex-regate-3.md` §3) caught
+the non-object case. Self-probing the adjacent invariants before signalling ready surfaced three
+more of the same class that were not reported: non-string `v`, non-numeric `v`, and the identical
+crash on the `state.json` path. All four are now fixtures.
 
 The batch verdict is then:
 
@@ -252,7 +290,7 @@ the comparison rule*, deliberately not an implementation of the handshake in `sr
 build their readers against the same matrix in parallel, and let any repo table-drive it in CI later.
 
 ```bash
-python3 docs/rfc/fixtures/0001/check_fixtures.py    # 12/12 passing as of rev 3
+python3 docs/rfc/fixtures/0001/check_fixtures.py    # 16/16 passing as of rev 4
 ```
 
 The checker also refuses to run if `expectations.json` violates the §3.1 baseline rule (exit `2`), which

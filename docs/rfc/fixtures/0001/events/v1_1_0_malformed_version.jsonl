@@ -1,0 +1,5 @@
+{"v":"1.1.0","timestamp":"2026-07-18T00:00:00Z","event_type":"task_created","task_id":"T-001","agent":null,"message":"valid","metadata":null}
+{"v":2,"timestamp":"2026-07-18T00:00:01Z","event_type":"task_started","task_id":"T-001","agent":null,"message":"version is not a string","metadata":null}
+{"v":"1.x.0","timestamp":"2026-07-18T00:00:02Z","event_type":"task_started","task_id":"T-001","agent":null,"message":"version is not numeric","metadata":null}
+{"v":"1.1","timestamp":"2026-07-18T00:00:03Z","event_type":"task_started","task_id":"T-001","agent":null,"message":"version has two parts","metadata":null}
+{"v":"1.1.0","timestamp":"2026-07-18T00:00:04Z","event_type":"task_completed","task_id":"T-001","agent":"claude","message":"valid after the junk","metadata":null}

@@ -1,0 +1,6 @@
+{"v":"1.1.0","timestamp":"2026-07-18T00:00:00Z","event_type":"task_created","task_id":"T-001","agent":null,"message":"valid","metadata":null}
+[]
+"just a string"
+123
+null
+{"v":"1.1.0","timestamp":"2026-07-18T00:00:05Z","event_type":"task_completed","task_id":"T-001","agent":"claude","message":"valid after the junk","metadata":null}

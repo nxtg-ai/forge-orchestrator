@@ -10,11 +10,11 @@ agreement with the RFC prose.
 ## Run
 
 ```bash
-python3 check_fixtures.py       # 12 cases; exit 0 = conform
+python3 check_fixtures.py       # 16 cases; exit 0 = conform
 python3 check_fixtures.py -v    # also print why each case exists
 ```
 
-Stdlib only, no dependencies, no repo coupling. Current state: **12/12 passing.**
+Stdlib only, no dependencies, no repo coupling. Current state: **16/16 passing.**
 
 ## What is here
 
@@ -45,6 +45,10 @@ MAJOR-ahead must refuse.
 | `events-mixed-major-ahead-record-quarantined` | 1.1.0 + 2.0.0 | 1.1.0 | ACCEPT_PARTIAL, 2 parsed / 1 refused |
 | `events-mixed-minor-ahead-record-tolerated` | 1.1.0 + 1.2.0 | 1.1.0 | ACCEPT_FORWARD, 3 parsed / 0 refused |
 | `events-mixed-all-three-classes` | 1.1.0 + 1.2.0 + 2.0.0 + corrupt | 1.1.0 | ACCEPT_PARTIAL, 3 parsed / 1 skipped / 1 refused |
+| `events-non-object-lines-skipped-not-fatal` | valid JSON, not records | 1.1.0 | ACCEPT, 2 parsed / 4 skipped |
+| `events-malformed-version-skipped-not-fatal` | `v` = 2 / "1.x.0" / "1.1" | 1.1.0 | ACCEPT, 2 parsed / 3 skipped |
+| `state-non-object-document-is-malformed` | `[]` | 1.1.0 | MALFORMED |
+| `state-non-string-version-is-malformed` | `state_schema: 2` | 1.1.0 | MALFORMED |
 
 The highest-value rows:
 
