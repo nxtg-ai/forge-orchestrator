@@ -1,0 +1,116 @@
+{
+  "rfc": "RFC-0001 — Schema-Version Handshake for .forge/ Cross-Repo Artifacts",
+  "spec_section": "3.2.1 (supported-version comparison) + 3.2 (compatibility rules)",
+  "absent_version_baseline": "1.0.0",
+  "first_versioned_release": "1.1.0",
+  "known_event_types": [
+    "plan_created",
+    "task_created",
+    "task_assigned",
+    "task_started",
+    "task_completed",
+    "task_failed",
+    "files_locked",
+    "files_unlocked",
+    "knowledge_captured",
+    "governance_check",
+    "state_reconciled",
+    "tool_detected",
+    "quality_gate_passed",
+    "quality_gate_failed"
+  ],
+  "cases": [
+    {
+      "id": "state-absent-field-accepted-as-1.0.0",
+      "artifact": "state",
+      "fixture": "state/v1_0_0_absent_field.json",
+      "supported_version": "1.1.0",
+      "expected_file_version": "1.0.0",
+      "expected_verdict": "ACCEPT",
+      "why": "Every .forge/ directory written up to forge v1.5.2 has no state_schema field. A reader that requires it breaks every existing project."
+    },
+    {
+      "id": "state-baseline-exact-match",
+      "artifact": "state",
+      "fixture": "state/v1_1_0_baseline.json",
+      "supported_version": "1.1.0",
+      "expected_file_version": "1.1.0",
+      "expected_verdict": "ACCEPT",
+      "why": "First versioned release reading its own output."
+    },
+    {
+      "id": "state-minor-ahead-downgrade-tolerated",
+      "artifact": "state",
+      "fixture": "state/v1_2_0_minor_ahead.json",
+      "supported_version": "1.1.0",
+      "expected_file_version": "1.2.0",
+      "expected_verdict": "ACCEPT_FORWARD",
+      "expected_unknown_fields": ["provenance_ledger"],
+      "why": "Downgrade case, MINOR: an older reader meets a newer file. Additive discipline means this must keep working — the unknown root field is ignored, not fatal."
+    },
+    {
+      "id": "state-major-ahead-refused",
+      "artifact": "state",
+      "fixture": "state/v2_0_0_major_ahead.json",
+      "supported_version": "1.1.0",
+      "expected_file_version": "2.0.0",
+      "expected_verdict": "REFUSE",
+      "expected_message_contains": ["2.0.0", "1.1.0"],
+      "why": "Downgrade case, MAJOR: task_summary was renamed to task_counts. Reader must refuse loudly and name both versions — never silently return zeroed data."
+    },
+    {
+      "id": "state-file-older-major-refused",
+      "artifact": "state",
+      "fixture": "state/v1_1_0_baseline.json",
+      "supported_version": "2.0.0",
+      "expected_file_version": "1.1.0",
+      "expected_verdict": "REFUSE",
+      "expected_message_contains": ["1.1.0", "2.0.0"],
+      "why": "Reader built for a later major cannot assume the older shape is a subset. Distinct message; the only case a future migration step could replace."
+    },
+    {
+      "id": "events-absent-field-accepted-as-1.0.0",
+      "artifact": "events",
+      "fixture": "events/v1_0_0_absent_field.jsonl",
+      "supported_version": "1.1.0",
+      "expected_file_version": "1.0.0",
+      "expected_verdict": "ACCEPT",
+      "expected_parsed": 3,
+      "expected_skipped": 0,
+      "why": "Pre-RFC event logs carry no per-record v."
+    },
+    {
+      "id": "events-unknown-variant-not-fatal",
+      "artifact": "events",
+      "fixture": "events/v1_2_0_unknown_variant.jsonl",
+      "supported_version": "1.1.0",
+      "expected_file_version": "1.2.0",
+      "expected_verdict": "ACCEPT_FORWARD",
+      "expected_parsed": 3,
+      "expected_skipped": 0,
+      "expected_unknown_variants": ["provenance_recorded"],
+      "why": "The core G-05 hazard: a new EventType variant must map to the catch-all, not error the batch. Without #[serde(other)], this fixture is what turns an old dashboard blank."
+    },
+    {
+      "id": "events-corrupt-line-skipped-and-counted",
+      "artifact": "events",
+      "fixture": "events/v1_1_0_corrupt_line.jsonl",
+      "supported_version": "1.1.0",
+      "expected_file_version": "1.1.0",
+      "expected_verdict": "ACCEPT",
+      "expected_parsed": 3,
+      "expected_skipped": 1,
+      "why": "One truncated line must not zero out the history. Skip and count, report the count."
+    },
+    {
+      "id": "events-major-ahead-refused",
+      "artifact": "events",
+      "fixture": "events/v2_0_0_major_ahead.jsonl",
+      "supported_version": "1.1.0",
+      "expected_file_version": "2.0.0",
+      "expected_verdict": "REFUSE",
+      "expected_message_contains": ["2.0.0", "1.1.0"],
+      "why": "Fields renamed (timestamp->ts, event_type->kind). Refuse before parsing records."
+    }
+  ]
+}

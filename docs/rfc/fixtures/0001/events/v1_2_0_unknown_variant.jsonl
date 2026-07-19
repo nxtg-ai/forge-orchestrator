@@ -1,0 +1,3 @@
+{"v":"1.2.0","timestamp":"2026-07-18T00:00:00Z","event_type":"task_created","task_id":"T-001","agent":null,"message":"Task created","metadata":null}
+{"v":"1.2.0","timestamp":"2026-07-18T00:00:01Z","event_type":"provenance_recorded","task_id":"T-001","agent":"claude","message":"Provenance record written","metadata":{"model":"claude-opus-4-8"}}
+{"v":"1.2.0","timestamp":"2026-07-18T00:00:02Z","event_type":"task_completed","task_id":"T-001","agent":"claude","message":"Task completed","duration_ms":4210,"exit_code":0,"metadata":null}

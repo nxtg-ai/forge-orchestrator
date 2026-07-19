@@ -1,9 +1,13 @@
 # RFC-0001 — Schema-Version Handshake for `.forge/` Cross-Repo Artifacts
 
-**Status**: PROPOSED (no implementation in v1.5.2)
+**Status**: PROPOSED (no implementation in `src/`)
 **Author**: forge-orchestrator team
-**Date**: 2026-07-18
+**Date**: 2026-07-18 | **Revised**: 2026-07-18 (rev 2)
 **Origin**: DIRECTIVE-NXTG-20260718-03 items 3 & 4 — deep-dive gaps G-04, G-05
+**Revision**: DIRECTIVE-NXTG-20260718-06 — reconciled against Codex Wave-1 review
+(`ecosystem/forge/research/2026-07-18-codex-wave1-review.md`). Rev 2 withdraws §4's false
+collision premise (verified against forge-plugin `v3.10.2`) and corrects the schema baseline
+from `2.0.0` to `1.1.0`, now pinned by executable fixtures (§3.5).
 **Consumers affected**: forge-ui, forge-plugin (governance-mcp), forge-orchestrator
 **Decision needed from**: FPL (circulate), forge-ui team, forge-plugin team
 
@@ -61,9 +65,9 @@ Both artifacts carry a semver **schema** version, versioned independently of the
 They describe file shape, not product releases; coupling them to the binary version forces meaningless
 churn (a CLI-only release must not bump a schema nobody changed).
 
-- `state.json` → `state_schema: "2.0.0"` at the document root.
-- `events.jsonl` → `v: "1.0.0"` on **each record** (short key: this is a hot append path with one write
-  per event; the field is repeated on every line).
+- `state.json` → `state_schema` at the document root.
+- `events.jsonl` → `v` on **each record** (short key: this is a hot append path with one write per
+  event; the field is repeated on every line).
 
 Semantics:
 
@@ -74,9 +78,25 @@ Semantics:
 | Field removed / retyped / semantics changed | MAJOR | Reader may refuse and must say so |
 | Value-only change (new `dashboard_mode` string) | PATCH | None |
 
+**Baseline: absent ⇒ `1.0.0`; first versioned release ⇒ `1.1.0`.**
+
+`1.0.0` is the *implied* shape of every `.forge/` artifact written up to and including forge v1.5.2 —
+the shape that exists today, before this RFC. No file ever literally declares `1.0.0`: a reader infers
+it from the field's absence. The first release that implements this RFC adds one optional root field
+(`state_schema`) and one optional per-record field (`v`), which by the table above is a **MINOR** change,
+so that release declares `1.1.0`.
+
+An earlier draft of this RFC started the scheme at `2.0.0`. That was wrong and is corrected here: it
+manufactured a MAJOR boundary — and therefore a mandatory refusal under §3.2 rule 2 — without any
+breaking shape change, which would have made every pre-RFC artifact unreadable to a compliant new reader
+for no reason. The motivation was to avoid colliding with the legacy `ForgeState.version` values
+(`1.0.0`/`1.1.0`), but those live under a **different key** (`version`, not `state_schema`), so there was
+never a collision to avoid. Codex Wave-1 review caught this; the fixtures in §3.5 now pin the rule so the
+inconsistency cannot silently return.
+
 The existing `ForgeState.version` field is **deprecated, not repurposed** — it is ambiguous in the field
-(D-1) and its current values (`1.0.0`/`1.1.0`) would collide with a fresh scheme. New readers use
-`state_schema`; the old field is written unchanged for one minor cycle, then dropped in the next MAJOR.
+(D-1). New readers use `state_schema` and ignore `version` entirely; the old field is written unchanged
+for one minor cycle, then dropped in the next MAJOR.
 
 ### 3.2 Compatibility rule for consumers
 
@@ -114,11 +134,37 @@ JS consumers (forge-ui, governance-mcp) are structurally safer here — `JSON.pa
 string values — but they must not *switch* on event type without a default branch, and must not assume
 `state_schema` exists.
 
+### 3.2.1 Supported-version comparison (normative)
+
+Every reader declares the schema version it was built against — its **supported version** — and compares
+it to the **file version** (absent ⇒ `1.0.0`). Only the two leading components decide the verdict; PATCH
+never affects compatibility.
+
+```
+verdict(supported S, file F):
+  if F.major > S.major   -> REFUSE   # downgrade case: file newer in a breaking way
+  if F.major < S.major   -> REFUSE   # reader newer across a break; shape it expects is gone
+  if F.minor > S.minor   -> ACCEPT_FORWARD   # file ahead within major: unknown fields/variants tolerated
+  otherwise              -> ACCEPT
+```
+
+- `REFUSE` is loud and names both versions: `state.json is schema 2.0.0, this reader supports 1.1.0`.
+  It never silently returns empty or zeroed data — that is the silent-swallow class Gate 5 removed.
+- `ACCEPT_FORWARD` is a normal read. Unknown fields are ignored; unknown enum variants map to the
+  catch-all of §3.2 rule 3. A reader MAY log once that the file is ahead; it MUST NOT warn per record.
+- **Downgrade** — an older reader meeting a newer file — is the case this rule exists for, and it splits:
+  MINOR-ahead must keep working (that is the whole point of the additive discipline), MAJOR-ahead must
+  refuse. A reader that treats all "ahead" as fatal breaks every rolling upgrade; one that treats all
+  "ahead" as fine silently misreads a changed shape.
+- `F.major < S.major` also refuses: a reader built for a later major cannot assume the older shape is a
+  subset. It is a distinct message (`file is older major`) and is the only case where a migration step,
+  not a refusal, may later be specified.
+
 ### 3.3 Rollout
 
 | Phase | Orchestrator | Consumers |
 |---|---|---|
-| P0 (next minor) | Add `#[serde(other)] Unknown`; write `state_schema` + per-record `v`; keep writing legacy `version` | No change required; existing readers keep working |
+| P0 (next minor) | Add `#[serde(other)] Unknown`; write `state_schema: "1.1.0"` + per-record `v: "1.1.0"`; keep writing legacy `version` | No change required; existing readers keep working |
 | P1 | — | forge-ui + governance-mcp implement the 4 rules; add a test that a synthetic future variant does not break the reader |
 | P2 (next MAJOR) | Drop legacy `ForgeState.version`; reconcile `init.rs:230` | Readers already on `state_schema` |
 
@@ -133,47 +179,106 @@ Non-negotiable at implementation time (test count never decreases):
 - Read a `state.json` with a MAJOR ahead of the reader → refused with an error naming both versions.
 - Parse an `events.jsonl` with one corrupt line among valid ones → valid records returned, skip counted.
 
+Each of these is already pinned as data in §3.5 — the implementing repo drives `expectations.json`
+rather than hand-writing the cases.
+
+### 3.5 Executable compatibility fixtures
+
+The rules above are pinned by data, not prose, so all three repos can verify the same behavior:
+
+```
+docs/rfc/fixtures/0001/
+  README.md                     # how to run + how to consume from Rust/JS
+  expectations.json             # the (reader × file) verdict matrix — the spec
+  state/*.json                  # state.json fixtures, incl. the absent-field baseline
+  events/*.jsonl                # events.jsonl fixtures, incl. unknown variant + corrupt line
+  check_fixtures.py             # standalone conformance checker (no repo deps)
+```
+
+`expectations.json` is the machine-readable specification: each row is a `(supported_version,
+fixture, expected_verdict)` triple plus, for event logs, the expected `parsed`/`skipped` counts.
+`check_fixtures.py` implements §3.2.1 and asserts every row — so the checker is the *executable form of
+the comparison rule*, deliberately not an implementation of the handshake in `src/`. Nothing in
+`forge-orchestrator/src/` changes until this RFC is ratified; the fixtures let forge-ui and forge-plugin
+build their readers against the same matrix in parallel, and let any repo table-drive it in CI later.
+
+```bash
+python3 docs/rfc/fixtures/0001/check_fixtures.py    # 9/9 passing as of rev 2
+```
+
+The checker also refuses to run if `expectations.json` violates the §3.1 baseline rule (exit `2`), which
+is what makes the `2.0.0` regression mechanically impossible to reintroduce rather than merely documented.
+
+Coverage (all four directions the rule distinguishes, plus the two parse-robustness cases):
+
+| Fixture | File version | Reader | Expected |
+|---|---|---|---|
+| `state/v1_0_0_absent_field.json` | absent ⇒ 1.0.0 | 1.1.0 | ACCEPT |
+| `state/v1_1_0_baseline.json` | 1.1.0 | 1.1.0 | ACCEPT |
+| `state/v1_2_0_minor_ahead.json` | 1.2.0 | 1.1.0 | ACCEPT_FORWARD (unknown field ignored) |
+| `state/v2_0_0_major_ahead.json` | 2.0.0 | 1.1.0 | REFUSE (both versions named) |
+| `state/v1_1_0_baseline.json` | 1.1.0 | 2.0.0 | REFUSE (file older major) |
+| `events/v1_0_0_absent_field.jsonl` | absent ⇒ 1.0.0 | 1.1.0 | ACCEPT, 3 parsed / 0 skipped |
+| `events/v1_2_0_unknown_variant.jsonl` | 1.2.0 | 1.1.0 | ACCEPT_FORWARD, 3 parsed / 0 skipped — unknown `event_type` maps to the catch-all, never fatal |
+| `events/v1_1_0_corrupt_line.jsonl` | 1.1.0 | 1.1.0 | ACCEPT, 3 parsed / 1 skipped — one bad line must not zero the history |
+| `events/v2_0_0_major_ahead.jsonl` | 2.0.0 | 1.1.0 | REFUSE |
+
+
+
 ---
 
-## 4. Position on G-04 — `forge_get_health` name collision
+## 4. G-04 — the health-tool surface (no collision; no action)
 
-**Recommendation: rename on the plugin side to `forge_get_health_score`. Do not alias.**
+**Finding: there is no `forge_get_health` name collision. No rename, no alias, no action in any repo.**
 
-Both MCP servers register a tool named `forge_get_health` and both are connected simultaneously by
-forge-plugin's `.mcp.json`. They return different shapes for the same name — the orchestrator's is the
-5-dimension governance health computed from `.forge/` state; the plugin's Node server computes a
-repo-level score from git/test/security probes. Which one an agent reaches depends on client-side
-resolution order, which is not a contract either repo controls.
+An earlier revision of this section asserted that both MCP servers register `forge_get_health` and
+recommended renaming the plugin's tool to `forge_get_health_score` with a one-minor alias window. **That
+premise was false and the recommendation is withdrawn.** It was inherited from the deep-dive G-04 line
+and NEXUS:2082, both of which predate the plugin rename — it was never verified against the plugin repo.
+Codex Wave-1 review caught it
+(`ecosystem/forge/research/2026-07-18-codex-wave1-review.md`).
 
-Why rename rather than alias: an alias keeps the ambiguous name resolvable, so the failure it is meant to
-fix stays reachable — and the resolution order that decides the winner still is not ours. The collision
-must stop existing, not become survivable.
+### 4.1 The actual cross-repo contract
 
-Why the plugin side moves: the orchestrator's tool is the **canonical** health surface (it is the one
-`forge_get_health`'s 5-dimension governance score is documented against, and the one forge-ui's health
-contract is being pointed at per G-03), and the plugin's is a repo-metrics score whose name is more
-accurately `forge_get_health_score` anyway. NEXUS:2082 already proposed exactly this, scoped at 6 files.
-Renaming the orchestrator instead would break the wider blast radius.
+Evidence tag: **forge-plugin `v3.10.2`** (`git show v3.10.2:plugins/nxtg-forge/servers/governance-mcp/index.mjs`).
 
-Sequencing, since MCP tool names are an agent-visible contract:
+| Surface | Tool name | Source | What it computes |
+|---|---|---|---|
+| forge-orchestrator (Rust MCP, 11 tools) | `forge_get_health` | `src/mcp/tools.rs:155` | 5-dimension **governance health** from `.forge/` state — docs, architecture, task health, knowledge, drift. Requires the `forge` binary and an initialized `.forge/` (L2). |
+| forge-plugin governance-mcp (Node, 8 tools) | `forge_get_governance_health` | `index.mjs:56` (dispatch `:133`) | Repo-level **health score** from git/test/security probes. No `.forge/` dependency (L1). |
 
-1. forge-plugin ships `forge_get_health_score` **and** keeps `forge_get_health` for one minor, with the
-   old name's description prefixed `DEPRECATED — use forge_get_health_score`.
-2. Plugin commands/agents that call it are updated in the same release (the 6 files).
-3. Next plugin minor removes `forge_get_health` from the Node server. The name then resolves
-   unambiguously to the orchestrator.
+The names are already distinct at v3.10.2. The plugin's Node server registers **no** `forge_get_health`
+and **no** alias for it, so when Claude Code loads both servers simultaneously, `forge_get_health`
+resolves unambiguously to the orchestrator. There is no client-resolution-order hazard to mitigate.
 
-The orchestrator makes **no change** — this is a plugin-side rename. Recorded here because the directive
-asked this repo for a position, and because the two servers' health semantics should be documented as
-distinct surfaces regardless of naming: governance health (orchestrator, `.forge/` state) vs repo health
-score (plugin, git/test/security probes). Neither is a substitute for the other.
+Verified with: `git show v3.10.2:…/index.mjs | grep -oE 'forge_[a-z_]+' | sort -u` → the 8 plugin tools,
+none named `forge_get_health`. The rename landed in plugin `v3.8.0` (`061716b`); the collision described
+in the March-era notes was real then and is closed now.
+
+The 9 plugin markdown files that mention `forge_get_health` are **correct, not stale** — each explicitly
+documents the orchestrator's tool (e.g. `commands/status.md:61` "Orchestrator's 5-dimension health +
+drift analysis (L2 only, requires the `forge` binary)"). They are describing the cross-server surface, not
+calling a local tool. No cleanup is warranted, and flagging them would manufacture a replacement finding
+where none exists.
+
+### 4.2 What is worth keeping from the original position
+
+The two health surfaces are **semantically distinct and neither substitutes for the other** — governance
+health (orchestrator, `.forge/` state, L2) vs repo health score (plugin, git/test/security probes, L1).
+That distinction is the durable content of this section, and it is why the current names are good ones:
+they say which is which. Consumers picking a health number should choose on availability tier — L1
+projects have no `.forge/`, so only the plugin's score exists there; L2 projects have both, and the
+orchestrator's is canonical for anything drift- or task-related (this is the contract forge-ui is being
+pointed at under G-03).
+
+The orchestrator makes no change under G-04.
 
 ---
 
 ## 5. Open questions for the other two teams
 
 1. **forge-ui**: does the dashboard tail `events.jsonl` directly, or only via `forge_get_events`? If
-   directly, the skip-and-count rule (3.2.4) is a UI-side change too, not just an MCP one.
+   directly, the skip-and-count rule (§3.2 rule 4) is a UI-side change too, not just an MCP one.
 2. **forge-plugin**: is anything reading `ForgeState.version` today? If yes, the deprecation window in
    3.1 needs to be longer than one minor.
 3. **Both**: is a MAJOR-mismatch refusal (3.2.2) acceptable UX in the dashboard, or should it degrade to

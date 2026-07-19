@@ -1,0 +1,4 @@
+{"v":"1.1.0","timestamp":"2026-07-18T00:00:00Z","event_type":"plan_created","task_id":null,"agent":null,"message":"Plan generated","metadata":null}
+{"v":"1.1.0","timestamp":"2026-07-18T00:00:01Z","event_type":"task_created","task_id":"T-001",
+{"v":"1.1.0","timestamp":"2026-07-18T00:00:02Z","event_type":"task_started","task_id":"T-001","agent":"claude","message":"Task started","metadata":null}
+{"v":"1.1.0","timestamp":"2026-07-18T00:00:03Z","event_type":"task_completed","task_id":"T-001","agent":"claude","message":"Task completed","duration_ms":4210,"exit_code":0,"metadata":null}

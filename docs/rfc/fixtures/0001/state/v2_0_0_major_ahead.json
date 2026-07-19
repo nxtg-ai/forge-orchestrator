@@ -1,0 +1,11 @@
+{
+  "state_schema": "2.0.0",
+  "project_name": "fixture-major-ahead",
+  "created_at": "2026-07-18T00:00:00Z",
+  "updated_at": "2026-07-18T00:00:00Z",
+  "tools": [],
+  "brain": { "provider": "rule_based" },
+  "task_counts": { "total": 0 },
+  "active_locks": {},
+  "dashboard_mode": "piped"
+}
