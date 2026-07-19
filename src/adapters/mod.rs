@@ -7,10 +7,44 @@ use crate::core::task::Task;
 use std::path::Path;
 use std::process::Command;
 
+/// Read the digit run immediately AFTER the last occurrence of `prefix`, as a clamped percent.
+/// Case-insensitive on the caller's side (pass a lowercased haystack). Pure.
+pub(crate) fn pct_after(haystack: &str, prefix: &str) -> Option<u8> {
+    let idx = haystack.rfind(prefix)?;
+    let rest = &haystack[idx + prefix.len()..];
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse::<u32>().ok().map(|n| n.min(100) as u8)
+}
+
+/// Read the digit run immediately BEFORE the last occurrence of `suffix`, as a clamped percent.
+pub(crate) fn pct_before(haystack: &str, suffix: &str) -> Option<u8> {
+    let idx = haystack.rfind(suffix)?;
+    let head = &haystack[..idx];
+    let mut digits: Vec<char> = head
+        .chars()
+        .rev()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    digits.reverse();
+    let digits: String = digits.into_iter().collect();
+    digits.parse::<u32>().ok().map(|n| n.min(100) as u8)
+}
+
 /// Trait for tool-specific adapters that render .forge/ state into native config
 pub trait ToolAdapter {
     /// Name of the adapter (e.g., "claude", "codex", "gemini")
     fn name(&self) -> &str;
+
+    /// Extract the context-**used** percent (0..=100) from this tool's statusline gauge, or `None`
+    /// when the tool exposes no such gauge in the given text (W2-C fleet HUD).
+    ///
+    /// This is deliberately per-adapter, not one shared regex: each tool speaks a different dialect
+    /// — Claude renders `ctx:NN%` (used), Codex renders `NN% left` (remaining, so `100 - NN`),
+    /// Gemini/Antigravity expose none (→ `None`, surfaced as "n/a", never guessed). The gauge is the
+    /// ONLY thing read from a pane; the rest of the captured text is discarded by the caller. Pure.
+    fn parse_ctx_pct(&self, _statusline: &str) -> Option<u8> {
+        None
+    }
 
     /// Render the current state into the tool's native config file(s)
     fn render_config(

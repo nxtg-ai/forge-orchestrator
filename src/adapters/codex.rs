@@ -74,6 +74,12 @@ impl ToolAdapter for CodexAdapter {
         "codex"
     }
 
+    /// Codex CLI renders `NN% left` (context REMAINING) — the OPPOSITE polarity from Claude, so it
+    /// is normalized to used = `100 - left`. Anchored on the `% left` suffix. Case-insensitive.
+    fn parse_ctx_pct(&self, statusline: &str) -> Option<u8> {
+        super::pct_before(&statusline.to_lowercase(), "% left").map(|left| 100 - left)
+    }
+
     fn render_config(
         &self,
         state: &ForgeState,

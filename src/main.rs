@@ -5,6 +5,7 @@ mod brain;
 mod cli;
 mod core;
 mod detect;
+mod fleet;
 mod mcp;
 mod pod;
 pub(crate) mod tui;
@@ -61,8 +62,23 @@ async fn main() -> anyhow::Result<()> {
         } => {
             cli::plan::execute(&project_root, generate, spec, from_findings)?;
         }
-        Commands::Status { events } => {
-            cli::status::execute(&project_root, events)?;
+        Commands::Status {
+            events,
+            budget,
+            json,
+            all,
+        } => {
+            if budget {
+                // Fleet-wide and project-independent — deliberately NOT gated on `.forge/`.
+                let rows = fleet::read_fleet();
+                if json {
+                    println!("{}", fleet::render_json(&rows));
+                } else {
+                    print!("{}", fleet::render_table(&rows, all));
+                }
+            } else {
+                cli::status::execute(&project_root, events)?;
+            }
         }
         Commands::Run {
             task,

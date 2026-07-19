@@ -85,6 +85,15 @@ pub enum Commands {
         /// Number of recent events to show
         #[arg(short, long, default_value = "5")]
         events: usize,
+        /// Show the fleet context-budget HUD (per-pane ctx% + PREP/COMPACT/STOP) instead
+        #[arg(long)]
+        budget: bool,
+        /// With --budget: emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
+        /// With --budget: include panes with no ctx gauge (n/a)
+        #[arg(long)]
+        all: bool,
     },
 
     /// Execute tasks headlessly. Omit --task/--agent for autonomous parallel mode.

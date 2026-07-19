@@ -11,6 +11,13 @@ impl ToolAdapter for ClaudeAdapter {
         "claude"
     }
 
+    /// Claude Code renders `ctx:NN%` (context USED) — the source of truth per token-budget canon.
+    /// Anchored on `ctx:` so the sibling `5h:` / `7d:` rate-limit percentages on the same statusline
+    /// are never mistaken for it. Case-insensitive; last occurrence wins (most recent render).
+    fn parse_ctx_pct(&self, statusline: &str) -> Option<u8> {
+        super::pct_after(&statusline.to_lowercase(), "ctx:")
+    }
+
     fn render_config(
         &self,
         state: &ForgeState,

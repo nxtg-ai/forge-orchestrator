@@ -1,3 +1,5 @@
+/// Context-budget thresholds (PREP/COMPACT/STOP) behind the W2-C fleet HUD.
+pub mod budget;
 /// Doctor aggregation — one verdict from quality, release-debt, and drift dimensions.
 pub mod doctor;
 /// Append-only event log (`.forge/events.jsonl`) for audit trails.
