@@ -171,6 +171,14 @@ impl World {
     fn backup_exists(&self) -> bool {
         self.journal_dir.join("pod-adoption.hooks").exists()
     }
+
+    fn backup_path(&self) -> PathBuf {
+        self.journal_dir.join("pod-adoption.hooks")
+    }
+
+    fn journal_path(&self) -> PathBuf {
+        self.journal_dir.join("pod-adoption.json")
+    }
 }
 
 impl Drop for World {
@@ -451,6 +459,60 @@ fn standalone_script_fails_closed_on_a_dead_socket_preserving_everything() {
     );
     assert!(!w.journal_exists());
     assert!(w.hook("node", "pane-died").contains("/usr/bin/cosmux"));
+}
+
+#[test]
+fn script_fails_closed_when_the_backup_is_absent_or_truncated_for_recorded_hooks() {
+    // regate-15 P1-4: Codex reproduced exit=0 with journal+shim gone while the live pane-died hook
+    // was still `forge pod _pane-recover`, because an absent/truncated backup was read as
+    // zero-hooks-to-restore. The journal's steps.hooks records what was rebound; every recorded
+    // session must verify non-forge by live readback before anything is deleted.
+    if !tmux_available() {
+        eprintln!("SKIP: tmux unavailable");
+        return;
+    }
+
+    // (a) ABSENT backup.
+    let w = World::new("nobackup");
+    w.make_session_with_cosmux_hooks("node", false);
+    assert_eq!(w.forge(&["adopt"]).0, 0);
+    assert!(w.hook("node", "pane-died").contains("pod _pane-recover"));
+    std::fs::remove_file(w.backup_path()).unwrap(); // the backup is gone
+    let status = w.run_script(&w.socket);
+    assert!(
+        !status.success(),
+        "an absent backup for a recorded hook must fail closed, not claim success"
+    );
+    assert!(w.journal_exists(), "journal preserved");
+    assert!(w.shim.exists(), "shim preserved");
+    assert!(
+        w.hook("node", "pane-died").contains("pod _pane-recover"),
+        "the live hook is still forge-owned — the script must not have claimed success"
+    );
+
+    // (b) TRUNCATED backup — recorded `node` missing from the TSV.
+    let w2 = World::new("truncbackup");
+    w2.make_session_with_cosmux_hooks("node", false);
+    assert_eq!(w2.forge(&["adopt"]).0, 0);
+    std::fs::write(w2.backup_path(), "").unwrap(); // truncated to empty
+    let status = w2.run_script(&w2.socket);
+    assert!(!status.success(), "a truncated backup must fail closed");
+    assert!(w2.journal_exists());
+    assert!(w2.shim.exists());
+    assert!(w2.hook("node", "pane-died").contains("pod _pane-recover"));
+
+    // (c) TRUNCATED journal — cannot know what was rebound → fail closed, don't touch it.
+    let w3 = World::new("truncjournal");
+    w3.make_session_with_cosmux_hooks("node", false);
+    assert_eq!(w3.forge(&["adopt"]).0, 0);
+    std::fs::write(w3.journal_path(), "{ \"schema\": 1, \"sta").unwrap();
+    let status = w3.run_script(&w3.socket);
+    assert!(!status.success(), "a truncated journal must fail closed");
+    assert!(
+        w3.journal_exists(),
+        "a truncated journal must be preserved, not deleted"
+    );
+    assert!(w3.shim.exists());
 }
 
 #[test]

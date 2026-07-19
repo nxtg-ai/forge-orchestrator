@@ -428,8 +428,26 @@ pub fn append_recovery(pane_id: &str) -> Result<AppendOutcome> {
         if journal.state != TransitionState::Adopting {
             return Ok(AppendOutcome::NotAdopting);
         }
-        if let Some(existing) = journal.steps.recoveries.get(pane_id) {
-            return Ok(AppendOutcome::AlreadyPresent(*existing));
+        match journal.steps.recoveries.get(pane_id) {
+            // Same occurrence still queued — dedup so a re-fired hook cannot duplicate it.
+            Some(StepState::Pending) => {
+                return Ok(AppendOutcome::AlreadyPresent(StepState::Pending));
+            }
+            // The pane already recovered once, then died AGAIN before the terminal commit — a NEW
+            // occurrence (regate-15 P1-5). Re-pend it under this same lock so `pending_recoveries`
+            // includes it, the drain re-runs it, and the terminal re-read-under-lock refuses to
+            // commit while it is pending. Without this, a second death after the first completed
+            // was stranded and the commit could authorize over it.
+            Some(StepState::Complete) => {
+                journal
+                    .steps
+                    .recoveries
+                    .insert(pane_id.to_string(), StepState::Pending);
+                journal.touch();
+                lock.write(&journal)?;
+                return Ok(AppendOutcome::Appended);
+            }
+            None => {}
         }
         journal
             .steps
@@ -892,6 +910,46 @@ mod tests {
         );
         let journal = with_lock(|lock| lock.read()).unwrap().unwrap();
         assert_eq!(journal.steps.recoveries.len(), 1);
+    }
+
+    #[test]
+    fn a_second_death_after_recovery_completes_re_pends_and_blocks_the_commit() {
+        // regate-15 P1-5: the exact boundary. A pane recovers (Appended → complete), then dies
+        // AGAIN before the terminal commit. That re-death must re-pend (a new occurrence), so the
+        // drain re-runs it and the commit refuses — never strand it and authorize over it.
+        let guard = JournalGuard::new("repend");
+        guard.seed(&adopting_past_shim());
+
+        assert_eq!(append_recovery("%1").unwrap(), AppendOutcome::Appended);
+        complete_recovery("%1").unwrap();
+        // Ledger now says %1 is complete; a naive commit would proceed.
+        assert_eq!(commit_terminal().unwrap(), CommitOutcome::Committed);
+        // (In the real flow the drain→commit happens while still adopting; re-seed that state to
+        // exercise the re-death boundary deterministically.)
+        guard.seed(&{
+            let mut j = adopting_past_shim();
+            j.steps.recoveries.insert("%1".into(), StepState::Complete);
+            j
+        });
+
+        // Second death of the SAME pane, still adopting → must re-pend, not report AlreadyPresent.
+        assert_eq!(
+            append_recovery("%1").unwrap(),
+            AppendOutcome::Appended,
+            "a re-death after completion must be a fresh pending occurrence"
+        );
+        let journal = with_lock(|lock| lock.read()).unwrap().unwrap();
+        assert_eq!(
+            journal.steps.recoveries.get("%1"),
+            Some(&StepState::Pending)
+        );
+        assert_eq!(journal.pending_recoveries(), vec![&"%1".to_string()]);
+
+        // …and the terminal commit now refuses while it is pending.
+        match commit_terminal().unwrap() {
+            CommitOutcome::PendingRecoveries(p) => assert_eq!(p, vec!["%1"]),
+            other => panic!("commit must wait for the re-pended pane, got {other:?}"),
+        }
     }
 
     #[test]
