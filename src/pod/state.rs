@@ -190,12 +190,19 @@ fn now_iso8601() -> String {
 mod tests {
     use super::*;
 
-    /// Redirect the store for the duration of a test, restoring the previous value after.
+    /// Serializes every test that mutates `FORGE_POD_STATE_DIR`.
     ///
-    /// Tests touching env must run single-threaded within this module; each acquires the lock.
+    /// Env vars are process-global, so cargo's parallel test threads race on them: one test
+    /// clearing the override while another is mid-write made the second resolve to the LIVE store.
+    /// The fail-closed guard caught it — the run panicked instead of writing `~/.cosmux` — which
+    /// is precisely the outcome it exists for, but the race itself is a test bug, fixed here.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Redirect the store for the duration of a test, restoring the previous value after.
     struct StoreGuard {
         _dir: tempdir::TempDir,
         previous: Option<std::ffi::OsString>,
+        _lock: std::sync::MutexGuard<'static, ()>,
     }
 
     /// Minimal temp-dir helper — no dev-dependency needed for one directory.
@@ -230,12 +237,14 @@ mod tests {
 
     impl StoreGuard {
         fn new(tag: &str) -> Self {
+            let lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
             let dir = tempdir::TempDir::new(tag);
             let previous = std::env::var_os(STATE_DIR_ENV);
             unsafe { std::env::set_var(STATE_DIR_ENV, dir.path()) };
             Self {
                 _dir: dir,
                 previous,
+                _lock: lock,
             }
         }
     }
@@ -288,6 +297,7 @@ mod tests {
 
     #[test]
     fn state_dir_defaults_to_the_cosmux_store() {
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let previous = std::env::var_os(STATE_DIR_ENV);
         unsafe { std::env::remove_var(STATE_DIR_ENV) };
         let resolved = state_dir();

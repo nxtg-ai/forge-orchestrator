@@ -22,6 +22,17 @@ pub enum EventType {
     ToolDetected,
     QualityGatePassed,
     QualityGateFailed,
+    /// A pod pane died and was respawned by `forge pod` recovery, re-claiming its bound task.
+    ///
+    /// Adding a variant is a MINOR schema change per RFC-0001 §3.1 — safe only because readers
+    /// map unknown variants to `Unknown` below instead of erroring the whole batch.
+    PaneRecovered,
+    /// Forward-compatibility sink: a variant written by a newer forge.
+    ///
+    /// RFC-0001 §3.2 rule 3. Without this, the first record carrying a future variant turns an
+    /// older consumer's event-log read from "returns 500 events" into "errors on the batch".
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

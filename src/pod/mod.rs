@@ -17,7 +17,13 @@
 pub mod config;
 /// Error type shared across the pod modules.
 pub mod error;
+/// Lifecycle hooks (`before_start`, `on_pane_dead`, …).
+pub mod hooks;
+/// Dead-pane recovery, including `.forge/` task re-claim.
+pub mod recover;
 /// Pod state store (`~/.cosmux/state.json`) with a fail-closed test-isolation seam.
 pub mod state;
 /// Pane/window template merging from `~/.config/cosmux/templates/`.
 pub mod templates;
+/// tmux driver with a private-socket test seam, and the pure spawn plan.
+pub mod tmux;
