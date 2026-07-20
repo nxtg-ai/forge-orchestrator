@@ -74,12 +74,28 @@ impl ToolAdapter for CodexAdapter {
         "codex"
     }
 
-    /// Codex CLI renders `Context NN% left` (context REMAINING) — the OPPOSITE polarity from Claude,
-    /// so it is normalized to used = `100 - left`. Anchored on the **`context`** label, not a bare
-    /// `% left`, so the sibling `weekly NN% left` rate-limit gauge on the same statusline and any
-    /// ordinary "N% left" prose are never mistaken for it. Case-insensitive.
+    /// Extract Codex's `Context NN% left` (context REMAINING → used `100 - left`) only when the FULL
+    /// statusline structural signature is present on a line: the model token (`gpt-`), the middle-dot
+    /// `·` separators, AND both the `Context …% left` and `weekly …% left` gauges co-occurring. A
+    /// bare `Context 5% left` diagnostic has no model token, no separators, and no weekly gauge →
+    /// `None` (n/a) by construction. Case-insensitive.
     fn parse_ctx_pct(&self, statusline: &str) -> Option<u8> {
-        super::pct_after_word_percent(&statusline.to_lowercase(), "context").map(|left| 100 - left)
+        for line in statusline.lines() {
+            let lower = line.to_lowercase();
+            let has_model = lower.contains("gpt-");
+            let has_separator = line.contains('\u{00b7}'); // middle dot ·
+            let has_context = lower.contains("context") && lower.contains("% left");
+            let has_weekly = lower.contains("weekly");
+            if has_model
+                && has_separator
+                && has_context
+                && has_weekly
+                && let Some(left) = super::pct_after_word_percent(&lower, "context")
+            {
+                return Some(100 - left);
+            }
+        }
+        None
     }
 
     fn render_config(

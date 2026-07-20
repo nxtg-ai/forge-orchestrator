@@ -21,12 +21,15 @@ parse/validate/mutate goes through one JSON parser (no grep/sed/awk shortcuts). 
 synergy: a `task:`-bound pane's dead-pane recovery re-claims the forge task and logs `PaneRecovered`.
 
 ### Fleet ctx% budget HUD (W2-C)
-`forge status --budget [--json] [--all]` reads each agent pane's context gauge from the **bottom
-few lines of its statusline region** (read-only; never scrollback, never mid-pane text; only the
+`forge status --budget [--json] [--all]` reads each agent pane's context gauge from the **last few
+raw lines of its statusline** (read-only; never scrollback, never the whole pane; only the
 normalized percent is retained) and reports a PREP/COMPACT/STOP band per the token-budget canon.
-Extraction is **label-anchored** per tool so a sibling rate-limit gauge or ordinary text is never
-mistaken for it: Claude `ctx:NN%` (used), Codex `Context NN% left` (remaining → `100-left`), others
-`n/a`. A one-line dashboard strip toggles with `b`.
+An adapter claims a reading only when the tool's **full statusline structural signature** is present
+— Claude: a `[name]` bracket + a `[Model:effort]` bracket + `ctx:NN%`; Codex: the model token +
+middle-dot separators + both the `Context …% left` and `weekly …% left` gauges. A bare gauge phrase
+(`Context 5% left`, a `ctx:42%` in a log line) has none of that structure and is `n/a` by
+construction — never mistaken for a statusline. Values: Claude `ctx:NN%` (used), Codex
+`Context NN% left` (remaining → `100-left`), others `n/a`. A one-line dashboard strip toggles `b`.
 
 ### `forge doctor` — unified health gate (W2-B phase 1)
 Aggregates quality, release-debt, and drift into one fail-closed verdict (`--strict`, `--json`
@@ -68,5 +71,5 @@ artifacts were never produced. Rather than back-fill v1.5.2 (`PRM-NXTG-20260718-
 ## Gate posture
 
 Codex weekly budget is at ~13% — the train ships under **one batched gate** (pod final + -16 +
-W2-C together), not per-cure rounds. Tests: 543 green; `fmt` + `clippy -D warnings` clean; live
+W2-C together), not per-cure rounds. Tests: 550 green; `fmt` + `clippy -D warnings` clean; live
 `~/.cosmux/state.json` md5 unchanged across the entire suite; MCP tool count 11.

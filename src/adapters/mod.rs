@@ -36,6 +36,25 @@ pub(crate) fn pct_after_word_percent(haystack: &str, word: &str) -> Option<u8> {
     digits.parse::<u32>().ok().map(|n| n.min(100) as u8)
 }
 
+/// The contents of each `[...]` group on a line, in order — **pure**. `[` and `]` are ASCII so
+/// byte-scanning is safe even when the contents are UTF-8.
+pub(crate) fn bracket_contents(line: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let bytes = line.as_bytes();
+    let mut start = None;
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'[' {
+            start = Some(i + 1);
+        } else if b == b']'
+            && let Some(s) = start.take()
+            && s <= i
+        {
+            out.push(&line[s..i]);
+        }
+    }
+    out
+}
+
 /// Trait for tool-specific adapters that render .forge/ state into native config
 pub trait ToolAdapter {
     /// Name of the adapter (e.g., "claude", "codex", "gemini")

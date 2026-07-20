@@ -11,11 +11,31 @@ impl ToolAdapter for ClaudeAdapter {
         "claude"
     }
 
-    /// Claude Code renders `ctx:NN%` (context USED) — the source of truth per token-budget canon.
-    /// Anchored on `ctx:` so the sibling `5h:` / `7d:` rate-limit percentages on the same statusline
-    /// are never mistaken for it. Case-insensitive; last occurrence wins (most recent render).
+    /// Extract Claude's `ctx:NN%` (context USED) only when the FULL statusline structural signature
+    /// is present on a line: a `[name]` bracket AND a `[Model:effort]` bracket (one containing `:`)
+    /// AND the `ctx:` gauge co-occurring. A bare `ctx:42%` or an ordinary line with a percentage has
+    /// no such structure → `None` (n/a). This is by construction, not a filter: only a genuine
+    /// statusline carries all three elements together. Anchored on `ctx:` so the sibling `5h:`/`7d:`
+    /// rate-limit gauges are never read. Case-insensitive.
     fn parse_ctx_pct(&self, statusline: &str) -> Option<u8> {
-        super::pct_after(&statusline.to_lowercase(), "ctx:")
+        for line in statusline.lines() {
+            let lower = line.to_lowercase();
+            if !lower.contains("ctx:") {
+                continue;
+            }
+            let brackets = super::bracket_contents(line);
+            let has_model_effort = brackets.iter().any(|b| b.contains(':'));
+            let has_name = brackets
+                .iter()
+                .any(|b| !b.contains(':') && !b.trim().is_empty());
+            if has_name
+                && has_model_effort
+                && let Some(pct) = super::pct_after(&lower, "ctx:")
+            {
+                return Some(pct);
+            }
+        }
+        None
     }
 
     fn render_config(
