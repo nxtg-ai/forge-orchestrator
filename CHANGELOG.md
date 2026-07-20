@@ -20,10 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`forge pod adopt` / `unadopt` / `adopt --repair` / `adopt --abort`** + standalone
   `scripts/forge-pod-unadopt.sh` — the §1.5 migration protocol: a single-writer cutover guarded by
   a transition journal (`~/.local/state/forge/pod-adoption.json`) whose terminal `adopted` state is
-  the sole production-write authority. One `flock` serializes all journal read-modify-write; the
-  standalone rollback restores hooks, removes the shim, and clears the journal using only
-  `flock`, `rm`, `tmux`, `python3` (all journal parsing/validation/mutation goes through one JSON
-  parser — no grep/sed/awk shortcuts).
+  the sole production-write authority. One `flock(2)` advisory lock (the same file + primitive the
+  binary uses) serializes all journal read-modify-write; the standalone rollback restores hooks,
+  removes the shim, and clears the journal using only a portable file lock (`flock(1)` where present,
+  else a `perl` `flock(2)` re-exec — macOS ships no `flock(1)`), `rm`, `tmux`, `python3` (all journal
+  parsing/validation/mutation goes through one JSON parser — no grep/sed/awk shortcuts).
 - Test-isolation seams (`FORGE_POD_STATE_DIR`, `FORGE_POD_TMUX_SOCKET`, `FORGE_POD_JOURNAL_DIR`,
   `FORGE_POD_SHIM_PATH`) default to their live locations, so production is byte-identical to cosmux;
   the live `~/.cosmux/state.json` is untouched by the entire test suite.

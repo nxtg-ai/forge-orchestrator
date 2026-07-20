@@ -338,6 +338,41 @@ fn standalone_script_restores_hooks_removes_shim_and_clears_the_journal() {
 }
 
 #[test]
+fn standalone_script_rolls_back_via_the_perl_lock_path_the_macos_mechanism() {
+    // DIRECTIVE-NXTG-20260719-20: macOS ships no flock(1); the script must lock via perl flock(2)
+    // instead. FORGE_POD_LOCK_MECH=perl forces that path so it is exercised on THIS Linux host —
+    // proving the re-exec-and-inherit-locked-fd mechanism completes an identical rollback (same lock
+    // file, blocking acquire, RMW under lock) rather than relying solely on macOS CI to catch a break.
+    if !tmux_available() {
+        eprintln!("SKIP: tmux unavailable");
+        return;
+    }
+    let w = World::new("perllock");
+    w.make_session_with_cosmux_hooks("alpha", true);
+    assert_eq!(w.forge(&["adopt"]).0, 0);
+    assert!(w.hook("alpha", "pane-died").contains("pod _pane-recover"));
+
+    let status = Command::new("bash")
+        .arg(w.unadopt_script())
+        .env("FORGE_POD_LOCK_MECH", "perl")
+        .env("FORGE_POD_TMUX_SOCKET", &w.socket)
+        .env("FORGE_POD_JOURNAL_DIR", &w.journal_dir)
+        .env("FORGE_POD_SHIM_PATH", &w.shim)
+        .status()
+        .expect("run unadopt script (perl lock path)");
+    assert!(status.success(), "perl-lock-path rollback failed");
+
+    let restored = w.hook("alpha", "pane-died");
+    assert!(
+        restored.contains("/usr/bin/cosmux _pane-recover"),
+        "{restored}"
+    );
+    assert!(!restored.contains("pod _pane-recover"), "{restored}");
+    assert!(!w.shim.exists(), "shim must be removed");
+    assert!(!w.journal_exists(), "journal must be cleared → unadopted");
+}
+
+#[test]
 fn forge_unadopt_is_equivalent_to_the_script() {
     if !tmux_available() {
         eprintln!("SKIP: tmux unavailable");

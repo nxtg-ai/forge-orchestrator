@@ -16,7 +16,9 @@ Declarative tmux pod management vendored from cosmux v0.4.2, operating on the sa
 11 public verbs + 2 hidden recovery verbs; parity verified against the 14 live fleet pod shapes.
 The §1.5 **adoption protocol** (`adopt`/`unadopt`/`--repair`/`--abort` + a standalone rollback
 script) performs a single-writer cutover guarded by a transition journal whose terminal `adopted`
-state is the sole production-write authority — one `flock` over all journal RMW, and every journal
+state is the sole production-write authority — one `flock(2)` advisory lock over all journal RMW
+(portable: `flock(1)` on Linux, else a `perl` `flock(2)` re-exec on macOS, same file + primitive as
+the binary), and every journal
 parse/validate/mutate goes through one JSON parser (no grep/sed/awk shortcuts). Novel `.forge/`
 synergy: a `task:`-bound pane's dead-pane recovery re-claims the forge task and logs `PaneRecovered`.
 
@@ -75,5 +77,5 @@ artifacts were never produced. Rather than back-fill v1.5.2 (`PRM-NXTG-20260718-
 ## Gate posture
 
 Codex weekly budget is at ~13% — the train ships under **one batched gate** (pod final + -16 +
-W2-C together), not per-cure rounds. Tests: 550 green; `fmt` + `clippy -D warnings` clean; live
+W2-C together), not per-cure rounds. Tests: 551 green; `fmt` + `clippy -D warnings` clean; live
 `~/.cosmux/state.json` md5 unchanged across the entire suite; MCP tool count 11.

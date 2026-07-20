@@ -3,9 +3,10 @@
 #
 # WHY STANDALONE: rollback must work when the forge binary is unavailable (archived, broken,
 # mid-upgrade). It restores cosmux's tmux hooks, removes the shim, and removes the adoption journal
-# using only `flock`, `rm`, `tmux`, `python3` — no forge, no jq, no sed/awk on the journal. Every
-# read, validation, and mutation of the journal goes through the ONE json parser (python3), so a
-# mixed-tool gap (grep/sed sees structure the parser doesn't) cannot reopen.
+# using only a portable file lock (`flock(1)` where present, else `perl` flock(2) — macOS ships no
+# flock(1)), `rm`, `tmux`, `python3` — no forge, no jq, no sed/awk on the journal. Every read,
+# validation, and mutation of the journal goes through the ONE json parser (python3), so a mixed-tool
+# gap (grep/sed sees structure the parser doesn't) cannot reopen.
 #
 # SAFETY (regate-15 cures):
 #   P1-1  FREEZE FIRST — flip the journal to `unadopting` (authority refuses writes) BEFORE touching
@@ -16,7 +17,8 @@
 #         `hooks:{}`), and every recorded session must be reachable AND non-forge by live readback
 #         before anything is deleted. An absent/truncated backup, or an unparseable journal, fails
 #         closed — never delete-then-claim-success while a live pane-died hook is still forge-owned.
-#   Same `flock` the binary uses, acquired BEFORE reading or removing anything (round-9 C5).
+#   Same flock(2) PRIMITIVE the binary uses (via flock(1) or perl), acquired BEFORE reading or
+#   removing anything (round-9 C5); portable across Linux + macOS (DIRECTIVE-NXTG-20260719-20).
 set -euo pipefail
 
 STATE_HOME="${FORGE_POD_JOURNAL_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/forge}"
@@ -125,8 +127,46 @@ PY
 mkdir -p "$STATE_HOME"
 [[ -e "$LOCK" ]] || : >"$LOCK"
 
-exec 9>"$LOCK"
-flock 9   # BLOCK until free (round-9 C5): if the binary holds it, we wait.
+# --- Acquire the SINGLE §1.5 lock ($LOCK — the SAME file the binary flock(2)s), a BLOCKING acquire
+# held across the whole RMW below. Both mechanisms use the flock(2) PRIMITIVE, so either interlocks
+# with the binary's `libc::flock()` — a live adopt/recover BLOCKS this rollback instead of racing it
+# (round-9 C5). macOS ships no `flock(1)`, so we fall back to `perl`, whose `flock` is native
+# flock(2) on macOS and Linux both. Same lock file, same primitive, same blocking RMW — no weakening.
+#   FLOCK path (Linux, gate-cleared): flock(1) locks the shell's own fd 9 and returns; fd 9 stays
+#     open so the lock is held until this script exits.
+#   PERL path (portable):  re-exec through perl, which flock(2)-locks the file and — with
+#     close-on-exec cleared ($^F) so the locked fd survives exec — execs this script back; the
+#     inherited fd holds the lock for the RMW, releasing only on exit. FORGE_POD_LOCK_HELD marks the
+#     re-exec'd instance so it does not lock again.
+# FORGE_POD_LOCK_MECH (test seam): auto (default) | flock | perl — forces a mechanism so the perl
+# path (the macOS behavior) is exercisable on a Linux host that also has flock(1).
+LOCK_MECH="${FORGE_POD_LOCK_MECH:-auto}"
+if [[ "$LOCK_MECH" == "auto" ]]; then
+  if command -v flock >/dev/null 2>&1; then LOCK_MECH=flock; else LOCK_MECH=perl; fi
+fi
+
+if [[ "$LOCK_MECH" == "flock" ]]; then
+  command -v flock >/dev/null 2>&1 || {
+    echo "forge-pod-unadopt: FAIL — flock(1) requested but not found on PATH" >&2
+    exit 1
+  }
+  exec 9>"$LOCK"
+  flock 9   # BLOCK until free: if the binary holds it, we wait.
+elif [[ -z "${FORGE_POD_LOCK_HELD:-}" ]]; then
+  command -v perl >/dev/null 2>&1 || {
+    echo "forge-pod-unadopt: FAIL — perl is required for the portable pod lock but was not found; refusing to run unlocked" >&2
+    exit 1
+  }
+  export FORGE_POD_LOCK_HELD=1
+  exec perl -MFcntl=:flock -e '
+    $^F = 255;                                  # keep the lock fd out of close-on-exec range
+    open(my $fh, ">>", $ARGV[0]) or die "forge-pod-unadopt: open lock $ARGV[0]: $!\n";
+    flock($fh, LOCK_EX)          or die "forge-pod-unadopt: flock: $!\n";   # BLOCK until free
+    shift @ARGV;                                 # drop the lock path; re-exec ($0 @args)
+    exec { $ARGV[0] } @ARGV      or die "forge-pod-unadopt: re-exec: $!\n";
+  ' "$LOCK" "$0" "$@"
+fi
+# (Re-exec'd perl instance: FORGE_POD_LOCK_HELD is set and the locked fd is inherited — fall through.)
 
 if [[ ! -e "$JOURNAL" ]]; then
   echo "forge-pod-unadopt: no adoption journal at $JOURNAL — nothing to roll back"
