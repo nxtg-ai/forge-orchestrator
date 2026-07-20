@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-07-19
+
 ### Added — `forge pod` (W2-A, cosmux consolidation, rides the v1.6.0 train)
 
 - **`forge pod`** — declarative tmux pod management vendored from cosmux v0.4.2, operating on the

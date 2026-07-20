@@ -542,7 +542,7 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "forge-orchestrator"
-version = "1.5.2"
+version = "1.6.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
