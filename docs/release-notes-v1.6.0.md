@@ -24,12 +24,15 @@ synergy: a `task:`-bound pane's dead-pane recovery re-claims the forge task and 
 `forge status --budget [--json] [--all]` reads each agent pane's context gauge from the **last few
 raw lines of its statusline** (read-only; never scrollback, never the whole pane; only the
 normalized percent is retained) and reports a PREP/COMPACT/STOP band per the token-budget canon.
-An adapter claims a reading only when the tool's **full statusline structural signature** is present
-— Claude: a `[name]` bracket + a `[Model:effort]` bracket + `ctx:NN%`; Codex: the model token +
-middle-dot separators + both the `Context …% left` and `weekly …% left` gauges. A bare gauge phrase
-(`Context 5% left`, a `ctx:42%` in a log line) has none of that structure and is `n/a` by
-construction — never mistaken for a statusline. Values: Claude `ctx:NN%` (used), Codex
-`Context NN% left` (remaining → `100-left`), others `n/a`. A one-line dashboard strip toggles `b`.
+An adapter claims a reading only when the tool's **statusline structural redundancy** is present —
+the co-occurring signals a real statusline has and no ordinary log line can forge. Claude: `ctx:NN%`
++ a sibling rate-limit gauge (`5h:NN%` or `7d:NN%`) + a versioned model-token bracket (letters +
+digits, `[Fable 5:high]`). Codex: the `gpt-*` model token + middle-dot separators + both the
+`Context …% left` and `weekly …% left` gauges. A bare gauge phrase (`Context 5% left`, a `ctx:42%`
+in a log line, or `[INFO] [priority:high] ctx:42%`) lacks that redundancy and is `n/a` by
+construction — forging a reading would require actually being a statusline. Values: Claude `ctx:NN%`
+(used), Codex `Context NN% left` (remaining → `100-left`), others `n/a`. A one-line dashboard strip
+toggles `b`.
 
 ### `forge doctor` — unified health gate (W2-B phase 1)
 Aggregates quality, release-debt, and drift into one fail-closed verdict (`--strict`, `--json`

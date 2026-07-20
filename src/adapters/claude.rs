@@ -6,26 +6,25 @@ use std::process::Command;
 
 pub struct ClaudeAdapter;
 
-/// The reasoning-effort words Claude Code renders in `[Model:effort]`.
-const EFFORT_WORDS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+/// A bracket carrying a VERSIONED model token — content with at least one letter AND at least one
+/// digit (e.g. `Opus 4.8:high`, `Fable 5:high`, `Sonnet 5`). This is redundancy, not shape: a
+/// purely-alphabetic `[priority:high]` (no digit) and a purely-numeric `[12:30]` (no letter) each
+/// hold only one of the two, so neither can forge the token. Pure.
+fn is_versioned_model_bracket(content: &str) -> bool {
+    content.chars().any(|c| c.is_ascii_alphabetic()) && content.chars().any(|c| c.is_ascii_digit())
+}
 
-/// Is a bracket's content a real `Model:effort` pair — an alphabetic model token and a known effort
-/// word — rather than, say, a `[12:30]` log timestamp? The model must START with a letter and use
-/// only letters/digits/dots/hyphens/spaces; the effort must be one of [`EFFORT_WORDS`]. Pure.
-fn is_model_effort(content: &str) -> bool {
-    let Some((model, effort)) = content.split_once(':') else {
-        return false;
-    };
-    let model = model.trim();
-    let model_ok = model
-        .chars()
-        .next()
-        .is_some_and(|c| c.is_ascii_alphabetic())
-        && model
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ' '));
-    let effort_ok = EFFORT_WORDS.contains(&effort.trim().to_lowercase().as_str());
-    model_ok && effort_ok
+/// Does the (lowercased) line carry a Claude rate-limit SIBLING GAUGE — `5h:NN%` or `7d:NN%`, a
+/// digit immediately after the label? Every real Claude statusline renders these next to `ctx:`; no
+/// ordinary log line does. Their co-occurrence with a versioned model token is the redundancy that
+/// only an actual statusline satisfies. Pure.
+fn has_sibling_gauge(lower: &str) -> bool {
+    ["5h:", "7d:"].iter().any(|label| {
+        lower
+            .split(label)
+            .skip(1)
+            .any(|rest| rest.chars().next().is_some_and(|c| c.is_ascii_digit()))
+    })
 }
 
 impl ToolAdapter for ClaudeAdapter {
@@ -33,13 +32,14 @@ impl ToolAdapter for ClaudeAdapter {
         "claude"
     }
 
-    /// Extract Claude's `ctx:NN%` (context USED) only when the FULL statusline structural signature
-    /// is present on a line: a `[name]` bracket AND a valid `[Model:effort]` bracket AND the `ctx:`
-    /// gauge co-occurring. `[Model:effort]` is validated by SHAPE (an alphabetic model token + a
-    /// known effort word), so a numeric `[12:30]` log timestamp does NOT qualify — an ordinary line
-    /// `[INFO] [12:30] ctx:42%` is n/a. A bare `ctx:42%` likewise has no such structure → `None`.
-    /// This is by construction, not a filter. Anchored on `ctx:` so the sibling `5h:`/`7d:` gauges
-    /// are never read. Case-insensitive.
+    /// Extract Claude's `ctx:NN%` (context USED) only when the line carries the STRUCTURAL
+    /// REDUNDANCY a real statusline has and no ordinary log line can: (1) `ctx:NN%`, (2) a sibling
+    /// rate-limit gauge `5h:NN%` or `7d:NN%`, AND (3) a versioned model-token bracket (letters +
+    /// digits, e.g. `[Fable 5:high]`). Discriminating on redundancy — not on token shape — closes
+    /// the forgery class: `[INFO] [priority:high] ctx:42%` has neither a sibling gauge nor a digit
+    /// in any bracket, and `[INFO] [12:30] ctx:42%` has no sibling gauge and no letter+digit
+    /// bracket, so both are n/a BY CONSTRUCTION. Anchored on `ctx:` so the `5h:`/`7d:` values are
+    /// never mistaken for the reading. Case-insensitive.
     fn parse_ctx_pct(&self, statusline: &str) -> Option<u8> {
         for line in statusline.lines() {
             let lower = line.to_lowercase();
@@ -47,12 +47,9 @@ impl ToolAdapter for ClaudeAdapter {
                 continue;
             }
             let brackets = super::bracket_contents(line);
-            let has_model_effort = brackets.iter().any(|b| is_model_effort(b));
-            let has_name = brackets
-                .iter()
-                .any(|b| !is_model_effort(b) && !b.trim().is_empty());
-            if has_name
-                && has_model_effort
+            let has_versioned_model = brackets.iter().any(|b| is_versioned_model_bracket(b));
+            if has_versioned_model
+                && has_sibling_gauge(&lower)
                 && let Some(pct) = super::pct_after(&lower, "ctx:")
             {
                 return Some(pct);

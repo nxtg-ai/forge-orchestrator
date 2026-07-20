@@ -33,10 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`forge status --budget [--json] [--all]`** — a fleet-wide context-budget HUD reading each agent
   pane's context gauge from the **last few raw lines of its statusline** (read-only; never
   scrollback, never the whole pane; only the normalized percent is kept). An adapter claims a reading
-  only when the tool's **full statusline structural signature** is present — Claude: a `[name]`
-  bracket + a `[Model:effort]` bracket + `ctx:NN%`; Codex: the model token + middle-dot separators +
-  both the `Context …% left` and `weekly …% left` gauges. A bare gauge phrase (`Context 5% left`, a
-  `ctx:42%` in a log line) has none of that structure and is `n/a` by construction. Values: Claude
+  only when the tool's **statusline structural redundancy** is present — the co-occurring signals a
+  real statusline has and no log line can forge. Claude: `ctx:NN%` + a sibling `5h:`/`7d:` rate-limit
+  gauge + a versioned model-token bracket (letters + digits, `[Fable 5:high]`); Codex: the `gpt-*`
+  model token + middle-dot separators + both the `Context …% left` and `weekly …% left` gauges. A
+  bare gauge phrase (`Context 5% left`, a `ctx:42%` in a log line, `[INFO] [priority:high] ctx:42%`)
+  lacks that redundancy and is `n/a` by construction. Values: Claude
   `ctx:NN%` (used), Codex `Context NN% left` (`100 - left`), other tools `n/a`. Bands follow the
   token-budget canon:
   `<30 OK · ≥30 PREP · ≥50 COMPACT · ≥80 STOP · ≥90 EMERGENCY`. A CLI verb, not a new MCP tool — the

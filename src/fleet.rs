@@ -9,13 +9,15 @@
 //!   into the pure [`hud_row`] pipeline, which keeps only an `Option<u8>`; nothing else is retained.
 //! - **Read-only.** Nothing here writes to any pane or tmux server.
 //!
-//! Extraction is **adapter-based and structural** — each pane is classified by trying every
-//! adapter's `parse_ctx_pct` and taking the first `Some`. An adapter claims a reading only when the
-//! FULL statusline signature of that tool is present on a line: for Claude a `[name]` bracket AND a
-//! `[Model:effort]` bracket AND `ctx:NN%`; for Codex the model token AND middle-dot separators AND
-//! both the `Context …% left` and `weekly …% left` gauges. A bare gauge phrase (`Context 5% left`,
-//! `ctx:42%` in a log line) has none of that structure, so it is `n/a` **by construction** — the
-//! honest answer for a line that is not a statusline — not by a filter that could be out-argued.
+//! Extraction is **adapter-based and by structural redundancy** — each pane is classified by trying
+//! every adapter's `parse_ctx_pct` and taking the first `Some`. An adapter claims a reading only
+//! when the co-occurring redundancy a real statusline has (and an ordinary log line cannot forge) is
+//! present on a line: for Claude `ctx:NN%` AND a sibling `5h:`/`7d:` rate-limit gauge AND a
+//! versioned model-token bracket (letters + digits, `[Fable 5:high]`); for Codex the `gpt-*` model
+//! token AND middle-dot separators AND both the `Context …% left` and `weekly …% left` gauges. A
+//! bare gauge phrase (`Context 5% left`, `ctx:42%` in a log line, `[INFO] [priority:high] ctx:42%`)
+//! lacks that redundancy, so it is `n/a` **by construction** — not by a filter that could be
+//! out-argued. Forging a reading would require actually being a statusline.
 
 use crate::adapters::ToolAdapter;
 use crate::core::budget::BudgetLevel;
@@ -218,8 +220,9 @@ pub fn render_json(rows: &[HudRow]) -> String {
 mod tests {
     use super::*;
 
-    /// A full Claude statusline with `used`% context — the structural signature the adapter
-    /// requires: a `[name]` bracket, a `[Model:effort]` bracket, and the `ctx:` gauge co-occurring.
+    /// A full Claude statusline with `used`% context — the structural REDUNDANCY the adapter
+    /// requires: `ctx:` + the sibling `5h:`/`7d:` rate-limit gauges + a versioned model-token
+    /// bracket (`[Fable 5:high]`), all co-occurring on one line.
     fn claude_line(used: u8) -> String {
         format!("[WOLF] /ASIF [Fable 5:high] ctx:{used}% 5h:43%(~2h58m) 7d:94%(~4h8m)")
     }
@@ -280,6 +283,10 @@ mod tests {
             // regate round-4: a log line whose bracket-with-colon is a TIME, not [Model:effort].
             "[INFO] [12:30] ctx:42% starting run",
             "[WARN] [09:05:11] ctx:88% retrying",
+            // regate round-5: `high` is a valid effort word, so a shape check passed these; the
+            // redundancy signature rejects them — no sibling 5h:/7d: gauge, no letter+digit bracket.
+            "[INFO] [priority:high] ctx:42% starting run",
+            "[job] [worker:high] ctx:63% dispatched",
         ] {
             let rows = hud_rows(&[("diag".into(), line.into())]);
             assert_eq!(rows[0].used_pct, None, "must be n/a: {line:?}");
