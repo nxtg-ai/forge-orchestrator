@@ -6,17 +6,40 @@ use std::process::Command;
 
 pub struct ClaudeAdapter;
 
+/// The reasoning-effort words Claude Code renders in `[Model:effort]`.
+const EFFORT_WORDS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
+/// Is a bracket's content a real `Model:effort` pair — an alphabetic model token and a known effort
+/// word — rather than, say, a `[12:30]` log timestamp? The model must START with a letter and use
+/// only letters/digits/dots/hyphens/spaces; the effort must be one of [`EFFORT_WORDS`]. Pure.
+fn is_model_effort(content: &str) -> bool {
+    let Some((model, effort)) = content.split_once(':') else {
+        return false;
+    };
+    let model = model.trim();
+    let model_ok = model
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic())
+        && model
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ' '));
+    let effort_ok = EFFORT_WORDS.contains(&effort.trim().to_lowercase().as_str());
+    model_ok && effort_ok
+}
+
 impl ToolAdapter for ClaudeAdapter {
     fn name(&self) -> &str {
         "claude"
     }
 
     /// Extract Claude's `ctx:NN%` (context USED) only when the FULL statusline structural signature
-    /// is present on a line: a `[name]` bracket AND a `[Model:effort]` bracket (one containing `:`)
-    /// AND the `ctx:` gauge co-occurring. A bare `ctx:42%` or an ordinary line with a percentage has
-    /// no such structure → `None` (n/a). This is by construction, not a filter: only a genuine
-    /// statusline carries all three elements together. Anchored on `ctx:` so the sibling `5h:`/`7d:`
-    /// rate-limit gauges are never read. Case-insensitive.
+    /// is present on a line: a `[name]` bracket AND a valid `[Model:effort]` bracket AND the `ctx:`
+    /// gauge co-occurring. `[Model:effort]` is validated by SHAPE (an alphabetic model token + a
+    /// known effort word), so a numeric `[12:30]` log timestamp does NOT qualify — an ordinary line
+    /// `[INFO] [12:30] ctx:42%` is n/a. A bare `ctx:42%` likewise has no such structure → `None`.
+    /// This is by construction, not a filter. Anchored on `ctx:` so the sibling `5h:`/`7d:` gauges
+    /// are never read. Case-insensitive.
     fn parse_ctx_pct(&self, statusline: &str) -> Option<u8> {
         for line in statusline.lines() {
             let lower = line.to_lowercase();
@@ -24,10 +47,10 @@ impl ToolAdapter for ClaudeAdapter {
                 continue;
             }
             let brackets = super::bracket_contents(line);
-            let has_model_effort = brackets.iter().any(|b| b.contains(':'));
+            let has_model_effort = brackets.iter().any(|b| is_model_effort(b));
             let has_name = brackets
                 .iter()
-                .any(|b| !b.contains(':') && !b.trim().is_empty());
+                .any(|b| !is_model_effort(b) && !b.trim().is_empty());
             if has_name
                 && has_model_effort
                 && let Some(pct) = super::pct_after(&lower, "ctx:")

@@ -277,6 +277,9 @@ mod tests {
             "only 5% left to process the queue",
             "weekly 61% left",
             "ctx:42% appears in this log line",
+            // regate round-4: a log line whose bracket-with-colon is a TIME, not [Model:effort].
+            "[INFO] [12:30] ctx:42% starting run",
+            "[WARN] [09:05:11] ctx:88% retrying",
         ] {
             let rows = hud_rows(&[("diag".into(), line.into())]);
             assert_eq!(rows[0].used_pct, None, "must be n/a: {line:?}");
