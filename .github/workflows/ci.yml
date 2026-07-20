@@ -33,6 +33,29 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+  # Windows COMPILE-check only — not the full test suite (PTY + Instant-timing tests are
+  # Windows-incompatible, so Windows was dropped from the test matrix). `forge pod` is
+  # #[cfg(unix)]-gated, so it is out of this build; this job's job is to catch a NON-gated Unix-only
+  # API leaking into always-compiled code before it reaches a release (DIRECTIVE-NXTG-20260719-22:
+  # a pod change broke the Windows release leg because nothing compiled Windows until release.yml).
+  windows-build:
+    name: Windows build check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # `cargo build` compiles the binary (src/) only — NOT the integration tests, which are
+      # Unix-only (tmux/bash/flock) and are never run on Windows. This is the compile-check that
+      # would have caught the ungated pod module before release.
+      - run: cargo build
+
+      - name: Create issue on CI failure
+        uses: jayqi/failed-build-issue-action@v1
+        if: failure() && github.event.pull_request == null
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
