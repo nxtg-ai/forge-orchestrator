@@ -16,17 +16,23 @@ pub(crate) fn pct_after(haystack: &str, prefix: &str) -> Option<u8> {
     digits.parse::<u32>().ok().map(|n| n.min(100) as u8)
 }
 
-/// Read the digit run immediately BEFORE the last occurrence of `suffix`, as a clamped percent.
-pub(crate) fn pct_before(haystack: &str, suffix: &str) -> Option<u8> {
-    let idx = haystack.rfind(suffix)?;
-    let head = &haystack[..idx];
-    let mut digits: Vec<char> = head
-        .chars()
-        .rev()
-        .take_while(|c| c.is_ascii_digit())
-        .collect();
-    digits.reverse();
-    let digits: String = digits.into_iter().collect();
+/// After the last occurrence of `word`, read the first `NN%` token as a clamped percent — the
+/// digits must be immediately followed by `%` (spaces allowed). Pure.
+///
+/// This anchors a gauge to its LABEL, so a statusline like `Context 59% left · weekly 61% left`
+/// reads the context gauge (59), not the sibling rate-limit gauge — and an ordinary line without
+/// the label (`5% left to process`) matches nothing.
+pub(crate) fn pct_after_word_percent(haystack: &str, word: &str) -> Option<u8> {
+    let idx = haystack.rfind(word)? + word.len();
+    let rest = haystack[idx..].trim_start();
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        return None;
+    }
+    let after = rest[digits.len()..].trim_start();
+    if !after.starts_with('%') {
+        return None;
+    }
     digits.parse::<u32>().ok().map(|n| n.min(100) as u8)
 }
 

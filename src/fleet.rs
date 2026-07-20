@@ -1,15 +1,17 @@
 //! Fleet context-budget HUD (W2-C, consolidation RFC §3 item 1).
 //!
-//! Reads the **`ctx` gauge only** from each agent pane's statusline and reports a context-budget
-//! band per pane. Two hard disciplines, mirroring the pod work's live-surface safety:
+//! Reads each agent pane's **context gauge** from its visible statusline and reports a
+//! context-budget band per pane. Two hard disciplines, mirroring the pod work's live-surface safety:
 //!
-//! - **Gauge-only.** The capture buffer is fed straight into the pure [`hud_row`] pipeline, which
-//!   keeps only an `Option<u8>`; no other pane text is retained, logged, or surfaced.
+//! - **Gauge-only.** Only the pane's **visible screen** is captured (never scrollback), and the
+//!   buffer is fed straight into the pure [`hud_row`] pipeline, which keeps only an `Option<u8>`; no
+//!   other pane text is retained, logged, or surfaced.
 //! - **Read-only.** Nothing here writes to any pane or tmux server.
 //!
-//! Extraction is **adapter-based** — each pane is classified by trying every adapter's
-//! `parse_ctx_pct` and taking the first `Some`. The gauges are mutually unambiguous (`ctx:` prefix
-//! vs `% left` suffix), so no brittle `pane_current_command → tool` mapping is needed; a pane whose
+//! Extraction is **adapter-based and label-anchored** — each pane is classified by trying every
+//! adapter's `parse_ctx_pct` and taking the first `Some`. Each adapter anchors on its gauge's LABEL
+//! (`ctx:` for Claude, `Context …% left` for Codex), so a sibling rate-limit gauge on the same
+//! statusline (`5h:`/`7d:`/`weekly`) or ordinary text is never mistaken for it; a pane whose visible
 //! statusline matches no adapter is reported `n/a`, never guessed.
 
 use crate::adapters::ToolAdapter;
@@ -74,11 +76,6 @@ pub fn hud_rows(specimens: &[(String, String)]) -> Vec<HudRow> {
 /// Points tmux at a private server. Test isolation only — unset in production (default server).
 pub const TMUX_SOCKET_ENV: &str = "FORGE_FLEET_TMUX_SOCKET";
 
-/// How many trailing lines of a pane to capture. The Claude/Codex statusline renders at the bottom;
-/// a small window catches it while minimizing how much is read. Empirically the gauge sat within
-/// the last few visible rows across live specimens.
-const STATUSLINE_WINDOW: u32 = 6;
-
 fn tmux() -> std::process::Command {
     let mut cmd = std::process::Command::new("tmux");
     if let Some(socket) = std::env::var_os(TMUX_SOCKET_ENV).filter(|v| !v.is_empty()) {
@@ -106,21 +103,13 @@ fn list_panes() -> Vec<String> {
     }
 }
 
-/// Capture ONLY the gauge from a pane's statusline window, discarding everything else immediately.
-///
-/// Returns the row's normalized percent via the adapters — the captured text never leaves this
-/// function. `None` when no gauge is present (→ n/a).
+/// Capture the pane's **visible screen** (never scrollback) so the statusline is present but the
+/// pane's history is not. Scrollback scanning was the false-positive source (regate: an ordinary
+/// "N% left" diagnostic in history was read as a Codex gauge); pairing a visible-only capture with
+/// label-anchored adapters (`ctx:`, `Context …% left`) confines extraction to the statusline gauge.
+/// The captured text is consumed immediately by the pure pipeline and never retained.
 fn capture_statusline(pane: &str) -> String {
-    let out = tmux()
-        .args([
-            "capture-pane",
-            "-p",
-            "-t",
-            pane,
-            "-S",
-            &format!("-{STATUSLINE_WINDOW}"),
-        ])
-        .output();
+    let out = tmux().args(["capture-pane", "-p", "-t", pane]).output();
     match out {
         Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
         _ => String::new(),
@@ -268,11 +257,38 @@ mod tests {
 
     #[test]
     fn adapters_do_not_cross_claim_each_others_gauges() {
-        // Non-overlapping by construction: the claude line has no `% left`, the codex line no `ctx:`.
+        // Non-overlapping by construction: the claude line has no `Context …%`, the codex line no `ctx:`.
         let claude = hud_rows(&[("a".into(), "ctx:12%".into())]);
         assert_eq!(claude[0].tool.as_deref(), Some("claude"));
-        let codex = hud_rows(&[("b".into(), "44% left".into())]);
+        let codex = hud_rows(&[("b".into(), "Context 44% left".into())]);
         assert_eq!(codex[0].tool.as_deref(), Some("codex"));
+    }
+
+    #[test]
+    fn codex_reads_the_context_gauge_not_the_sibling_weekly_gauge() {
+        // The REAL Codex statusline carries two "% left" gauges; only the context one is truth.
+        // `Context 59% left · weekly 61% left` must be 41 used (100-59), never from `weekly 61%`.
+        let rows = hud_rows(&[(
+            "codex".into(),
+            "gpt-5.6-sol high  Context 59% left  weekly 61% left".into(),
+        )]);
+        assert_eq!(rows[0].used_pct, Some(41), "{rows:?}");
+        assert_eq!(rows[0].tool.as_deref(), Some("codex"));
+    }
+
+    #[test]
+    fn an_ordinary_percentage_left_phrase_is_not_a_codex_gauge() {
+        // The regate false-positive, as a seeded control: an ordinary diagnostic with a
+        // "N% left" phrase (no `Context` label) must NOT be read as a Codex ctx gauge → n/a.
+        for line in [
+            "only 5% left to process the queue",
+            "a percentage-left phrase was falsely classified as Codex",
+            "weekly 61% left",
+        ] {
+            let rows = hud_rows(&[("diag".into(), line.into())]);
+            assert_eq!(rows[0].used_pct, None, "false positive on: {line:?}");
+            assert_eq!(rows[0].tool, None, "false positive on: {line:?}");
+        }
     }
 
     #[test]
@@ -292,11 +308,11 @@ mod tests {
     #[test]
     fn strip_summary_orders_by_severity_and_counts_ok() {
         let rows = hud_rows(&[
-            ("wolf".into(), "ctx:36%".into()),    // PREP
-            ("kestrel".into(), "ctx:82%".into()), // STOP
-            ("dx3".into(), "ctx:12%".into()),     // OK
-            ("codex".into(), "5% left".into()),   // 95 used → EMERGENCY
-            ("idle".into(), "bash".into()),       // n/a — excluded
+            ("wolf".into(), "ctx:36%".into()),          // PREP
+            ("kestrel".into(), "ctx:82%".into()),       // STOP
+            ("dx3".into(), "ctx:12%".into()),           // OK
+            ("codex".into(), "Context 5% left".into()), // 95 used → EMERGENCY
+            ("idle".into(), "bash".into()),             // n/a — excluded
         ]);
         let s = strip_summary(&rows);
         // 2 OK? no — dx3 is OK (1). Flagged: codex(EMERGENCY), kestrel(STOP), wolf(PREP) in order.

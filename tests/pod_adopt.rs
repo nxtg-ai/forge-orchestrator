@@ -179,6 +179,70 @@ impl World {
     fn journal_path(&self) -> PathBuf {
         self.journal_dir.join("pod-adoption.json")
     }
+
+    /// Write a pod record into the store so `state::pod` returns it and recovery actually
+    /// enumerates (instead of early-returning). The pane binds a `.forge` `task:` and points at
+    /// `pane_cwd`, so a recovery logs a `PaneRecovered` event there — the observable that proves
+    /// enumeration reached the pane through the private socket.
+    fn seed_pod_record(
+        &self,
+        name: &str,
+        window: &str,
+        pane_cwd: &Path,
+        command: &str,
+        task: &str,
+    ) {
+        let json = serde_json::json!({
+            "pods": {
+                name: {
+                    "status": "running",
+                    "started_at": "2026-07-19T00:00:00Z",
+                    "source_path": format!("/tmp/{name}.yaml"),
+                    "windows": [{
+                        "name": window,
+                        "panes": [{
+                            "index": 0,
+                            "cwd": pane_cwd.display().to_string(),
+                            "command": command,
+                            "task": task,
+                        }]
+                    }],
+                    "on_pane_dead": [],
+                    "after_detach": []
+                }
+            }
+        });
+        std::fs::write(
+            self.store_dir.join("state.json"),
+            serde_json::to_string_pretty(&json).unwrap(),
+        )
+        .unwrap();
+    }
+
+    /// Create a session on the private socket with one pane that dies (remain-on-exit keeps it as a
+    /// dead pane). Polls until tmux reports `pane_dead=1`.
+    fn make_session_with_dead_pane(&self, name: &str, window: &str) {
+        self.tmux(&["new-session", "-d", "-s", name, "-n", window]);
+        self.tmux(&["set-option", "-t", name, "remain-on-exit", "on"]);
+        // Kill the pane's process so it becomes a dead pane.
+        self.tmux(&[
+            "respawn-pane",
+            "-k",
+            "-t",
+            &format!("{name}:{window}"),
+            "false",
+        ]);
+        for _ in 0..200 {
+            let out = self.tmux(&["list-panes", "-t", name, "-s", "-F", "#{pane_dead}"]);
+            if String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .any(|l| l == "1")
+            {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
 }
 
 impl Drop for World {
@@ -368,8 +432,18 @@ fn a_pane_death_during_adopting_defers_then_drains_on_resume() {
     assert_ne!(code, 0);
     assert_eq!(w.journal_state().as_deref(), Some("adopting"));
 
-    // A pane dies now: the tmux hook runs `forge pod _pane-recover node`, which defers rather than
-    // acting because authority is InTransition(Adopting).
+    // A pane dies now (AFTER adopt cleared preflight — a dead pane before adopt would refuse it):
+    // seed the store record + a `.forge` project so the drain ENUMERATES and logs a PaneRecovered
+    // event, and kill a pane in the live private-socket session so there is a real dead pane to find.
+    let proj = w.root.join("node-proj");
+    std::fs::create_dir_all(proj.join(".forge")).unwrap();
+    w.seed_pod_record("node", "main", &proj, "sleep 300", "T-1");
+    // Recreate `node` with a `main` window carrying a dead pane (the earlier session had a different
+    // window name); the store record's window/pane must match for enumeration to map it.
+    w.tmux(&["kill-session", "-t", "node"]);
+    w.make_session_with_dead_pane("node", "main");
+
+    // The tmux hook runs `forge pod _pane-recover node`, which defers because authority is Adopting.
     let (code, out, err) = w.forge(&["_pane-recover", "node"]);
     assert_eq!(code, 0, "{out}{err}");
     assert_eq!(
@@ -387,6 +461,15 @@ fn a_pane_death_during_adopting_defers_then_drains_on_resume() {
         w.recoveries().get("node").map(String::as_str),
         Some("complete"),
         "the deferred recovery must complete before the terminal commit"
+    );
+    // The proof that enumeration actually ran through the PRIVATE socket (not the operator's server,
+    // and not an early-return): the dead pane was recovered and logged its event.
+    let events =
+        std::fs::read_to_string(proj.join(".forge").join("events.jsonl")).unwrap_or_default();
+    assert!(
+        events.contains("pane_recovered"),
+        "the drain must enumerate the dead pane via the private socket and recover it; \
+         events.jsonl: {events:?}"
     );
 }
 

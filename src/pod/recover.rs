@@ -125,17 +125,17 @@ pub fn pane_recover_inline(session: &str) -> Result<()> {
         return Ok(());
     };
 
-    let out = std::process::Command::new("tmux")
-        .args([
-            "list-panes",
-            "-t",
-            session,
-            "-s",
-            "-F",
-            "#{window_name}|#{pane_index}|#{pane_dead}",
-        ])
-        .output()?;
-    let listing = String::from_utf8_lossy(&out.stdout);
+    // A legitimately-gone session has nothing to recover — a benign, socket-aware check (not a
+    // swallowed error). Enumeration itself is then exit-validated: a failure on a LIVE session
+    // surfaces rather than looking like "no dead panes".
+    if !Tmux::session_exists(session) {
+        tracing::warn!("pane-recover: session '{session}' no longer exists; nothing to recover");
+        return Ok(());
+    }
+
+    // Route through the socket-aware, exit-validated adapter — never a raw `tmux` (which would
+    // ignore FORGE_POD_TMUX_SOCKET and swallow the exit status).
+    let listing = Tmux::list_panes_for(session)?;
 
     for pane in parse_dead_panes(&listing, &pod_state) {
         tracing::info!(

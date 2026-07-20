@@ -67,6 +67,23 @@ impl Tmux {
         Ok(out)
     }
 
+    /// List a session's panes for recovery — **socket-aware and exit-status validated**, because it
+    /// routes through [`Tmux::run`] (which prepends `-L <socket>` and returns `Err` on a non-zero
+    /// tmux exit). An earlier version shelled out to `tmux` directly: it ignored
+    /// `FORGE_POD_TMUX_SOCKET` (hitting the operator's real server) and swallowed the exit status, so
+    /// a failed enumeration looked like "no dead panes". Format: `window|pane_index|pane_dead`.
+    pub fn list_panes_for(session: &str) -> Result<String> {
+        let out = Self::run(&[
+            "list-panes",
+            "-t",
+            session,
+            "-s",
+            "-F",
+            "#{window_name}|#{pane_index}|#{pane_dead}",
+        ])?;
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    }
+
     pub fn session_exists(name: &str) -> bool {
         tmux_command()
             .args(["has-session", "-t", name])

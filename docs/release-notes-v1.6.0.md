@@ -21,9 +21,11 @@ parse/validate/mutate goes through one JSON parser (no grep/sed/awk shortcuts). 
 synergy: a `task:`-bound pane's dead-pane recovery re-claims the forge task and logs `PaneRecovered`.
 
 ### Fleet ctx% budget HUD (W2-C)
-`forge status --budget [--json] [--all]` reads each agent pane's `ctx` gauge (read-only, gauge-only)
-and reports a PREP/COMPACT/STOP band per the token-budget canon. Adapter-based extraction (Claude
-`ctx:NN%`, Codex `NN% left` → `100-left`, others `n/a`). A one-line dashboard strip toggles with `b`.
+`forge status --budget [--json] [--all]` reads each agent pane's context gauge from its **visible
+statusline** (read-only; only the normalized percent is retained) and reports a PREP/COMPACT/STOP
+band per the token-budget canon. Extraction is **label-anchored** per tool so a sibling rate-limit
+gauge or ordinary text is never mistaken for it: Claude `ctx:NN%` (used), Codex `Context NN% left`
+(remaining → `100-left`), others `n/a`. A one-line dashboard strip toggles with `b`.
 
 ### `forge doctor` — unified health gate (W2-B phase 1)
 Aggregates quality, release-debt, and drift into one fail-closed verdict (`--strict`, `--json`
