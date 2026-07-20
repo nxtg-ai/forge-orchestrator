@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.6.0] - 2026-07-19
 
+> **Platform note**: `forge pod` is Unix-only (tmux + `flock(2)`); the Windows binary is built
+> without it (`#[cfg(unix)]`-gated) and `forge pod` there exits 2 with a message. Every other
+> subcommand ships on all five targets.
+
 ### Added — `forge pod` (W2-A, cosmux consolidation, rides the v1.6.0 train)
 
 - **`forge pod`** — declarative tmux pod management vendored from cosmux v0.4.2, operating on the

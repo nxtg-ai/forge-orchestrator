@@ -7,6 +7,11 @@ mod core;
 mod detect;
 mod fleet;
 mod mcp;
+// `pod` speaks tmux + flock(2) directly (Unix-only). Windows gets no pod surface — the `forge pod`
+// dispatch is stubbed there (see main.rs). Gating the whole module keeps the Windows target building
+// (v1.5.2 shipped it); the Unix codepaths are byte-identical, so the §1.5 rollback contract is
+// unchanged (DIRECTIVE-NXTG-20260719-20 follow-up: pod is Unix-only by nature).
+#[cfg(unix)]
 mod pod;
 pub(crate) mod tui;
 
@@ -119,53 +124,67 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Pod { verb } => {
-            use cli::PodVerb;
-            // Pod verbs carry cosmux-parity exit codes (2 = uncovered preflight targets), so the
-            // verdict is the process status, as it is for `forge doctor`.
-            let result = match verb {
-                PodVerb::Start {
-                    name,
-                    force,
-                    attach,
-                } => cli::pod::start(&name, force, attach),
-                PodVerb::Stop { name } => cli::pod::stop(&name),
-                PodVerb::List => cli::pod::list(),
-                PodVerb::Validate { name } => cli::pod::validate(&name),
-                PodVerb::Show { name } => cli::pod::show(&name),
-                PodVerb::State => cli::pod::show_state(),
-                PodVerb::Ps => cli::pod::ps(),
-                PodVerb::Gc => cli::pod::gc(),
-                PodVerb::Reload { name, force } => cli::pod::reload(&name, force),
-                PodVerb::Completions { shell } => cli::pod::completions(shell),
-                PodVerb::Preflight { pod, against } => cli::pod::preflight_cmd(
-                    pod.as_deref(),
-                    against.as_deref().map(std::path::Path::new),
-                ),
-                PodVerb::Adopt { repair, abort } => {
-                    if repair {
-                        crate::pod::adopt::repair()
-                    } else if abort {
-                        crate::pod::adopt::abort()
-                    } else {
-                        crate::pod::adopt::adopt()
+            // Pod is Unix-only (tmux + flock(2)). On non-Unix the verb parses but there is no
+            // handler — fail closed with exit 2 rather than pretend. Both branches diverge
+            // (`process::exit`), so the arm still type-checks.
+            #[cfg(not(unix))]
+            {
+                let _ = verb;
+                eprintln!(
+                    "forge pod requires a Unix host (tmux + flock); it is not available on this platform"
+                );
+                std::process::exit(2);
+            }
+            #[cfg(unix)]
+            {
+                use cli::PodVerb;
+                // Pod verbs carry cosmux-parity exit codes (2 = uncovered preflight targets), so the
+                // verdict is the process status, as it is for `forge doctor`.
+                let result = match verb {
+                    PodVerb::Start {
+                        name,
+                        force,
+                        attach,
+                    } => cli::pod::start(&name, force, attach),
+                    PodVerb::Stop { name } => cli::pod::stop(&name),
+                    PodVerb::List => cli::pod::list(),
+                    PodVerb::Validate { name } => cli::pod::validate(&name),
+                    PodVerb::Show { name } => cli::pod::show(&name),
+                    PodVerb::State => cli::pod::show_state(),
+                    PodVerb::Ps => cli::pod::ps(),
+                    PodVerb::Gc => cli::pod::gc(),
+                    PodVerb::Reload { name, force } => cli::pod::reload(&name, force),
+                    PodVerb::Completions { shell } => cli::pod::completions(shell),
+                    PodVerb::Preflight { pod, against } => cli::pod::preflight_cmd(
+                        pod.as_deref(),
+                        against.as_deref().map(std::path::Path::new),
+                    ),
+                    PodVerb::Adopt { repair, abort } => {
+                        if repair {
+                            crate::pod::adopt::repair()
+                        } else if abort {
+                            crate::pod::adopt::abort()
+                        } else {
+                            crate::pod::adopt::adopt()
+                        }
                     }
-                }
-                PodVerb::Unadopt => crate::pod::adopt::unadopt(),
-                PodVerb::PaneRecover { session } => cli::pod::pane_recover(&session),
-                PodVerb::AfterDetach { session } => cli::pod::after_detach(&session),
-            };
-            use std::io::Write;
-            let code = match result {
-                Ok(code) => code,
-                Err(error) => {
-                    // Operational errors exit 1, matching cosmux; a check that RAN and found
-                    // problems exits 2 via its own return value.
-                    eprintln!("forge pod: {error}");
-                    1
-                }
-            };
-            std::io::stdout().flush().ok();
-            std::process::exit(code);
+                    PodVerb::Unadopt => crate::pod::adopt::unadopt(),
+                    PodVerb::PaneRecover { session } => cli::pod::pane_recover(&session),
+                    PodVerb::AfterDetach { session } => cli::pod::after_detach(&session),
+                };
+                use std::io::Write;
+                let code = match result {
+                    Ok(code) => code,
+                    Err(error) => {
+                        // Operational errors exit 1, matching cosmux; a check that RAN and found
+                        // problems exits 2 via its own return value.
+                        eprintln!("forge pod: {error}");
+                        1
+                    }
+                };
+                std::io::stdout().flush().ok();
+                std::process::exit(code);
+            }
         }
         Commands::Doctor { strict, json } => {
             let code = cli::doctor::execute(&project_root, strict, json)?;

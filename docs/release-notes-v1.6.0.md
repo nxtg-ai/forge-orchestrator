@@ -56,7 +56,7 @@ v1.6.0 ships the complete matrix via `release.yml`:
 | `aarch64-unknown-linux-gnu` | — |
 | `x86_64-apple-darwin` | — |
 | `aarch64-apple-darwin` | — |
-| `x86_64-pc-windows-msvc` | — |
+| `x86_64-pc-windows-msvc` | Ships without `forge pod` — pod speaks tmux + `flock(2)` (Unix-only); `forge pod` on Windows exits 2 with a clear message. All other subcommands (incl. the ctx% HUD, doctor, MCP) are present. |
 
 **v1.5.2 artifact debt retired here.** v1.5.2 was released manually during a GitHub Actions
 org-wide **billing lock** (run `29665177260`: every job failed in 2–4s with "account is locked due

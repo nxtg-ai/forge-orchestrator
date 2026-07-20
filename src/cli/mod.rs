@@ -10,7 +10,10 @@ pub mod init;
 pub mod mcp;
 /// Master plan generation and display from SPEC.md or UAT findings.
 pub mod plan;
-/// Declarative tmux pod management (cosmux parity surface).
+/// Declarative tmux pod management (cosmux parity surface). Unix-only (tmux + flock(2)); the
+/// `PodVerb` clap surface below stays cross-platform so `forge pod` parses everywhere, but the
+/// handlers compile only on Unix — Windows stubs the dispatch.
+#[cfg(unix)]
 pub mod pod;
 /// Headless task execution — single-task or autonomous parallel mode.
 pub mod run;
