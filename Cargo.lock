@@ -558,6 +558,7 @@ dependencies = [
  "predicates",
  "rand",
  "ratatui",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

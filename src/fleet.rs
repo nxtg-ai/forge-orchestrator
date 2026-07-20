@@ -287,6 +287,9 @@ mod tests {
             // redundancy signature rejects them — no sibling 5h:/7d: gauge, no letter+digit bracket.
             "[INFO] [priority:high] ctx:42% starting run",
             "[job] [worker:high] ctx:63% dispatched",
+            // regate round-6: `[worker5]` (digit glued to letters, no space) is NOT a versioned
+            // model token, and `5h:3` has no `%`, so the exact round-7 regexes reject it.
+            "[worker5] ctx:42% 5h:3",
         ] {
             let rows = hud_rows(&[("diag".into(), line.into())]);
             assert_eq!(rows[0].used_pct, None, "must be n/a: {line:?}");

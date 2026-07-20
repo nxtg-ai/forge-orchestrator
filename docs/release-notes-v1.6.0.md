@@ -24,15 +24,16 @@ synergy: a `task:`-bound pane's dead-pane recovery re-claims the forge task and 
 `forge status --budget [--json] [--all]` reads each agent pane's context gauge from the **last few
 raw lines of its statusline** (read-only; never scrollback, never the whole pane; only the
 normalized percent is retained) and reports a PREP/COMPACT/STOP band per the token-budget canon.
-An adapter claims a reading only when the tool's **statusline structural redundancy** is present —
-the co-occurring signals a real statusline has and no ordinary log line can forge. Claude: `ctx:NN%`
-+ a sibling rate-limit gauge (`5h:NN%` or `7d:NN%`) + a versioned model-token bracket (letters +
-digits, `[Fable 5:high]`). Codex: the `gpt-*` model token + middle-dot separators + both the
-`Context …% left` and `weekly …% left` gauges. A bare gauge phrase (`Context 5% left`, a `ctx:42%`
-in a log line, or `[INFO] [priority:high] ctx:42%`) lacks that redundancy and is `n/a` by
-construction — forging a reading would require actually being a statusline. Values: Claude `ctx:NN%`
-(used), Codex `Context NN% left` (remaining → `100-left`), others `n/a`. A one-line dashboard strip
-toggles `b`.
+An adapter claims a reading only when the tool's **exact statusline signature** matches — the
+co-occurring patterns a real statusline has and no ordinary log line can forge. Claude requires all
+three on one line: `ctx:NN%`, a sibling rate-limit gauge `5h:NN%` **or** `7d:NN%` (the `%` is
+mandatory), **and** a whole bracket that is a versioned model token — model words then a space then a
+version number, optional `:effort` (`[Opus 4.8:high]`, `[Fable 5]`). Codex requires the `gpt-*` model
+token + middle-dot separators + both the `Context …% left` and `weekly …% left` gauges. A bare gauge
+phrase (`Context 5% left`, `ctx:42%` in a log line, `[INFO] [priority:high] ctx:42%`, or
+`[worker5] ctx:42% 5h:3`) matches none of that and is `n/a` by construction — forging a reading would
+require actually being a statusline. Values: Claude `ctx:NN%` (used), Codex `Context NN% left`
+(remaining → `100-left`), others `n/a`. A one-line dashboard strip toggles `b`.
 
 ### `forge doctor` — unified health gate (W2-B phase 1)
 Aggregates quality, release-debt, and drift into one fail-closed verdict (`--strict`, `--json`

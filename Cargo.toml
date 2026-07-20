@@ -51,6 +51,11 @@ crossterm = "0.28"
 # Already resolved transitively (see Cargo.lock); declaring it adds zero new compiled crates.
 libc = "0.2"
 
+# Statusline signature matching — the fleet ctx% HUD (W2-C) matches each tool's EXACT statusline
+# regex (FPL round-7 ruling: the regex IS the spec, no hand-rolled predicate latitude). Already
+# resolved transitively (see Cargo.lock); declaring it adds zero new compiled crates.
+regex = "1"
+
 # Filesystem traversal
 walkdir = "2"
 

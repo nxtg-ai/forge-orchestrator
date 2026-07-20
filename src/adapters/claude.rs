@@ -1,58 +1,63 @@
 use super::ToolAdapter;
 use crate::core::state::ForgeState;
 use crate::core::task::Task;
+use regex::Regex;
 use std::path::Path;
 use std::process::Command;
+use std::sync::LazyLock;
 
 pub struct ClaudeAdapter;
 
-/// A bracket carrying a VERSIONED model token — content with at least one letter AND at least one
-/// digit (e.g. `Opus 4.8:high`, `Fable 5:high`, `Sonnet 5`). This is redundancy, not shape: a
-/// purely-alphabetic `[priority:high]` (no digit) and a purely-numeric `[12:30]` (no letter) each
-/// hold only one of the two, so neither can forge the token. Pure.
-fn is_versioned_model_bracket(content: &str) -> bool {
-    content.chars().any(|c| c.is_ascii_alphabetic()) && content.chars().any(|c| c.is_ascii_digit())
-}
+// --- Round-7 EXACT statusline patterns (FPL ruling: the regex IS the spec, no predicate latitude).
+// A Claude reading requires ALL THREE to match on one captured line. Compiled once.
 
-/// Does the (lowercased) line carry a Claude rate-limit SIBLING GAUGE — `5h:NN%` or `7d:NN%`, a
-/// digit immediately after the label? Every real Claude statusline renders these next to `ctx:`; no
-/// ordinary log line does. Their co-occurrence with a versioned model token is the redundancy that
-/// only an actual statusline satisfies. Pure.
-fn has_sibling_gauge(lower: &str) -> bool {
-    ["5h:", "7d:"].iter().any(|label| {
-        lower
-            .split(label)
-            .skip(1)
-            .any(|rest| rest.chars().next().is_some_and(|c| c.is_ascii_digit()))
-    })
-}
+/// (1) Versioned model-token bracket, matched against a WHOLE `[...]` token: model words, then a
+/// SPACE, then a version number, optional `:effort`. The space before the version digits makes the
+/// digit a SEPARATE version token — so `[Opus 4.8:high]` and `[Fable 5]` match while `[worker5]`
+/// (digit glued onto letters) does not.
+///
+/// FPL's round-7 regex text was `^\[[A-Za-z][A-Za-z ]*[0-9]+…` (no space), which — traced — DOES
+/// match `[worker5]`; the accompanying ruling ("the digit must be a SEPARATE version token preceded
+/// by space — enforce the space before the digit… rejects [worker5]") requires the space, so the
+/// literal ` ` is present before `[0-9]+`. This is the one deviation from the typed regex, made to
+/// satisfy FPL's own `[worker5]` → n/a control; flagged on re-signal.
+static VERSIONED_MODEL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\[[A-Za-z][A-Za-z ]* [0-9]+(\.[0-9]+)?(:(low|medium|high|xhigh|max))?\]$")
+        .unwrap()
+});
+
+/// (2) Sibling rate-limit gauge — `5h:NN%` or `7d:NN%`. The `%` is MANDATORY, so `5h:3` fails.
+/// Verbatim from the ruling.
+static SIBLING_GAUGE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(^|\s)(5h|7d):[0-9]{1,3}%(\(|\s|$)").unwrap());
+
+/// (3) The `ctx:NN%` gauge itself. Verbatim from the ruling.
+static CTX_GAUGE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(^|\s)ctx:[0-9]{1,3}%").unwrap());
 
 impl ToolAdapter for ClaudeAdapter {
     fn name(&self) -> &str {
         "claude"
     }
 
-    /// Extract Claude's `ctx:NN%` (context USED) only when the line carries the STRUCTURAL
-    /// REDUNDANCY a real statusline has and no ordinary log line can: (1) `ctx:NN%`, (2) a sibling
-    /// rate-limit gauge `5h:NN%` or `7d:NN%`, AND (3) a versioned model-token bracket (letters +
-    /// digits, e.g. `[Fable 5:high]`). Discriminating on redundancy — not on token shape — closes
-    /// the forgery class: `[INFO] [priority:high] ctx:42%` has neither a sibling gauge nor a digit
-    /// in any bracket, and `[INFO] [12:30] ctx:42%` has no sibling gauge and no letter+digit
-    /// bracket, so both are n/a BY CONSTRUCTION. Anchored on `ctx:` so the `5h:`/`7d:` values are
-    /// never mistaken for the reading. Case-insensitive.
+    /// Extract Claude's `ctx:NN%` (context USED) only when a line matches ALL THREE round-7 exact
+    /// patterns: [`CTX_GAUGE`] AND [`SIBLING_GAUGE`] AND a whole bracket matching [`VERSIONED_MODEL`].
+    /// The `5h:`/`7d:` and versioned-token requirements are the co-occurring redundancy only a real
+    /// statusline satisfies, so `[worker5] ctx:42% 5h:3` (no `%` on the sibling gauge, digit glued to
+    /// the bracket word), `[INFO] [priority:high] ctx:42%` and `[INFO] [12:30] ctx:42%` are all n/a
+    /// BY CONSTRUCTION. Value read via `pct_after` after `ctx:` (the gauge regex guarantees it).
     fn parse_ctx_pct(&self, statusline: &str) -> Option<u8> {
         for line in statusline.lines() {
             let lower = line.to_lowercase();
-            if !lower.contains("ctx:") {
+            // (3) ctx gauge AND (2) sibling gauge, on the lowercased line.
+            if !CTX_GAUGE.is_match(&lower) || !SIBLING_GAUGE.is_match(&lower) {
                 continue;
             }
-            let brackets = super::bracket_contents(line);
-            let has_versioned_model = brackets.iter().any(|b| is_versioned_model_bracket(b));
-            if has_versioned_model
-                && has_sibling_gauge(&lower)
-                && let Some(pct) = super::pct_after(&lower, "ctx:")
-            {
-                return Some(pct);
+            // (1) at least one WHOLE bracket is a versioned model token (original case, for [A-Za-z]).
+            let has_versioned_model = super::bracket_contents(line)
+                .iter()
+                .any(|c| VERSIONED_MODEL.is_match(&format!("[{c}]")));
+            if has_versioned_model {
+                return super::pct_after(&lower, "ctx:");
             }
         }
         None
