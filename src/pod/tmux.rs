@@ -31,6 +31,15 @@ fn tmux_command() -> Command {
     cmd
 }
 
+/// Tri-state result of a session-existence probe. Only [`Existence::ConfirmedAbsent`] is a benign
+/// "nothing to recover"; [`Existence::Error`] means the server was unreachable and must surface.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Existence {
+    Present,
+    ConfirmedAbsent,
+    Error(String),
+}
+
 pub struct Tmux;
 
 impl Tmux {
@@ -90,6 +99,27 @@ impl Tmux {
             .status()
             .map(|s| s.success())
             .unwrap_or(false)
+    }
+
+    /// Tri-state session existence — the recovery guard must distinguish "server up, session gone"
+    /// (benign) from "cannot reach the server" (an error to surface). `session_exists` collapses
+    /// BOTH to `false`, so a dead/unreachable server there reads as benign absence and a recovery
+    /// silently no-ops (regate round-2 A). `has-session` exits 1 either way; only the stderr
+    /// distinguishes them: `can't find session` ⇒ absent; `no server running` / `error connecting`
+    /// (or a spawn failure) ⇒ error.
+    pub fn session_existence(name: &str) -> Existence {
+        match tmux_command().args(["has-session", "-t", name]).output() {
+            Ok(out) if out.status.success() => Existence::Present,
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                if stderr.to_lowercase().contains("can't find session") {
+                    Existence::ConfirmedAbsent
+                } else {
+                    Existence::Error(stderr.trim().to_string())
+                }
+            }
+            Err(e) => Existence::Error(e.to_string()),
+        }
     }
 
     pub fn list_sessions() -> Result<Vec<String>> {

@@ -703,6 +703,55 @@ fn freeze_takes_effect_before_any_set_hook_on_split_line_valid_json() {
 }
 
 #[test]
+fn drain_on_an_unreachable_server_fails_loud_not_silently_complete() {
+    // regate round-2 A: a CONFIRMED-absent session (server up, session gone) is benign, but an
+    // UNREACHABLE server must surface — not be collapsed to "gone" and let the recovery no-op.
+    // Reach `adopting` with a pending recovery, then kill the server and resume: the drain must
+    // error (adopt exits nonzero, journal stays `adopting`), never reach terminal `adopted`.
+    if !tmux_available() {
+        eprintln!("SKIP: tmux unavailable");
+        return;
+    }
+    let w = World::new("deadserver");
+    w.make_session_with_cosmux_hooks("node", false);
+    let proj = w.root.join("node-proj");
+    std::fs::create_dir_all(proj.join(".forge")).unwrap();
+    w.seed_pod_record("node", "main", &proj, "sleep 300", "T-1");
+
+    let (code, _, _) = w.forge_env(
+        &["adopt"],
+        &[("FORGE_POD_ADOPT_FAIL_AT", "terminal/before")],
+    );
+    assert_ne!(code, 0);
+    assert_eq!(w.journal_state().as_deref(), Some("adopting"));
+    let (code, out, err) = w.forge(&["_pane-recover", "node"]);
+    assert_eq!(code, 0, "{out}{err}");
+    assert_eq!(
+        w.recoveries().get("node").map(String::as_str),
+        Some("pending")
+    );
+
+    // Kill the private server — the socket now refers to an unreachable server.
+    w.kill_server();
+
+    let (code, out, err) = w.forge(&["adopt"]);
+    assert_ne!(
+        code, 0,
+        "resume against an unreachable server must fail loud, not exit 0: {out}{err}"
+    );
+    assert_ne!(
+        w.journal_state().as_deref(),
+        Some("adopted"),
+        "an unreachable-server recovery must NOT reach terminal — it silently completed"
+    );
+    assert_eq!(
+        w.recoveries().get("node").map(String::as_str),
+        Some("pending"),
+        "the recovery must remain pending (unresolved), not be marked complete"
+    );
+}
+
+#[test]
 fn repair_freezes_authority_before_restoring_hooks() {
     // regate-15 P1-1: `--repair` on an `adopted` journal must write `unadopting` (freeze) BEFORE
     // restoring cosmux hooks — otherwise, since store-write authority is a lock-free journal read,

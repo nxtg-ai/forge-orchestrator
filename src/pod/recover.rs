@@ -125,12 +125,23 @@ pub fn pane_recover_inline(session: &str) -> Result<()> {
         return Ok(());
     };
 
-    // A legitimately-gone session has nothing to recover — a benign, socket-aware check (not a
-    // swallowed error). Enumeration itself is then exit-validated: a failure on a LIVE session
-    // surfaces rather than looking like "no dead panes".
-    if !Tmux::session_exists(session) {
-        tracing::warn!("pane-recover: session '{session}' no longer exists; nothing to recover");
-        return Ok(());
+    // Tri-state existence: only a CONFIRMED absent session (server up, session gone) is benign.
+    // An unreachable server is an ERROR that must surface — collapsing it to "gone" would let a
+    // dead-server recovery silently no-op (regate round-2 A).
+    match Tmux::session_existence(session) {
+        super::tmux::Existence::ConfirmedAbsent => {
+            tracing::warn!(
+                "pane-recover: session '{session}' no longer exists; nothing to recover"
+            );
+            return Ok(());
+        }
+        super::tmux::Existence::Error(why) => {
+            return Err(super::error::PodError::Other(anyhow::anyhow!(
+                "pane-recover: cannot determine whether session '{session}' exists \
+                 (tmux server unreachable): {why}"
+            )));
+        }
+        super::tmux::Existence::Present => {}
     }
 
     // Route through the socket-aware, exit-validated adapter — never a raw `tmux` (which would

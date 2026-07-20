@@ -103,17 +103,32 @@ fn list_panes() -> Vec<String> {
     }
 }
 
-/// Capture the pane's **visible screen** (never scrollback) so the statusline is present but the
-/// pane's history is not. Scrollback scanning was the false-positive source (regate: an ordinary
-/// "N% left" diagnostic in history was read as a Codex gauge); pairing a visible-only capture with
-/// label-anchored adapters (`ctx:`, `Context …% left`) confines extraction to the statusline gauge.
-/// The captured text is consumed immediately by the pure pipeline and never retained.
+/// How many bottom non-empty lines form the "statusline region". The context gauge sits within the
+/// last few rows across live panes (worst observed: 3rd-from-bottom); 4 keeps a one-line margin
+/// while excluding the rest of the pane. Capturing LESS is the point — a mid-pane diagnostic that
+/// happens to contain a gauge phrase must never be in scope.
+const STATUSLINE_LINES: usize = 4;
+
+/// Keep only the last `n` NON-EMPTY lines — the statusline region — **pure**. This is the
+/// "capture less" cure: a `Context N% left` phrase in a mid-pane diagnostic is trimmed away, so
+/// only the actual bottom statusline can ever be classified.
+pub fn bottom_region(text: &str, n: usize) -> String {
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    let start = lines.len().saturating_sub(n);
+    lines[start..].join("\n")
+}
+
+/// Capture the pane's **visible screen**, then keep only the bottom [`STATUSLINE_LINES`] non-empty
+/// lines. Never scrollback, never the whole pane: extraction is confined to the statusline region,
+/// so neither pane history nor mid-pane text can be mistaken for the gauge. The captured text is
+/// consumed immediately by the pure pipeline and never retained.
 fn capture_statusline(pane: &str) -> String {
     let out = tmux().args(["capture-pane", "-p", "-t", pane]).output();
-    match out {
+    let visible = match out {
         Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
-        _ => String::new(),
-    }
+        _ => return String::new(),
+    };
+    bottom_region(&visible, STATUSLINE_LINES)
 }
 
 /// Read the live fleet: every pane's ctx band. Read-only, gauge-only.
@@ -272,6 +287,46 @@ mod tests {
             "codex".into(),
             "gpt-5.6-sol high  Context 59% left  weekly 61% left".into(),
         )]);
+        assert_eq!(rows[0].used_pct, Some(41), "{rows:?}");
+        assert_eq!(rows[0].tool.as_deref(), Some("codex"));
+    }
+
+    #[test]
+    fn bottom_region_keeps_only_the_last_non_empty_lines() {
+        let text = "a\nb\n\nc\n\n\nd\ne\nf";
+        assert_eq!(bottom_region(text, 3), "d\ne\nf");
+        assert_eq!(
+            bottom_region(text, 100),
+            "a\nb\nc\nd\ne\nf",
+            "fewer lines than n → all"
+        );
+        assert_eq!(bottom_region("", 4), "");
+    }
+
+    #[test]
+    fn a_mid_pane_gauge_phrase_is_excluded_by_the_bottom_region() {
+        // regate round-2 C: an ordinary diagnostic 'Context 5% left' MID-PANE (with the real
+        // footer below it) must be trimmed away by the bottom region → n/a, never EMERGENCY.
+        let pane = "some output\nContext 5% left in a sentence\nmore\nlines\nof\nhistory\n[app] idle\nbypass permissions\nfocus";
+        let region = bottom_region(pane, STATUSLINE_LINES);
+        assert!(
+            !region.contains("Context 5% left"),
+            "mid-pane diagnostic must be trimmed: {region:?}"
+        );
+        let rows = hud_rows(&[("p".into(), region)]);
+        assert_eq!(
+            rows[0].used_pct, None,
+            "a mid-pane gauge phrase must not classify: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn a_real_statusline_in_the_bottom_region_reads_not_the_mid_pane_diagnostic() {
+        // The statusline sits in the bottom region; a diagnostic with a gauge phrase is above it and
+        // trimmed. The value read is the statusline's (41), never the diagnostic's.
+        let pane = "history\nContext 5% left DIAGNOSTIC\nmore stuff here\n[gpt] Context 59% left  weekly 61% left\nbypass permissions\nfocus";
+        let region = bottom_region(pane, STATUSLINE_LINES);
+        let rows = hud_rows(&[("p".into(), region)]);
         assert_eq!(rows[0].used_pct, Some(41), "{rows:?}");
         assert_eq!(rows[0].tool.as_deref(), Some("codex"));
     }

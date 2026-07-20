@@ -31,10 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added — fleet ctx% budget HUD (W2-C, rides the v1.6.0 train)
 
 - **`forge status --budget [--json] [--all]`** — a fleet-wide context-budget HUD reading each agent
-  pane's context gauge from its **visible statusline** (read-only; only the normalized percent is
-  kept). Extraction is **adapter-based and label-anchored** so a sibling rate-limit gauge or ordinary
-  text is not mistaken for it: Claude `ctx:NN%` (used), Codex `Context NN% left` (normalized to
-  `100 - left`), other tools degrade to `n/a`. Bands follow the token-budget canon:
+  pane's context gauge from the **bottom few lines of its statusline region** (read-only; never
+  scrollback, never mid-pane text; only the normalized percent is kept). Extraction is
+  **adapter-based and label-anchored** so a sibling rate-limit gauge or ordinary text is not mistaken
+  for it: Claude `ctx:NN%` (used), Codex `Context NN% left` (normalized to `100 - left`), other tools
+  degrade to `n/a`. Bands follow the token-budget canon:
   `<30 OK · ≥30 PREP · ≥50 COMPACT · ≥80 STOP · ≥90 EMERGENCY`. A CLI verb, not a new MCP tool — the
   tool count stays at 11.
 - **Dashboard fleet strip** — a one-line ctx% strip in the TUI dashboard, toggled with `b`, off by
