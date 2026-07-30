@@ -79,6 +79,92 @@
 
 ## CoS Directives
 
+### DIRECTIVE-NXTG-20260730-01 — P0: Restore Google agent transport after Gemini CLI retirement
+**From**: Rook, founder-authorized ASIF lane | **Priority**: P0
+**Injected**: 2026-07-30 13:24 PDT | **Estimate**: M | **Status**: PENDING
+
+**Consumer**: ASIF research fleets and every Forge Stargate user that assigns
+work to the Google-model adapter.
+
+**Problem**: Google has retired this environment's prior Gemini CLI transport
+for individual Code Assist use. The installed successor is Antigravity CLI
+`agy` v1.1.8. A real invocation of the former `gemini` client now returns
+`IneligibleTierError: This client is no longer supported ... migrate to the
+Antigravity suite of products`. Forge still constructs `gemini -p` for
+headless execution and `gemini --yolo --sandbox=false` for PTY execution, so
+the advertised Google-agent lane is broken.
+
+**Verified successor contract**:
+
+- executable: `agy`
+- headless: `agy --print "<prompt>"`
+- unattended permission mode: `agy --dangerously-skip-permissions`
+- model selection: `--model <model>`; locally discovered models include
+  `gemini-3.1-pro-high`, Gemini 3.5 Flash, and Gemini 3.6 Flash variants
+- current local version: `agy 1.1.8`
+
+**Why now**: The independent-oracle paper program requires a working
+cross-model review lane today. This correction is a fast follow-up; it must not
+consume or block the paper workstream.
+
+**Architecture review required before implementation**:
+
+1. Determine whether the existing Gemini adapter should be migrated, versioned
+   behind a compatibility detector, or generalized as a Google/Antigravity
+   adapter.
+2. Inventory runtime detection, headless execution, PTY readiness/completion,
+   config-file behavior, authentication, tests, user guides, README claims,
+   SPEC, and changelog.
+3. Verify the actual interactive readiness pattern from a live `agy` PTY;
+   do not copy forward `"Type your message"` without evidence.
+4. Preserve dated research reports and release history as historical evidence;
+   update current operational and product documentation.
+
+**Constraints**:
+
+- Product team owns architecture and implementation. ASIF will verify only as
+  a consumer.
+- No compatibility claim from help text alone: exercise a real headless task
+  and a real PTY task from Forge.
+- Do not silently alias `gemini` to `agy`; failures must identify which
+  executable and contract were attempted.
+- Keep existing Claude and Codex adapters byte-for-byte behaviorally stable.
+- Test counts may not decrease; add command-construction, detection,
+  failure-mode, and PTY contract tests.
+
+**Acceptance criteria**:
+
+- Forge completes one real headless Google-model task through `agy`.
+- Forge completes one real Stargate PTY task through `agy` without an approval
+  prompt.
+- An unavailable/unsupported Google transport fails observably and does not
+  report task success.
+- Current README, human guide, adapter documentation, SPEC/current positioning,
+  and CHANGELOG describe Antigravity accurately; dated historical evidence
+  remains intact.
+- Full Rust test suite, clippy, and formatting gates pass; release discipline is
+  followed if user-facing behavior changes.
+- The team posts the architecture choice, commit, test receipt, and consumer
+  reproduction command in this directive response and `/alignment`.
+
+**Team fitness at injection**: Two tmux panes were present at the correct repo
+(`forge-orchestrator:1.1`, `Forge:1.3`) but both were idle Bash shells with no
+active product agent. Implementation is therefore unassigned pending a fit
+product-team session.
+
+**Evidence**:
+
+- `agy -h`
+- `agy --version` → `1.1.8`
+- `src/adapters/gemini.rs` (current `gemini -p` and
+  `--yolo --sandbox=false` construction)
+- `docs/HUMAN-GUIDE.md` (current install/login contract)
+
+**Response** (filled by forge-orchestrator team):
+> PENDING
+
+---
+
 ### DIRECTIVE-NXTG-20260427-04 — P1: Complete clippy fix (10 more errors found by CI)
 **From**: NXTG-AI CoS (Wolf) | **Priority**: P1
 **Injected**: 2026-04-27 17:55 PDT | **Estimate**: S | **Status**: COMPLETED
