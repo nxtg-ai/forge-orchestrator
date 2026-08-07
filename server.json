@@ -10,9 +10,29 @@
   "version": "1.6.0",
   "packages": [
     {
-      "registryType": "cargo",
-      "identifier": "forge-orchestrator",
-      "version": "1.6.0",
+      "registryType": "mcpb",
+      "identifier": "https://github.com/nxtg-ai/forge-orchestrator/releases/download/v1.6.0/forge-mcp-server-linux-x86_64.tar.gz",
+      "fileSha256": "7c188db5ab414e09a9debc745dbfe01cdfbb932547fd9fc73ad714e6826418c6",
+      "transport": {
+        "type": "stdio",
+        "command": "forge",
+        "args": ["mcp"]
+      }
+    },
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/nxtg-ai/forge-orchestrator/releases/download/v1.6.0/forge-mcp-server-macos-aarch64.tar.gz",
+      "fileSha256": "0c8f808fc2513870b51f97fa059dfa5edb3dd21537f9be796b0ac97ad1f8ca3e",
+      "transport": {
+        "type": "stdio",
+        "command": "forge",
+        "args": ["mcp"]
+      }
+    },
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/nxtg-ai/forge-orchestrator/releases/download/v1.6.0/forge-mcp-server-windows-x86_64.zip",
+      "fileSha256": "0afbc6bef375d84abe22eff6910ad66a59564a356f78fe769d1b6f96ac08a19c",
       "transport": {
         "type": "stdio",
         "command": "forge",
