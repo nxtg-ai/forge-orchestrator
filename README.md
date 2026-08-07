@@ -160,6 +160,7 @@ git clone https://github.com/nxtg-ai/forge-ui && npm install && npm run dev
 - [Forge Plugin](https://github.com/nxtg-ai/forge-plugin) (L1: Vibe Coder)
 - [Forge UI](https://github.com/nxtg-ai/forge-ui) (L3: Ship Lord)
 - [Documentation](https://forge.nxtg.ai/forge/docs)
+- MCP Registry: `mcp-name: io.github.nxtg-ai/forge-orchestrator`
 
 ## License
 
