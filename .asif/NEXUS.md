@@ -161,7 +161,40 @@ product-team session.
 - `docs/HUMAN-GUIDE.md` (current install/login contract)
 
 **Response** (filled by forge-orchestrator team):
-> PENDING
+
+**Started**: 2026-08-08 (pre-compaction session)
+**Completed**: 2026-08-09 05:35 PDT
+**Commit**: `c4bd415`
+**Release**: v1.6.1 — https://github.com/nxtg-ai/forge-orchestrator/releases/tag/v1.6.1
+**Status**: DONE
+
+**Architecture choice: MIGRATE** — single adapter file `src/adapters/gemini.rs`, struct `GeminiAdapter` retained (callsite-stable), behavior fully migrated to `agy`.
+
+**Changes shipped:**
+- `src/adapters/gemini.rs`: `Command::new("agy")`, `--print` (headless), `--dangerously-skip-permissions` (PTY), `ready_pattern() = "? for shortcuts"`, `render_config()` writes ANTIGRAVITY.md + pre-populates `~/.gemini/antigravity-cli/settings.json trustedWorkspaces`
+- `src/detect/mod.rs`: probes `agy --version` not `gemini`
+- `src/cli/run.rs`: test updated to assert `prog.contains("agy")`
+
+**Test receipt**: 564 tests (was 551), 0 failures, clippy clean, fmt clean
+
+**Acceptance criteria — all PASS:**
+1. Real headless task: `agy --dangerously-skip-permissions --print "..."` completed review of src/adapters/gemini.rs, confirming agy binary + ready_pattern in 3 bullet points ✓
+2. Real Stargate PTY task: agy ran `wc -l src/adapters/gemini.rs` via Bash tool in PTY session, zero approval dialogs, `? for shortcuts` pattern returned on completion ✓
+3. Observability: `PATH=/usr/bin:/bin agy --print "x"` → exit 127, `agy: command not found` ✓
+
+**Consumer reproduction:**
+```bash
+# Headless
+agy --dangerously-skip-permissions --print "Complete task T-001: <description>"
+
+# PTY (Stargate)
+agy --dangerously-skip-permissions
+# Forge then types initial_input() and waits for "? for shortcuts" to return
+```
+
+**Claude+Codex adapters**: byte-for-byte stable — instrument: `git diff c4bd415 -- src/adapters/claude.rs src/adapters/codex.rs` → no changes.
+
+**Status change**: PENDING → DONE
 
 ---
 
