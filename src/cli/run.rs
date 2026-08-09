@@ -570,7 +570,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_adapter_command_gemini() {
+    fn test_build_adapter_command_antigravity() {
         let task = make_test_task("T-001");
         let cmd = build_adapter_command(
             &task,
@@ -581,8 +581,8 @@ mod tests {
         );
         let prog = cmd.get_program().to_str().unwrap_or("");
         assert!(
-            prog.contains("gemini"),
-            "expected gemini in program: {prog}"
+            prog.contains("agy"),
+            "expected agy (Antigravity CLI) in program, got: {prog}"
         );
     }
 

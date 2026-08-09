@@ -16,8 +16,8 @@ pub fn detect_tools() -> Vec<DetectedTool> {
         tools.push(tool);
     }
 
-    // Detect Gemini CLI
-    if let Some(tool) = detect_command("gemini", &["--version"], AgentType::Gemini) {
+    // Detect Antigravity CLI (agy) — successor to the retired Gemini CLI
+    if let Some(tool) = detect_command("agy", &["--version"], AgentType::Gemini) {
         tools.push(tool);
     }
 
@@ -69,7 +69,7 @@ pub fn display_detected_tools(tools: &[DetectedTool]) {
     println!("{}", "Detected AI Tools:".bold());
     if tools.is_empty() {
         println!("  {} No AI CLI tools found.", "!".yellow());
-        println!("  Install one of: claude, codex, gemini");
+        println!("  Install one of: claude, codex, agy (Antigravity)");
         return;
     }
 

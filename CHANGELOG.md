@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-08-09
+
+### Changed — Antigravity (`agy`) replaces retired Gemini CLI
+
+- **Google agent transport migrated to Antigravity CLI (`agy`)** — the Gemini CLI is retired
+  (`IneligibleTierError`); all Google-transport invocations now use `agy v1.1.9+`.
+- Headless: `agy --print "<prompt>"` (was `gemini -p`).
+- PTY/Stargate: `agy --dangerously-skip-permissions` (was `gemini --yolo --sandbox=false`).
+- PTY ready pattern updated to `"? for shortcuts"` (empirically verified: disappears to
+  `"esc to cancel"` during generation, reappears on completion).
+- `render_config()` now writes `ANTIGRAVITY.md` (agy does not auto-load project markdown;
+  file is for human reference) and pre-populates `~/.gemini/antigravity-cli/settings.json`
+  `trustedWorkspaces` so the PTY session skips the folder-trust dialog.
+- Detection (`forge init`) now probes `agy` — a missing binary produces `exit 127: agy: command
+  not found`; the old `gemini` binary is never silently fallback-invoked.
+- `AgentType::Gemini` and all config keys (`gemini.auth`, `gemini.permissions`) unchanged.
+- 13 new tests (command construction, PTY contract, ready pattern, trust setup).
+
 ## [1.6.0] - 2026-07-19
 
 > **Platform note**: `forge pod` is Unix-only (tmux + `flock(2)`); the Windows binary is built
