@@ -4,7 +4,7 @@
 
 # forge-orchestrator
 
-[![CI](https://github.com/nxtg-ai/forge-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/nxtg-ai/forge-orchestrator/actions) [![GitHub stars](https://img.shields.io/github/stars/nxtg-ai/forge-orchestrator)](https://github.com/nxtg-ai/forge-orchestrator) [![crates.io](https://img.shields.io/crates/v/forge-orchestrator)](https://crates.io/crates/forge-orchestrator)
+[![MCP Registry](https://img.shields.io/badge/MCP_Registry-active-00b4ab)](https://registry.modelcontextprotocol.io) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![Version](https://img.shields.io/badge/version-v1.6.1-blue)](https://github.com/nxtg-ai/forge-orchestrator/releases/tag/v1.6.1) [![CI](https://github.com/nxtg-ai/forge-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/nxtg-ai/forge-orchestrator/actions) [![GitHub stars](https://img.shields.io/github/stars/nxtg-ai/forge-orchestrator)](https://github.com/nxtg-ai/forge-orchestrator) [![crates.io](https://img.shields.io/crates/v/forge-orchestrator)](https://crates.io/crates/forge-orchestrator)
 
 **Orchestrate Claude Code, Codex CLI, and Gemini CLI on shared repos — single Rust binary, zero deps.**
 
