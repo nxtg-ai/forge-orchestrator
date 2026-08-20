@@ -1,19 +1,14 @@
-# Wolf — NXTG-AI Chief of Staff session.
-# Single claude pane rooted in ASIF for portfolio governance.
-#
-# Spawn: cosmux start cos-wolf
-name: cos-wolf
-root: "~/ASIF"
+# Synthetic regression fixture. No production agent identity or path.
+name: sample-builder
+root: "~/projects/sample-app"
+template: claude-team-pane
 
 before_start: []
 after_start: []
-
-on_pane_dead:
-  - "echo \"$(date -Iseconds) cos-wolf pane died\" >> /tmp/cosmux-pane-dead.log"
+on_pane_dead: []
 
 windows:
-  - name: wolf
+  - name: build
     layout: tiled
     panes:
-      - cwd: "~/ASIF"
-        command: "ccyolo"
+      - cwd: "~/projects/sample-app"
