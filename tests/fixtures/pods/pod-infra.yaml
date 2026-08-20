@@ -1,24 +1,15 @@
-# Infra pod — SynApps (workflow ingestion) + 3d-living-lattice (GoPMO viz).
-# Lower-traffic dev/research workspaces.
-#
-# Spawn: cosmux start pod-infra
-name: pod-infra
+# Synthetic two-project infrastructure regression fixture.
+name: pod-sample-infra
 root: "~/projects"
 
-before_start:
-  - "git -C ~/projects/synapps pull --rebase || true"
-  - "git -C ~/projects/3d-living-lattice pull --rebase || true"
-
+before_start: []
 after_start: []
-
 on_pane_dead:
-  - "echo \"$(date -Iseconds) pod-infra pane died\" >> /tmp/cosmux-pane-dead.log"
+  - "echo pane-recovered >> /tmp/forge-fixture.log"
 
 windows:
   - name: infra
     layout: tiled
     panes:
-      - cwd: "~/projects/synapps"
-        command: "ccyolo"
-      - cwd: "~/projects/3d-living-lattice"
-        command: "ccyolo"
+      - cwd: "~/projects/sample-workflow"
+      - cwd: "~/projects/sample-visualizer"
