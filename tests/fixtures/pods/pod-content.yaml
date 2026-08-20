@@ -1,27 +1,16 @@
-# Content pod — Marketing Flywheel.
-# nxtg-content-engine (CE) + nxtg.ai (marketing site) + Atlas (portfolio intel).
-#
-# Spawn: cosmux start pod-content
-name: pod-content
+# Synthetic three-project regression fixture. No private repository names or paths.
+name: pod-sample-content
 root: "~/projects"
 
-before_start:
-  - "git -C ~/projects/nxtg-content-engine pull --rebase || true"
-  - "git -C ~/projects/nxtg.ai pull --rebase || true"
-  - "git -C ~/projects/atlas pull --rebase || true"
-
+before_start: []
 after_start: []
-
 on_pane_dead:
-  - "echo \"$(date -Iseconds) pod-content pane died\" >> /tmp/cosmux-pane-dead.log"
+  - "echo pane-recovered >> /tmp/forge-fixture.log"
 
 windows:
-  - name: content
+  - name: projects
     layout: tiled
     panes:
-      - cwd: "~/projects/nxtg-content-engine"
-        command: "ccyolo"
-      - cwd: "~/projects/nxtg.ai"
-        command: "ccyolo"
-      - cwd: "~/projects/atlas"
-        command: "ccyolo"
+      - cwd: "~/projects/sample-content"
+      - cwd: "~/projects/sample-site"
+      - cwd: "~/projects/sample-analytics"
