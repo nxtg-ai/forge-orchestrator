@@ -1,19 +1,15 @@
-# Dx3_Program — replaces the legacy `Dx3_Program` tmux session 1:1.
-# Spawn: cosmux start Dx3_Program
-name: Dx3_Program
-root: "~/projects/dx3"
+# Synthetic regression fixture. Names and paths are intentionally non-production.
+name: sample-memory-workspace
+root: "~/projects/sample-memory"
 template: claude-team-pane
 
-before_start:
-  - "git -C ~/projects/dx3 pull --rebase || true"
-
+before_start: []
 after_start: []
-
 on_pane_dead:
-  - "echo \"$(date -Iseconds) Dx3_Program pane died\" >> /tmp/cosmux-pane-dead.log"
+  - "echo pane-recovered >> /tmp/forge-fixture.log"
 
 windows:
-  - name: claude
+  - name: agent
     layout: tiled
     panes:
-      - cwd: "~/projects/dx3"
+      - cwd: "~/projects/sample-memory"
