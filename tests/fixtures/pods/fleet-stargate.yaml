@@ -1,22 +1,17 @@
-# fleet-stargate — the cockpit with the FULL interactive forge Stargate below.
-# Spawn:  nxtg fleet bloom --stargate   (== cosmux start fleet-stargate --attach)
-# Top: the live context-budget HUD. Bottom: forge's interactive Stargate
-# dashboard (PTY agent panes / task board) for an active project. The Stargate
-# gates once on a subscription-auth confirm — dismiss it and you're in.
-name: fleet-stargate
-root: "~/ASIF"
+# Synthetic interactive-dashboard regression fixture. No production control-plane paths.
+name: sample-interactive-dashboard
+root: "~/projects/sample-suite"
 
 before_start: []
+after_start: []
 on_pane_dead:
-  - "echo \"$(date -Iseconds) fleet-stargate pane died\" >> /tmp/cosmux-pane-dead.log"
+  - "echo pane-recovered >> /tmp/forge-fixture.log"
 
 windows:
-  - name: command-center
+  - name: dashboard
     layout: even-vertical
     panes:
-      # TOP: the glance — live ctx% + diet across every live Claude pane.
-      - cwd: "~/ASIF"
-        command: "~/ASIF/scripts/fleet/fleet-hud --watch 5"
-      # BOTTOM: the full interactive forge Stargate (active project = synapps).
-      - cwd: "~/projects/synapps"
-        command: "forge dashboard"
+      - cwd: "~/projects/sample-suite"
+        command: "echo status"
+      - cwd: "~/projects/sample-suite/sample-app"
+        command: "echo interactive"

@@ -1,14 +1,9 @@
-//! Dual-run parity against the 14 live fleet pod shapes — DIRECTIVE-NXTG-20260718-09 DoD.
+//! Dual-run parity across a representative set of synthetic pod shapes.
 //!
-//! The fixtures in `tests/fixtures/pods/` are **copies** of `~/ASIF/infra/tmux/*.yaml`, taken
-//! read-only. Nothing here reads the live directory, touches `~/.cosmux/state.json`, or contacts
-//! the running tmux server: every store-touching call is redirected by `FORGE_POD_STATE_DIR`, and
-//! the tmux layer is exercised only through the **pure** `spawn_plan`, which executes nothing.
-//!
-//! Parity is asserted on the side-effect-free surface — parse, validate, resolved config, and the
-//! computed tmux argument sequence. That is where byte-for-byte comparison is meaningful and safe;
-//! asserting it by observing a real tmux server would require the live sessions this directive
-//! forbids touching.
+//! Fixtures in `tests/fixtures/pods/` are intentionally non-production. They exercise parsing,
+//! validation, resolved configuration, and tmux spawn planning without exposing organization
+//! topology or touching a live tmux server. Store-writing calls are redirected by
+//! `FORGE_POD_STATE_DIR`, and tmux is pointed at a nonexistent private socket for read-only tests.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -54,13 +49,12 @@ fn scratch(tag: &str) -> PathBuf {
 }
 
 #[test]
-fn all_fourteen_live_pod_shapes_validate() {
-    // The DoD's core claim: forge parses every shape the fleet actually runs.
+fn all_synthetic_pod_shapes_validate() {
     let paths = fixtures();
     assert_eq!(
         paths.len(),
         14,
-        "expected the 14 copied fleet pods, found {}",
+        "expected 14 regression fixtures, found {}",
         paths.len()
     );
 
@@ -83,8 +77,6 @@ fn all_fourteen_live_pod_shapes_validate() {
 
 #[test]
 fn every_shape_produces_a_deterministic_spawn_plan() {
-    // `show` renders the resolved config; running it twice must produce identical bytes. A plan
-    // that varies run-to-run could not be compared against cosmux at all.
     let dir = scratch("show");
     for path in fixtures() {
         let arg = path.display().to_string();
@@ -99,8 +91,6 @@ fn every_shape_produces_a_deterministic_spawn_plan() {
 
 #[test]
 fn resolved_config_preserves_every_declared_window_and_pane() {
-    // Parity that matters operationally: vendoring must not drop a window or pane, because a
-    // missing window is exactly the 2026-04-19 incident preflight exists to catch.
     let dir = scratch("counts");
     for path in fixtures() {
         let raw = std::fs::read_to_string(&path).unwrap();
@@ -143,13 +133,12 @@ fn resolved_config_preserves_every_declared_window_and_pane() {
 
 #[test]
 fn side_effect_free_verbs_never_write_the_store() {
-    // The constraint, asserted mechanically: validate/show/ps must leave the store byte-identical.
     let dir = scratch("nowrite");
     let store = dir.join("state.json");
     std::fs::write(&store, r#"{"pods":{}}"#).unwrap();
     let before = std::fs::read(&store).unwrap();
 
-    let sample = fixture_dir().join("Dx3_Program.yaml");
+    let sample = fixture_dir().join("sample-memory-workspace.yaml");
     let arg = sample.display().to_string();
     for args in [
         vec!["validate", arg.as_str()],
@@ -170,7 +159,6 @@ fn side_effect_free_verbs_never_write_the_store() {
 
 #[test]
 fn hud_is_an_alias_of_state_not_a_separate_verb() {
-    // FPL ruling: keep the alias so nxtg users see no behaviour change.
     let dir = scratch("hud");
     let (state_code, state_out, _) = run_pod(&["state"], &dir);
     let (hud_code, hud_out, _) = run_pod(&["hud"], &dir);
@@ -181,7 +169,6 @@ fn hud_is_an_alias_of_state_not_a_separate_verb() {
 
 #[test]
 fn preflight_is_fail_closed_on_an_empty_target_set() {
-    // Exit 2, never 0: a check that extracted no targets has not verified coverage.
     let dir = scratch("preflight");
     let heartbeat = dir.join("heartbeat.sh");
     std::fs::write(&heartbeat, "# no targets in here\n").unwrap();
@@ -197,8 +184,6 @@ fn preflight_is_fail_closed_on_an_empty_target_set() {
 
 #[test]
 fn missing_tmux_degrades_with_a_clear_message() {
-    // Lego Snap: tmux absent must produce a named, actionable error — not a panic or a raw
-    // subprocess failure. Simulated with an empty PATH so the binary cannot be found.
     let dir = scratch("notmux");
     let out = Command::new(env!("CARGO_BIN_EXE_forge"))
         .args(["pod", "list"])

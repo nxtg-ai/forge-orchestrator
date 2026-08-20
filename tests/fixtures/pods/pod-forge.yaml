@@ -1,28 +1,19 @@
-# NXTG-Forge pod — 3 repos + 1 free pane in one tmux session.
-# Spawn:  cosmux start pod-forge
-# Stop:   cosmux stop  pod-forge
-#
-# YAML gotcha: bare `~` is null. Always quote tildes.
-name: pod-forge
-root: "~/projects/NXTG-Forge"
+# Synthetic four-project regression fixture. No production repository paths.
+name: pod-sample-suite
+root: "~/projects/sample-suite"
 template: claude-team-pane
 
-before_start:
-  - "git -C ~/projects/NXTG-Forge/forge-ui pull --rebase || true"
-  - "git -C ~/projects/NXTG-Forge/forge-plugin pull --rebase || true"
-  - "git -C ~/projects/NXTG-Forge/forge-orchestrator pull --rebase || true"
-
+before_start: []
 after_start: []
-
 on_pane_dead:
-  - "echo \"$(date -Iseconds) pod-forge pane died\" >> /tmp/cosmux-pane-dead.log"
+  - "echo pane-recovered >> /tmp/forge-fixture.log"
 
 windows:
-  - name: claude
+  - name: projects
     layout: tiled
     panes:
-      - cwd: "~/projects/NXTG-Forge/forge-ui"
-      - cwd: "~/projects/NXTG-Forge/forge-plugin"
-      - cwd: "~/projects/NXTG-Forge/forge-orchestrator"
-      - cwd: "~/projects/NXTG-Forge"
-        command: ""   # bash, not ccyolo — free pane for ad-hoc commands
+      - cwd: "~/projects/sample-suite/ui"
+      - cwd: "~/projects/sample-suite/plugin"
+      - cwd: "~/projects/sample-suite/orchestrator"
+      - cwd: "~/projects/sample-suite"
+        command: ""

@@ -1,23 +1,17 @@
-# fleet — the ASIF Terminal Command Center (cosmux pod).
-# Spawn:  nxtg fleet bloom    (== cosmux start fleet --attach)
-# One window, two live tiles: the context-budget HUD on top, forge state below.
-# For the full interactive forge Stargate, swap the forge pane command to
-# "forge dashboard" (gates on a one-time subscription-auth confirm).
-name: fleet
-root: "~/ASIF"
+# Synthetic dashboard regression fixture. No production control-plane paths.
+name: sample-dashboard
+root: "~/projects/sample-suite"
 
 before_start: []
+after_start: []
 on_pane_dead:
-  - "echo \"$(date -Iseconds) fleet pane died\" >> /tmp/cosmux-pane-dead.log"
+  - "echo pane-recovered >> /tmp/forge-fixture.log"
 
 windows:
-  - name: command-center
+  - name: dashboard
     layout: even-vertical
     panes:
-      # TOP (main): the glance — live ctx% + diet across every live Claude pane.
-      - cwd: "~/ASIF"
-        command: "~/ASIF/scripts/fleet/fleet-hud --watch 5"
-      # BELOW: compact forge orchestration summary for an ACTIVE project
-      # (synapps: 150+ tasks). Change the project arg to track another.
-      - cwd: "~/ASIF"
-        command: "~/ASIF/scripts/fleet/forge-tile synapps"
+      - cwd: "~/projects/sample-suite"
+        command: "echo status"
+      - cwd: "~/projects/sample-suite/sample-app"
+        command: "echo tasks"
