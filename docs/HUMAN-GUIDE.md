@@ -271,7 +271,7 @@ forge start --ceo            # Loop until 100% complete, auto-retry failures
 No. Forge works with any combination. If you only have Codex, all tasks assigned to Claude/Gemini will be blocked. Reassign them in the task JSON files, or use `forge start --agent codex`.
 
 **Q: Does Forge cost money?**
-Forge itself is free and MIT-licensed. The AI tools have their own billing:
+Forge itself is free to use and source-available under FSL-1.1-ALv2 (converts to Apache 2.0 on 2028-03-18; see LICENSE.md). The AI tools have their own billing:
 - Plan generation requires an `OPENAI_API_KEY` (or use the free rule-based brain)
 - Claude headless mode uses your Max subscription (do NOT set `ANTHROPIC_API_KEY`)
 - Codex requires a ChatGPT Pro subscription
