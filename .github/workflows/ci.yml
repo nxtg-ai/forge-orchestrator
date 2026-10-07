@@ -67,6 +67,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy -- -D warnings
       - run: cargo fmt --check
+      # install.sh is piped to `sh`: any CR breaks it. Reject CR in every tracked *.sh, then parse it.
+      - name: Shell scripts are LF and install.sh parses
+        run: |
+          crlf=$(git ls-files -z '*.sh' | xargs -0 grep -l $'\r' || true)
+          if [ -n "$crlf" ]; then echo "::error::CR line endings in: $crlf"; exit 1; fi
+          sh -n install.sh
       # The release stage lives in one root file, STAGE; every surface must agree with it.
       - name: Stage surfaces match STAGE
         run: cargo build --locked && bash .github/scripts/check-stage.sh target/debug/forge
