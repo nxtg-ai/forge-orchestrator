@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-10-07
+
+### Added
+- Release stage from one constant: the root `STAGE` file (`internal`) is read at build time.
+  `forge --version` prints `forge 1.6.2 (stage: internal)`, and the MCP `forge_get_health` tool
+  returns `"version"` and `"stage"`. CI fails if any stage surface disagrees with `STAGE` (#36).
+
+### Fixed
+- `Cargo.lock` now matches the crate version. v1.6.1 shipped with a 1.6.0 lock, which kept the
+  Windows `cargo build --locked` check red on `main` (#31).
+- README license badge said MIT; the license is FSL-1.1-ALv2 (`LICENSE.md`). The same claim was
+  corrected in `docs/HUMAN-GUIDE.md` and `SPEC.md` (#31).
+- MCP Registry publishing failed for v1.6.1: `server.json` still declared 1.6.0, and the publish
+  ran before release assets existed. `server.json` is now stamped from the release at publish
+  time, and publishing runs after the release assets are uploaded (#33).
+- CLA check failed for every PR by the repo owner: the signature entry had no numeric GitHub id,
+  which the CLA action matches on. Bots are now allowlisted (#33).
+- The PR Summary check failed with `401 Bad credentials`; it now uses the workflow token (#35).
+
+### Security
+- `quinn-proto` 0.11.14 → 0.11.19 (RUSTSEC-2026-0185) and `rustls` 0.23.36 → 0.23.45
+  (RUSTSEC-2026-0285), lockfile only. `cargo audit` reports 0 vulnerabilities (#35).
+
+### Changed
+- CI and release builds run with `--locked` on every OS, so lock drift fails before a release (#31, #33).
+- Releases include `forge-mcp-server-{linux-x86_64,macos-aarch64,windows-x86_64}` assets
+  (byte copies of the platform archives) for the MCP Registry (#33).
+- The crate never packages the local `mcp-publisher` binary (`Cargo.toml` `exclude`) (#34).
+- `main` is PR-only with 15 required checks and no admin bypass (#35).
+
 ## [1.6.1] - 2026-08-09
 
 ### Changed — Antigravity (`agy`) replaces retired Gemini CLI

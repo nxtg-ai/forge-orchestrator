@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.nxtg-ai/forge-orchestrator",
   "title": "Forge Orchestrator",
-  "description": "Multi-tool AI orchestration: Claude Code, Codex, Gemini on shared repos. 11 MCP tools, stdio.",
+  "description": "AI orchestration: Claude Code, Codex, Gemini on shared repos. 11 MCP tools, stdio (stage: internal)",
   "repository": {
     "url": "https://github.com/nxtg-ai/forge-orchestrator",
     "source": "github"
