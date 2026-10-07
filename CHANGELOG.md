@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (byte-identical; a daily job opens an issue on drift).
 - The Windows `.sha256` release asset is written with an LF line ending, so `sha256sum -c` works.
 - Release notes point to the canonical installer, `https://forge.nxtg.ai/install.sh`.
+- `install.sh` finds the latest release from the `github.com/.../releases/latest` redirect instead of
+  `api.github.com`, whose unauthenticated limit (60/hour per IP) made installs fail on shared IPs.
 
 ## [1.6.2] - 2026-10-07
 
