@@ -8,7 +8,7 @@ permissions:
   pull-requests: write
 env:
   CARGO_TERM_COLOR: always
-  MIN_TEST_COUNT: 378
+  MIN_TEST_COUNT: 564
 
 jobs:
   security-scan:
@@ -91,7 +91,9 @@ jobs:
       - name: Post summary comment
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.NXTG_SENTINEL_TOKEN || secrets.GITHUB_TOKEN }}
+          # GITHUB_TOKEN (pull-requests: write above) is enough to comment. The NXTG_SENTINEL_TOKEN
+          # PAT returned 401 Bad credentials, and `||` only falls back when a secret is empty.
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
             const jobs = ${{ toJSON(needs) }};
