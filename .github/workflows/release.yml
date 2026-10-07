@@ -63,11 +63,11 @@ jobs:
 
       - name: Build (cross)
         if: matrix.cross
-        run: cross build --release --target ${{ matrix.target }}
+        run: cross build --release --locked --target ${{ matrix.target }}
 
       - name: Build (native)
         if: "!matrix.cross"
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Package (Unix)
         if: runner.os != 'Windows'
@@ -106,6 +106,14 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      # The MCP Registry only accepts MCPB URLs that contain "mcp", so the three platforms
+      # listed in server.json are also published under forge-mcp-server-* names (byte copies).
+      - name: Add MCP Registry asset names
+        run: |
+          cp artifacts/forge-linux-x86_64.tar.gz  artifacts/forge-mcp-server-linux-x86_64.tar.gz
+          cp artifacts/forge-macos-aarch64.tar.gz artifacts/forge-mcp-server-macos-aarch64.tar.gz
+          cp artifacts/forge-windows-x86_64.zip   artifacts/forge-mcp-server-windows-x86_64.zip
+
       - name: Get version from tag
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
@@ -141,12 +149,24 @@ jobs:
             cargo install --path .
             ```
 
+  # Runs only after the release job has uploaded every asset. Pre-release tags are skipped.
+  mcp-registry:
+    name: MCP Registry
+    needs: release
+    if: ${{ !contains(github.ref_name, '-') }}
+    permissions:
+      id-token: write
+      contents: read
+    uses: ./.github/workflows/mcp-publish.yml
+    with:
+      tag: ${{ github.ref_name }}
+
   ci:
     name: CI
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test
+      - run: cargo test --locked
       - run: cargo clippy -- -D warnings
       - run: cargo fmt --check
