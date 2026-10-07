@@ -32,7 +32,9 @@ jobs:
           path-to-signatures: '.github/cla-signatures.json'
           path-to-document: 'https://github.com/${{ github.repository }}/blob/main/.github/CLA.md'
           branch: main
-          allowlist: dependabot[bot]
+          # The action matches signatures by numeric GitHub id, so every entry in
+          # cla-signatures.json needs "id". Bots cannot sign, so allow them all.
+          allowlist: '*[bot]'
           custom-notsigned-prcomment: |
             Thank you for your contribution! Before we can merge this PR, you need to sign our Contributor License Agreement (CLA).
 
