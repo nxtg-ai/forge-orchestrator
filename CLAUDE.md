@@ -10,7 +10,7 @@ cargo build --release          # Optimized binary (4 MB, LTO + strip)
 cp target/release/forge ~/.local/bin/forge-orca
 
 # Test
-cargo test                     # All 378 tests (356 unit + 10 CLI + 12 MCP)
+cargo test                     # Full suite; the summary lines print the current count
 cargo clippy -- -W clippy::all # Lint
 
 # Run
@@ -160,8 +160,8 @@ forge-orchestrator          ──headless──►   runs CLI or TUI dashboard 
 
 - **Language:** Rust 1.93.0, Edition 2024
 - **Binary:** ~4 MB (release, LTO, stripped)
-- **Tests:** 378 (356 unit + 10 CLI + 12 MCP integration)
-- **Version:** 1.5.2
+- **Tests:** run `cargo test --locked` for the current count (not hardcoded here; it goes stale)
+- **Version:** see `version` in `Cargo.toml` (the single source of truth)
 - **Repo:** github.com/nxtg-ai/forge-orchestrator
 
 ## ASIF Governance
@@ -181,9 +181,9 @@ On every session (check BOTH your own NEXUS and the program NEXUS):
 
 When you bump the version in `Cargo.toml`:
 0. **Cargo.lock**: run `cargo build` and commit the refreshed `Cargo.lock` in the same commit as the bump. CI builds with `--locked` on every OS, so a stale lock fails CI (v1.6.1 shipped with a 1.6.0 lock and stayed red on main).
-1. **Tag**: `git tag vX.Y.Z && git push origin vX.Y.Z`
-2. **GH Release**: `gh release create vX.Y.Z --notes-from-tag` (attach the musl binary)
-3. **Publish**: `cargo publish` (if/when crates.io publishing is enabled)
+1. **Tag**: `git tag vX.Y.Z && git push origin vX.Y.Z` (tag the merged squash SHA on `main`)
+2. **GH Release**: do NOT run `gh release create`. Pushing the tag runs `release.yml`, which builds every target, creates the release with all assets, then calls `mcp-publish.yml` to publish to the MCP Registry. A manual `gh release create` published v1.6.1 before its assets existed (the asset race).
+3. **Publish**: `cargo publish --locked` from a clean worktree of the tag (`git worktree add /tmp/forge-vX.Y.Z vX.Y.Z`), never from a working tree with untracked files
 4. **CHANGELOG**: roll `[Unreleased]` → `[vX.Y.Z] — YYYY-MM-DD` in CHANGELOG.md
 5. **Docs**: update any pinned version references in README.md / docs
 
