@@ -1,4 +1,6 @@
 /target
+# Local MCP Registry CLI download (release tooling, never packaged or committed)
+/mcp-publisher
 *.swp
 *.swo
 .DS_Store

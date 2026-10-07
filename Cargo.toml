@@ -7,6 +7,8 @@ license = "FSL-1.1-ALv2"
 repository = "https://github.com/nxtg-ai/forge-orchestrator"
 keywords = ["ai", "orchestration", "claude", "codex", "gemini"]
 categories = ["command-line-utilities", "development-tools"]
+# Never package local release tooling (e.g. the mcp-publisher binary) into the crate.
+exclude = ["/mcp-publisher"]
 
 [[bin]]
 name = "forge"
