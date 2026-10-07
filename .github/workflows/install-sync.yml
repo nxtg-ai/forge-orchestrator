@@ -1,0 +1,41 @@
+name: Install script sync
+
+# install.sh in this repo is the single source of truth. https://forge.nxtg.ai/install.sh
+# must serve the same bytes; this fails (and opens an issue) when the two drift.
+on:
+  schedule:
+    - cron: '30 8 * * *'  # 08:30 UTC daily
+  push:
+    branches: [main]
+    paths: [install.sh]
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  compare:
+    name: forge.nxtg.ai serves repo install.sh
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare sha256 of served and repo bytes
+        run: |
+          curl -fsSL https://forge.nxtg.ai/install.sh -o served.sh
+          repo=$(sha256sum install.sh | cut -d' ' -f1)
+          served=$(sha256sum served.sh | cut -d' ' -f1)
+          echo "repo   $repo"
+          echo "served $served"
+          if [ "$repo" != "$served" ]; then
+            diff install.sh served.sh || true
+            echo "::error::forge.nxtg.ai/install.sh differs from install.sh on main"
+            exit 1
+          fi
+          sh -n served.sh
+
+      - name: Create issue on drift
+        uses: jayqi/failed-build-issue-action@v1
+        if: failure()
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}

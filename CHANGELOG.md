@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `install.sh` had CRLF line endings since it was added, so `curl … | sh` failed with
+  `set: Illegal option -` on Linux and macOS. It is now LF, enforced by `.gitattributes` and a CI
+  check, and is the single source of the script served at `https://forge.nxtg.ai/install.sh`
+  (byte-identical; a daily job opens an issue on drift).
+- The Windows `.sha256` release asset is written with an LF line ending, so `sha256sum -c` works.
+- Release notes point to the canonical installer, `https://forge.nxtg.ai/install.sh`.
+
 ## [1.6.2] - 2026-10-07
 
 ### Added

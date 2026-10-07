@@ -83,7 +83,8 @@ jobs:
         run: |
           Compress-Archive -Path "target/${{ matrix.target }}/release/${{ matrix.artifact }}" -DestinationPath "${{ matrix.archive }}"
           $hash = (Get-FileHash "${{ matrix.archive }}" -Algorithm SHA256).Hash.ToLower()
-          "$hash  ${{ matrix.archive }}" | Out-File -Encoding ascii "${{ matrix.archive }}.sha256"
+          # LF line ending, so `sha256sum -c` works on Linux/macOS (Out-File writes CRLF).
+          [IO.File]::WriteAllText("$PWD/${{ matrix.archive }}.sha256", "$hash  ${{ matrix.archive }}`n")
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -132,7 +133,7 @@ jobs:
 
             **One-liner (Linux/macOS):**
             ```bash
-            curl -sSL https://raw.githubusercontent.com/nxtg-ai/forge-orchestrator/main/install.sh | sh
+            curl -fsSL https://forge.nxtg.ai/install.sh | sh
             ```
 
             **Manual download:**

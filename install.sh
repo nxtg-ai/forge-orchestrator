@@ -1,6 +1,6 @@
 #!/bin/sh
 # Forge Orchestrator Installer
-# Usage: curl -sSL https://raw.githubusercontent.com/nxtg-ai/forge-orchestrator/main/install.sh | sh
+# Usage: curl -fsSL https://forge.nxtg.ai/install.sh | sh
 
 set -e
 
