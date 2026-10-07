@@ -712,6 +712,8 @@ fn handle_get_health(project_root: &Path) -> CallToolResult {
     }
 
     let output = json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "stage": env!("FORGE_STAGE"),
         "health_score": report.health_score,
         "summary": report.summary,
         "findings": report.findings.iter().map(|f| json!({
@@ -819,5 +821,16 @@ mod tests {
         );
         assert!(result.is_error.unwrap_or(false));
         assert!(result.content[0].text.contains("not initialized"));
+    }
+
+    #[test]
+    fn test_get_health_reports_version_and_stage() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = handle_get_health(dir.path());
+        let output: Value = serde_json::from_str(&result.content[0].text).unwrap();
+        assert_eq!(output["version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(output["stage"], env!("FORGE_STAGE"));
+        let stage_file = include_str!("../../STAGE").trim();
+        assert_eq!(output["stage"], stage_file);
     }
 }
