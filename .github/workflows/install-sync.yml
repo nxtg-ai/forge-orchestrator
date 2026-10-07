@@ -39,3 +39,28 @@ jobs:
         if: failure()
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  # End-to-end: the installer must find and install the latest release without api.github.com
+  # (its unauthenticated limit, 60/hour per IP, runs out on shared runners and offices).
+  no-api-install:
+    name: install.sh works with api.github.com blocked
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install with a curl shim that refuses api.github.com
+        run: |
+          mkdir -p shim
+          real=$(command -v curl)
+          # shellcheck disable=SC2016  # the shim's $@/$a must stay literal
+          printf '#!/bin/sh\nfor a in "$@"; do case "$a" in *api.github.com*) echo "blocked: $a" >&2; exit 22;; esac; done\nexec %s "$@"\n' "$real" > shim/curl
+          chmod +x shim/curl
+          PATH="$PWD/shim:$PATH" FORGE_INSTALL_DIR="$PWD/bin" sh install.sh
+          latest=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/${{ github.repository }}/releases/latest | sed 's|.*/tag/v||')
+          "$PWD/bin/forge" --version | tee version.txt
+          grep -qF "forge $latest " version.txt
+
+      - name: Create issue on failure
+        uses: jayqi/failed-build-issue-action@v1
+        if: failure()
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}

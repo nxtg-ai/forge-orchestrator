@@ -33,9 +33,10 @@ esac
 
 ARCHIVE="forge-${PLATFORM}-${ARCH}.tar.gz"
 
-# Get latest release tag
+# Get latest release tag from the releases/latest redirect (github.com/.../releases/tag/vX.Y.Z).
+# No api.github.com call: its unauthenticated limit (60/hour per IP) runs out on shared IPs.
 echo "Detecting latest version..."
-LATEST=$(curl -sSL "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+LATEST=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest" 2>/dev/null | sed -n 's|.*/releases/tag/\(v[0-9][^/?#]*\)$|\1|p')
 
 if [ -z "$LATEST" ]; then
   echo "Error: Could not detect latest version. Check https://github.com/$REPO/releases"
