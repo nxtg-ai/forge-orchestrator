@@ -67,6 +67,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy -- -D warnings
       - run: cargo fmt --check
+      # The release stage lives in one root file, STAGE; every surface must agree with it.
+      - name: Stage surfaces match STAGE
+        run: cargo build --locked && bash .github/scripts/check-stage.sh target/debug/forge
 
       - name: Create issue on CI failure
         uses: jayqi/failed-build-issue-action@v1
