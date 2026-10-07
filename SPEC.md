@@ -257,7 +257,7 @@ Deliverables:
 
 ## 10. Revenue Path
 
-1. **Now:** MIT open source (build community)
+1. **Now:** source-available under FSL-1.1-ALv2, converting to Apache 2.0 on 2028-03-18 (build community)
 2. **12 months:** Commercial features (cloud sync, team orchestration, advanced governance)
 3. **18 months:** Linux Foundation donation (standardize .forge/ format, become AAIF project)
 

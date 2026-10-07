@@ -180,6 +180,7 @@ On every session (check BOTH your own NEXUS and the program NEXUS):
 ## Release Protocol Enforcement (ASIF Standard, ADR-036)
 
 When you bump the version in `Cargo.toml`:
+0. **Cargo.lock**: run `cargo build` and commit the refreshed `Cargo.lock` in the same commit as the bump. CI builds with `--locked` on every OS, so a stale lock fails CI (v1.6.1 shipped with a 1.6.0 lock and stayed red on main).
 1. **Tag**: `git tag vX.Y.Z && git push origin vX.Y.Z`
 2. **GH Release**: `gh release create vX.Y.Z --notes-from-tag` (attach the musl binary)
 3. **Publish**: `cargo publish` (if/when crates.io publishing is enabled)
