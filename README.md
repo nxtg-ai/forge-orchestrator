@@ -20,8 +20,11 @@ The orchestrator exists because I ran two AI tools on the same codebase and watc
 
 ```bash
 curl -fsSL https://forge.nxtg.ai/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"   # this shell only; new shells already have it
 forge init
 ```
+
+The installer puts `forge` in `~/.local/bin` (change it with `FORGE_INSTALL_DIR`) and adds that directory to your PATH with one guarded line in `~/.profile`, `~/.bashrc` and, if you have zsh, `~/.zshenv`. Set `FORGE_NO_MODIFY_PATH=1` to leave your shell files alone.
 
 Single binary. 4.7 MB. No runtime dependencies.
 

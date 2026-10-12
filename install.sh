@@ -79,19 +79,51 @@ chmod +x "$INSTALL_DIR/$BINARY_NAME"
 echo ""
 echo "Forge v${VERSION} installed to: $INSTALL_DIR/$BINARY_NAME"
 
-# Check PATH
-if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
-  echo ""
-  echo "NOTE: $INSTALL_DIR is not in your PATH."
-  echo "Add it with:"
-  echo ""
-  SHELL_NAME=$(basename "$SHELL")
-  case "$SHELL_NAME" in
-    zsh)  echo "  echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> ~/.zshrc && source ~/.zshrc" ;;
-    fish) echo "  fish_add_path $INSTALL_DIR" ;;
-    *)    echo "  echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> ~/.bashrc && source ~/.bashrc" ;;
-  esac
-fi
+# Make forge resolvable in new shells (the rustup/uv approach): add one guarded PATH line to the
+# shell startup files. Opt out with FORGE_NO_MODIFY_PATH=1. Re-running adds nothing twice.
+case ":$PATH:" in
+  *":$INSTALL_DIR:"*) ;;
+  *)
+    if [ -n "${FORGE_NO_MODIFY_PATH:-}" ]; then
+      echo ""
+      echo "NOTE: $INSTALL_DIR is not in your PATH (FORGE_NO_MODIFY_PATH is set, so no shell file was changed)."
+      echo "Add it with:  export PATH=\"$INSTALL_DIR:\$PATH\""
+    else
+      PATH_LINE="case \":\$PATH:\" in *\":$INSTALL_DIR:\"*) ;; *) export PATH=\"$INSTALL_DIR:\$PATH\" ;; esac  # added by forge installer"
+      # ~/.profile: login shells (created if missing). bash reads ~/.bash_profile or ~/.bash_login
+      # instead when one exists, so those get the line too. ~/.bashrc: interactive bash.
+      # ~/.zshenv: every zsh.
+      RC_FILES="$HOME/.profile"
+      for f in "$HOME/.bash_profile" "$HOME/.bash_login"; do
+        [ -f "$f" ] && RC_FILES="$RC_FILES $f"
+      done
+      if [ -f "$HOME/.bashrc" ] || command -v bash >/dev/null 2>&1; then
+        RC_FILES="$RC_FILES $HOME/.bashrc"
+      fi
+      if [ -f "$HOME/.zshenv" ] || [ -f "$HOME/.zshrc" ] || command -v zsh >/dev/null 2>&1; then
+        RC_FILES="$RC_FILES $HOME/.zshenv"
+      fi
+      UPDATED=""
+      for f in $RC_FILES; do
+        if [ -f "$f" ] && grep -qF "# added by forge installer" "$f"; then
+          continue
+        fi
+        printf '\n%s\n' "$PATH_LINE" >> "$f" && UPDATED="$UPDATED $f"
+      done
+      echo ""
+      if [ -n "$UPDATED" ]; then
+        echo "Added $INSTALL_DIR to your PATH in:$UPDATED"
+      else
+        echo "$INSTALL_DIR is already added to your PATH in your shell startup files."
+      fi
+      echo "Open a new terminal, or run this to use forge now:"
+      echo "  export PATH=\"$INSTALL_DIR:\$PATH\""
+      if [ "$(basename "${SHELL:-sh}")" = fish ]; then
+        echo "fish users: fish_add_path $INSTALL_DIR"
+      fi
+    fi
+    ;;
+esac
 
 # Verify
 if command -v forge >/dev/null 2>&1; then

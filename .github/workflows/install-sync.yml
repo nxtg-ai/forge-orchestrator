@@ -64,3 +64,30 @@ jobs:
         if: failure()
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  # A fresh HOME (no shell files, like a clean container) must resolve forge in a new login shell
+  # after the one-liner, and a second run must not add the PATH line twice.
+  path-for-new-shells:
+    name: install.sh puts forge on PATH for new shells
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install into an empty HOME, then resolve forge from new shells
+        run: |
+          h=$(mktemp -d)
+          env -i HOME="$h" PATH=/usr/bin:/bin sh install.sh
+          for s in "bash -lc" "sh -lc" "bash -ic"; do
+            # shellcheck disable=SC2086  # $s is "<shell> -<flags>" and must split
+            found=$(env -i HOME="$h" PATH=/usr/bin:/bin TERM=dumb $s 'command -v forge' 2>/dev/null | tail -1)
+            echo "$s -> ${found:-NOT FOUND}"
+            [ "$found" = "$h/.local/bin/forge" ]
+          done
+          env -i HOME="$h" PATH=/usr/bin:/bin sh install.sh
+          [ "$(grep -c 'added by forge installer' "$h/.profile")" = 1 ]
+          [ "$(grep -c 'added by forge installer' "$h/.bashrc")" = 1 ]
+
+      - name: Create issue on failure
+        uses: jayqi/failed-build-issue-action@v1
+        if: failure()
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
