@@ -453,4 +453,45 @@ fn test_mcp_complete_task_explicit_agent() {
         ),
     );
     assert!(last_response(&bad).contains("Invalid agent"));
+    let any = mcp_call(
+        &dir,
+        &tool_call(
+            "forge_complete_task",
+            serde_json::json!({"task_id": "T-002", "agent": "any"}),
+        ),
+    );
+    assert!(last_response(&any).contains("Invalid agent"));
+
+    // An unclaimed task (assigned_to "any") completed without an agent: completed_by stays null.
+    let t2_path = dir.path().join(".forge/tasks/T-002.json");
+    let mut t2_json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&t2_path).unwrap()).unwrap();
+    t2_json["assigned_to"] = serde_json::json!("any");
+    std::fs::write(&t2_path, serde_json::to_string_pretty(&t2_json).unwrap()).unwrap();
+    mcp_call(
+        &dir,
+        &tool_call(
+            "forge_complete_task",
+            serde_json::json!({"task_id": "T-002", "result_summary": "x"}),
+        ),
+    );
+    let list = mcp_call(
+        &dir,
+        &tool_call(
+            "forge_get_tasks",
+            serde_json::json!({"status": "completed"}),
+        ),
+    );
+    let tasks: serde_json::Value = serde_json::from_str(&tool_text(&list)).unwrap();
+    let t2 = tasks["tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["id"] == "T-002")
+        .unwrap();
+    assert!(
+        t2["completed_by"].is_null(),
+        "unclaimed task must not record 'any': {t2}"
+    );
+    assert_eq!(t2["result_summary"], "x");
 }

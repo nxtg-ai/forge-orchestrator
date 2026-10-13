@@ -418,6 +418,11 @@ fn handle_complete_task(args: &Value, forge_dir: &Path) -> CallToolResult {
 
     let explicit_agent: Option<AgentType> = match args.get("agent").and_then(|v| v.as_str()) {
         Some(s) => match s.parse() {
+            Ok(AgentType::Any) => {
+                return CallToolResult::error(
+                    "Invalid agent: 'any' is not a completing agent (use claude, codex or gemini)",
+                );
+            }
             Ok(a) => Some(a),
             Err(e) => return CallToolResult::error(format!("Invalid agent: {e}")),
         },
@@ -436,7 +441,9 @@ fn handle_complete_task(args: &Value, forge_dir: &Path) -> CallToolResult {
 
     // Mark completed, keeping the outcome and who completed it on the task itself
     let now = chrono::Utc::now();
-    let completed_by = explicit_agent.or_else(|| task.assigned_to.clone());
+    // "any" is a scheduling placeholder, not an agent: an unclaimed task completes with no agent.
+    let completed_by =
+        explicit_agent.or_else(|| task.assigned_to.clone().filter(|a| *a != AgentType::Any));
     task.status = TaskStatus::Completed;
     task.updated_at = now;
     task.completed_at = Some(now);
