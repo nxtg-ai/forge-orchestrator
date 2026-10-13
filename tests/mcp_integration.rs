@@ -384,6 +384,7 @@ fn test_mcp_get_tasks_returns_outcome_and_completing_agent() {
         summary.as_bytes()
     );
     assert_eq!(t1["completed_by"], "claude");
+    assert_eq!(t1["completed_by_source"], "claimer");
     assert!(t1["completed_at"].is_string());
 
     // Not yet completed: outcome fields present and null.
@@ -399,7 +400,7 @@ fn test_mcp_get_tasks_returns_outcome_and_completing_agent() {
     let md = std::fs::read_to_string(dir.path().join(".forge/tasks/T-001.md")).unwrap();
     assert!(
         md.contains("## Outcome")
-            && md.contains("**Completed by:** claude")
+            && md.contains("**Completed by:** claude (claimer)")
             && md.contains(summary)
     );
 
@@ -442,6 +443,7 @@ fn test_mcp_complete_task_explicit_agent() {
     let tasks: serde_json::Value = serde_json::from_str(&tool_text(&list)).unwrap();
     assert_eq!(tasks["count"], 1);
     assert_eq!(tasks["tasks"][0]["completed_by"], "codex");
+    assert_eq!(tasks["tasks"][0]["completed_by_source"], "explicit");
     assert_eq!(tasks["tasks"][0]["result_summary"], "done by codex");
 
     // An invalid agent is refused, not silently ignored.
@@ -490,8 +492,157 @@ fn test_mcp_complete_task_explicit_agent() {
         .find(|t| t["id"] == "T-002")
         .unwrap();
     assert!(
-        t2["completed_by"].is_null(),
+        t2["completed_by"].is_null() && t2["completed_by_source"].is_null(),
         "unclaimed task must not record 'any': {t2}"
     );
     assert_eq!(t2["result_summary"], "x");
+}
+
+/// DIRECTIVE-NXTG-20261013-09 item 1: a second completion that gives no summary keeps the stored
+/// outcome (summary, completing agent and its source, completion time) instead of nulling it.
+#[test]
+fn test_mcp_recompletion_without_summary_keeps_outcome() {
+    let dir = TempDir::new().unwrap();
+    setup_project_with_tasks(&dir);
+    let summary = "First outcome — \"kept\", back\\slash, ünïcode ✓";
+    mcp_call(
+        &dir,
+        &tool_call(
+            "forge_claim_task",
+            serde_json::json!({"task_id": "T-001", "agent": "claude"}),
+        ),
+    );
+    let first = mcp_call(
+        &dir,
+        &tool_call(
+            "forge_complete_task",
+            serde_json::json!({"task_id": "T-001", "agent": "codex", "result_summary": summary}),
+        ),
+    );
+    assert!(tool_text(&first).contains("T-001 completed"));
+    let read_t1 = || -> serde_json::Value {
+        let list = mcp_call(&dir, &tool_call("forge_get_tasks", serde_json::json!({})));
+        let tasks: serde_json::Value = serde_json::from_str(&tool_text(&list)).unwrap();
+        tasks["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["id"] == "T-001")
+            .unwrap()
+            .clone()
+    };
+    let before = read_t1();
+
+    // Second completion: no summary, no agent.
+    let second = mcp_call(
+        &dir,
+        &tool_call(
+            "forge_complete_task",
+            serde_json::json!({"task_id": "T-001"}),
+        ),
+    );
+    assert!(tool_text(&second).contains("T-001 completed"));
+
+    let t1 = read_t1();
+    assert_eq!(t1["status"], "completed");
+    assert_eq!(
+        t1["result_summary"].as_str().unwrap().as_bytes(),
+        summary.as_bytes()
+    );
+    assert_eq!(t1["completed_by"], "codex");
+    assert_eq!(t1["completed_by_source"], "explicit");
+    assert_eq!(t1["completed_at"], before["completed_at"]);
+
+    // The task file and its markdown view keep it too, not only the event log.
+    let json = std::fs::read_to_string(dir.path().join(".forge/tasks/T-001.json")).unwrap();
+    let stored: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(stored["result_summary"], summary);
+    let md = std::fs::read_to_string(dir.path().join(".forge/tasks/T-001.md")).unwrap();
+    assert!(md.contains(summary));
+
+    // Both completion events carry the kept summary, so the log agrees with the record.
+    let events = std::fs::read_to_string(dir.path().join(".forge/events.jsonl")).unwrap();
+    let completed: Vec<serde_json::Value> = events
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|e| e["event_type"] == "task_completed" && e["task_id"] == "T-001")
+        .collect();
+    assert_eq!(completed.len(), 2);
+    for e in &completed {
+        assert!(e["message"].as_str().unwrap().contains(summary), "{e}");
+        assert_eq!(e["agent"], "codex");
+    }
+
+    // A later completion that does give a summary replaces it.
+    mcp_call(
+        &dir,
+        &tool_call(
+            "forge_complete_task",
+            serde_json::json!({"task_id": "T-001", "result_summary": "Second outcome"}),
+        ),
+    );
+    assert_eq!(read_t1()["result_summary"], "Second outcome");
+}
+
+/// DIRECTIVE-NXTG-20261013-09 item 2a: a non-string `agent` is refused, not read as "no agent".
+#[test]
+fn test_mcp_complete_task_refuses_non_string_agent() {
+    let dir = TempDir::new().unwrap();
+    setup_project_with_tasks(&dir);
+    for bad in [
+        serde_json::json!(42),
+        serde_json::json!(["claude"]),
+        serde_json::json!(true),
+    ] {
+        let out = mcp_call(
+            &dir,
+            &tool_call(
+                "forge_complete_task",
+                serde_json::json!({"task_id": "T-001", "agent": bad}),
+            ),
+        );
+        assert!(
+            last_response(&out).contains("Invalid agent"),
+            "{bad}: {out}"
+        );
+    }
+    let list = mcp_call(
+        &dir,
+        &tool_call(
+            "forge_get_tasks",
+            serde_json::json!({"status": "completed"}),
+        ),
+    );
+    let tasks: serde_json::Value = serde_json::from_str(&tool_text(&list)).unwrap();
+    assert_eq!(
+        tasks["count"], 0,
+        "a refused completion must not complete the task"
+    );
+
+    // JSON null means "not given": the claimer fallback applies, marked as such.
+    mcp_call(
+        &dir,
+        &tool_call(
+            "forge_claim_task",
+            serde_json::json!({"task_id": "T-001", "agent": "claude"}),
+        ),
+    );
+    let out = mcp_call(
+        &dir,
+        &tool_call(
+            "forge_complete_task",
+            serde_json::json!({"task_id": "T-001", "agent": null, "result_summary": "ok"}),
+        ),
+    );
+    assert!(tool_text(&out).contains("T-001 completed"));
+    let list = mcp_call(
+        &dir,
+        &tool_call(
+            "forge_get_tasks",
+            serde_json::json!({"status": "completed"}),
+        ),
+    );
+    let tasks: serde_json::Value = serde_json::from_str(&tool_text(&list)).unwrap();
+    assert_eq!(tasks["tasks"][0]["completed_by"], "claude");
+    assert_eq!(tasks["tasks"][0]["completed_by_source"], "claimer");
 }

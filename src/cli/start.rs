@@ -4,7 +4,7 @@ use crate::adapters::gemini::GeminiAdapter;
 use crate::adapters::{ToolAdapter, execute_command_async};
 use crate::core::event::{EventLogger, EventType, ForgeEvent};
 use crate::core::state::StateManager;
-use crate::core::task::{AgentType, Task, TaskManager, TaskStatus};
+use crate::core::task::{AgentType, CompletedBySource, Task, TaskManager, TaskStatus};
 use crate::detect;
 use colored::Colorize;
 use rand::Rng;
@@ -1027,6 +1027,8 @@ fn complete_task(forge_dir: &Path, task: &Task, agent: &AgentType) -> anyhow::Re
     let mut updated = task.clone();
     updated.status = TaskStatus::Completed;
     updated.completed_at = Some(chrono::Utc::now());
+    updated.completed_by = Some(agent.clone());
+    updated.completed_by_source = Some(CompletedBySource::Engine);
     updated.updated_at = chrono::Utc::now();
     task_mgr.update_task(&updated)?;
 
@@ -1136,5 +1138,25 @@ pub fn load_state_for_risk_check(forge_dir: &Path) -> Option<String> {
         )
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_complete_task_records_engine_agent() {
+        let dir = tempfile::tempdir().unwrap();
+        let task_mgr = TaskManager::new(dir.path());
+        let task = Task::new("T-001", "Feature", "desc");
+        task_mgr.create_task(&task).unwrap();
+
+        complete_task(dir.path(), &task, &AgentType::Codex).unwrap();
+
+        let done = task_mgr.get_task("T-001").unwrap();
+        assert_eq!(done.status, TaskStatus::Completed);
+        assert_eq!(done.completed_by, Some(AgentType::Codex));
+        assert_eq!(done.completed_by_source, Some(CompletedBySource::Engine));
     }
 }

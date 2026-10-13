@@ -6,7 +6,7 @@ use crate::core::event::{EventLogger, EventType, ForgeEvent};
 use crate::core::knowledge::{KnowledgeEntry, KnowledgeManager};
 use crate::core::quality_gate::{self, GateResult};
 use crate::core::state::StateManager;
-use crate::core::task::{AgentType, Task, TaskManager, TaskPhase, TaskStatus};
+use crate::core::task::{AgentType, CompletedBySource, Task, TaskManager, TaskPhase, TaskStatus};
 use crate::tui::pty_session::{PtySession, key_event_to_bytes};
 use crossterm::event::{KeyCode, KeyEvent};
 use portable_pty::{CommandBuilder, PtySize};
@@ -566,6 +566,8 @@ impl App {
                         let mut updated = task;
                         updated.status = TaskStatus::Completed;
                         updated.completed_at = Some(chrono::Utc::now());
+                        updated.completed_by = Some(agent.clone());
+                        updated.completed_by_source = Some(CompletedBySource::Engine);
                         updated.updated_at = chrono::Utc::now();
                         task_mgr.update_task(&updated).ok();
                         state_mgr.unlock_files(&task_id).ok();
@@ -2165,6 +2167,7 @@ impl App {
             verified_at: None,
             result_summary: None,
             completed_by: None,
+            completed_by_source: None,
         };
 
         let std_cmd = match agent {
@@ -2823,6 +2826,7 @@ mod tests {
             verified_at: None,
             result_summary: None,
             completed_by: None,
+            completed_by_source: None,
         }
     }
 

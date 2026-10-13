@@ -307,6 +307,7 @@ mod tests {
             verified_at: None,
             result_summary: None,
             completed_by: None,
+            completed_by_source: None,
         }
     }
 

@@ -143,6 +143,31 @@ pub struct Task {
     /// Agent that completed the task (explicit `agent` argument, else the claiming agent).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completed_by: Option<AgentType>,
+    /// Where `completed_by` came from, so a reader can tell a stated agent from an inferred one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_by_source: Option<CompletedBySource>,
+}
+
+/// Provenance of a task's `completed_by`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CompletedBySource {
+    /// The completing call named the agent (`forge_complete_task` `agent`).
+    Explicit,
+    /// Forge's own engine ran the agent that completed the task (`forge run`, `start`, dashboard).
+    Engine,
+    /// Inferred from the agent that claimed the task.
+    Claimer,
+}
+
+impl std::fmt::Display for CompletedBySource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Explicit => "explicit",
+            Self::Engine => "engine",
+            Self::Claimer => "claimer",
+        })
+    }
 }
 
 impl Task {
@@ -174,6 +199,7 @@ impl Task {
             verified_at: None,
             result_summary: None,
             completed_by: None,
+            completed_by_source: None,
         }
     }
 
@@ -241,11 +267,11 @@ impl Task {
             outcome = if self.completed_at.is_some() || self.result_summary.is_some() {
                 format!(
                     "\n## Outcome\n\n**Completed by:** {by}\n**Completed:** {at}\n\n{summary}\n",
-                    by = self
-                        .completed_by
-                        .as_ref()
-                        .map(|a| a.to_string())
-                        .unwrap_or_else(|| "—".into()),
+                    by = match (&self.completed_by, self.completed_by_source) {
+                        (Some(a), Some(src)) => format!("{a} ({src})"),
+                        (Some(a), None) => a.to_string(),
+                        (None, _) => "—".into(),
+                    },
                     at = self
                         .completed_at
                         .map(|t| t.format("%Y-%m-%d %H:%M UTC").to_string())
@@ -1345,6 +1371,7 @@ mod tests {
         let task = Task::read_from_json(dir.path(), "T-001").unwrap();
         assert_eq!(task.result_summary, None);
         assert_eq!(task.completed_by, None);
+        assert_eq!(task.completed_by_source, None);
         // Round-trip: absent fields stay absent in the JSON.
         let json = serde_json::to_string(&task).unwrap();
         assert!(!json.contains("result_summary") && !json.contains("completed_by"));
@@ -1361,12 +1388,13 @@ mod tests {
         task.status = TaskStatus::Completed;
         task.completed_at = Some(Utc::now());
         task.completed_by = Some(AgentType::Claude);
+        task.completed_by_source = Some(CompletedBySource::Explicit);
         task.result_summary = Some("Shipped it".into());
         task.write_to_file(dir.path()).unwrap();
         let md = std::fs::read_to_string(dir.path().join("tasks/T-001.md")).unwrap();
         assert!(
             md.contains("## Outcome")
-                && md.contains("**Completed by:** claude")
+                && md.contains("**Completed by:** claude (explicit)")
                 && md.contains("Shipped it")
         );
     }

@@ -5,7 +5,7 @@ use crate::core::governance::GovernanceChecker;
 use crate::core::knowledge::{KnowledgeEntry, KnowledgeManager};
 use crate::core::plan::PlanManager;
 use crate::core::state::StateManager;
-use crate::core::task::{AgentType, TaskManager, TaskPhase, TaskStatus};
+use crate::core::task::{AgentType, CompletedBySource, TaskManager, TaskPhase, TaskStatus};
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -63,11 +63,11 @@ pub fn list_tools() -> Vec<ToolDefinition> {
                     },
                     "result_summary": {
                         "type": "string",
-                        "description": "Brief summary of what was accomplished (stored on the task)"
+                        "description": "Brief summary of what was accomplished (stored on the task; a repeat completion without one keeps the stored summary)"
                     },
                     "agent": {
                         "type": "string",
-                        "description": "Agent completing the task (claude, codex, gemini). Defaults to the agent that claimed it"
+                        "description": "Agent completing the task (claude, codex, gemini). Defaults to the agent that claimed it; completed_by_source records which"
                     }
                 },
                 "required": ["task_id"]
@@ -291,6 +291,7 @@ fn handle_get_tasks(args: &Value, forge_dir: &Path) -> CallToolResult {
             "acceptance_criteria": t.acceptance_criteria,
             "completed_at": t.completed_at,
             "completed_by": t.completed_by,
+            "completed_by_source": t.completed_by_source,
             "result_summary": t.result_summary,
         })).collect::<Vec<_>>()
     });
@@ -414,10 +415,11 @@ fn handle_complete_task(args: &Value, forge_dir: &Path) -> CallToolResult {
     };
 
     let provided_summary = args.get("result_summary").and_then(|v| v.as_str());
-    let result_summary = provided_summary.unwrap_or("Task completed");
 
-    let explicit_agent: Option<AgentType> = match args.get("agent").and_then(|v| v.as_str()) {
-        Some(s) => match s.parse() {
+    // Absent or null means "not given"; any other non-string is refused, not read as absent.
+    let explicit_agent: Option<AgentType> = match args.get("agent") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(s)) => match s.parse() {
             Ok(AgentType::Any) => {
                 return CallToolResult::error(
                     "Invalid agent: 'any' is not a completing agent (use claude, codex or gemini)",
@@ -426,7 +428,11 @@ fn handle_complete_task(args: &Value, forge_dir: &Path) -> CallToolResult {
             Ok(a) => Some(a),
             Err(e) => return CallToolResult::error(format!("Invalid agent: {e}")),
         },
-        None => None,
+        Some(other) => {
+            return CallToolResult::error(format!(
+                "Invalid agent: expected a string (claude, codex or gemini), got {other}"
+            ));
+        }
     };
 
     let task_mgr = TaskManager::new(forge_dir);
@@ -439,16 +445,32 @@ fn handle_complete_task(args: &Value, forge_dir: &Path) -> CallToolResult {
         Err(e) => return CallToolResult::error(format!("Task not found: {e}")),
     };
 
-    // Mark completed, keeping the outcome and who completed it on the task itself
+    // Mark completed, keeping the outcome and who completed it on the task itself.
+    // A repeat completion overwrites only what it states: a missing summary or agent keeps the
+    // stored one, so the outcome never falls back to living only in the event log.
     let now = chrono::Utc::now();
-    // "any" is a scheduling placeholder, not an agent: an unclaimed task completes with no agent.
-    let completed_by =
-        explicit_agent.or_else(|| task.assigned_to.clone().filter(|a| *a != AgentType::Any));
+    let already_completed = task.status == TaskStatus::Completed;
+    if let Some(agent) = explicit_agent {
+        task.completed_by = Some(agent);
+        task.completed_by_source = Some(CompletedBySource::Explicit);
+    } else if !(already_completed && task.completed_by.is_some()) {
+        // "any" is a scheduling placeholder, not an agent: an unclaimed task completes with no agent.
+        task.completed_by = task.assigned_to.clone().filter(|a| *a != AgentType::Any);
+        task.completed_by_source = task
+            .completed_by
+            .as_ref()
+            .map(|_| CompletedBySource::Claimer);
+    }
+    if let Some(summary) = provided_summary {
+        task.result_summary = Some(summary.to_string());
+    }
+    if !already_completed || task.completed_at.is_none() {
+        task.completed_at = Some(now);
+    }
     task.status = TaskStatus::Completed;
     task.updated_at = now;
-    task.completed_at = Some(now);
-    task.result_summary = provided_summary.map(str::to_string);
-    task.completed_by = completed_by.clone();
+    let completed_by = task.completed_by.clone();
+    let result_summary = task.result_summary.as_deref().unwrap_or("Task completed");
 
     if let Err(e) = task_mgr.update_task(&task) {
         return CallToolResult::error(format!("Failed to update task: {e}"));
