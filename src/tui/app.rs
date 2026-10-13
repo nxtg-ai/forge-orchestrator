@@ -2163,6 +2163,8 @@ impl App {
             retry_count: 0,
             verified_by: None,
             verified_at: None,
+            result_summary: None,
+            completed_by: None,
         };
 
         let std_cmd = match agent {
@@ -2819,6 +2821,8 @@ mod tests {
             retry_count: 0,
             verified_by: None,
             verified_at: None,
+            result_summary: None,
+            completed_by: None,
         }
     }
 
