@@ -137,6 +137,12 @@ pub struct Task {
     /// When this task was verified
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verified_at: Option<DateTime<Utc>>,
+    /// Outcome reported when the task was completed (`forge_complete_task` `result_summary`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_summary: Option<String>,
+    /// Agent that completed the task (explicit `agent` argument, else the claiming agent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_by: Option<AgentType>,
 }
 
 impl Task {
@@ -166,6 +172,8 @@ impl Task {
             retry_count: 0,
             verified_by: None,
             verified_at: None,
+            result_summary: None,
+            completed_by: None,
         }
     }
 
@@ -193,7 +201,7 @@ impl Task {
              ## Description\n\n{description}\n\n\
              ## Dependencies\n\n{deps}\n\n\
              ## Locked Files\n\n{files}\n\n\
-             ## Acceptance Criteria\n\n{criteria}\n",
+             ## Acceptance Criteria\n\n{criteria}\n{outcome}",
             id = self.id,
             title = self.title,
             status = self.status,
@@ -229,6 +237,26 @@ impl Task {
                     .map(|f| format!("- `{f}`"))
                     .collect::<Vec<_>>()
                     .join("\n")
+            },
+            outcome = if self.completed_at.is_some() || self.result_summary.is_some() {
+                format!(
+                    "\n## Outcome\n\n**Completed by:** {by}\n**Completed:** {at}\n\n{summary}\n",
+                    by = self
+                        .completed_by
+                        .as_ref()
+                        .map(|a| a.to_string())
+                        .unwrap_or_else(|| "—".into()),
+                    at = self
+                        .completed_at
+                        .map(|t| t.format("%Y-%m-%d %H:%M UTC").to_string())
+                        .unwrap_or_else(|| "—".into()),
+                    summary = self
+                        .result_summary
+                        .as_deref()
+                        .unwrap_or("No summary recorded."),
+                )
+            } else {
+                String::new()
             },
             criteria = if self.acceptance_criteria.is_empty() {
                 "None specified".to_string()
@@ -1301,6 +1329,45 @@ mod tests {
         assert!(
             !criteria.iter().any(|c| c.contains("Playwright")),
             "Non-UI tasks should NOT have Playwright checks"
+        );
+    }
+    /// Task files written before v1.6.3 have no outcome fields; they must still load.
+    #[test]
+    fn test_legacy_task_json_without_outcome_fields_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let tasks_dir = dir.path().join("tasks");
+        std::fs::create_dir_all(&tasks_dir).unwrap();
+        std::fs::write(
+            tasks_dir.join("T-001.json"),
+            r#"{"id":"T-001","title":"Old","description":"d","status":"completed","assigned_to":"claude","depends_on":[],"locked_files":[],"acceptance_criteria":[],"created_at":"2026-08-01T00:00:00Z","updated_at":"2026-08-01T00:00:00Z","completed_at":"2026-08-01T01:00:00Z"}"#,
+        )
+        .unwrap();
+        let task = Task::read_from_json(dir.path(), "T-001").unwrap();
+        assert_eq!(task.result_summary, None);
+        assert_eq!(task.completed_by, None);
+        // Round-trip: absent fields stay absent in the JSON.
+        let json = serde_json::to_string(&task).unwrap();
+        assert!(!json.contains("result_summary") && !json.contains("completed_by"));
+    }
+
+    #[test]
+    fn test_markdown_view_shows_outcome_only_when_completed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut task = Task::new("T-001", "Feature", "desc");
+        task.write_to_file(dir.path()).unwrap();
+        let md = std::fs::read_to_string(dir.path().join("tasks/T-001.md")).unwrap();
+        assert!(!md.contains("## Outcome"));
+
+        task.status = TaskStatus::Completed;
+        task.completed_at = Some(Utc::now());
+        task.completed_by = Some(AgentType::Claude);
+        task.result_summary = Some("Shipped it".into());
+        task.write_to_file(dir.path()).unwrap();
+        let md = std::fs::read_to_string(dir.path().join("tasks/T-001.md")).unwrap();
+        assert!(
+            md.contains("## Outcome")
+                && md.contains("**Completed by:** claude")
+                && md.contains("Shipped it")
         );
     }
 }

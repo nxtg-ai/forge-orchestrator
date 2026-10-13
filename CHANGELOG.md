@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `forge_get_tasks` returns each task's outcome: `result_summary` (as passed to
+  `forge_complete_task`), `completed_by` (the completing agent) and `completed_at`. The task's
+  `.forge/tasks/T-xxx.md` gains an "Outcome" section. `forge_complete_task` takes an optional
+  `agent` (defaults to the agent that claimed the task), and the `task_completed` event now names
+  that agent instead of `null`. Task files written before this version load unchanged.
+
 ### Fixed
 - `install.sh` had CRLF line endings since it was added, so `curl … | sh` failed with
   `set: Illegal option -` on Linux and macOS. It is now LF, enforced by `.gitattributes` and a CI

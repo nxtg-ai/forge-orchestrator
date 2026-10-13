@@ -63,7 +63,11 @@ pub fn list_tools() -> Vec<ToolDefinition> {
                     },
                     "result_summary": {
                         "type": "string",
-                        "description": "Brief summary of what was accomplished"
+                        "description": "Brief summary of what was accomplished (stored on the task)"
+                    },
+                    "agent": {
+                        "type": "string",
+                        "description": "Agent completing the task (claude, codex, gemini). Defaults to the agent that claimed it"
                     }
                 },
                 "required": ["task_id"]
@@ -285,6 +289,9 @@ fn handle_get_tasks(args: &Value, forge_dir: &Path) -> CallToolResult {
             "depends_on": t.depends_on,
             "locked_files": t.locked_files,
             "acceptance_criteria": t.acceptance_criteria,
+            "completed_at": t.completed_at,
+            "completed_by": t.completed_by,
+            "result_summary": t.result_summary,
         })).collect::<Vec<_>>()
     });
 
@@ -406,10 +413,16 @@ fn handle_complete_task(args: &Value, forge_dir: &Path) -> CallToolResult {
         None => return CallToolResult::error("Missing required parameter: task_id"),
     };
 
-    let result_summary = args
-        .get("result_summary")
-        .and_then(|v| v.as_str())
-        .unwrap_or("Task completed");
+    let provided_summary = args.get("result_summary").and_then(|v| v.as_str());
+    let result_summary = provided_summary.unwrap_or("Task completed");
+
+    let explicit_agent: Option<AgentType> = match args.get("agent").and_then(|v| v.as_str()) {
+        Some(s) => match s.parse() {
+            Ok(a) => Some(a),
+            Err(e) => return CallToolResult::error(format!("Invalid agent: {e}")),
+        },
+        None => None,
+    };
 
     let task_mgr = TaskManager::new(forge_dir);
     let state_mgr = StateManager::new(forge_dir);
@@ -421,11 +434,14 @@ fn handle_complete_task(args: &Value, forge_dir: &Path) -> CallToolResult {
         Err(e) => return CallToolResult::error(format!("Task not found: {e}")),
     };
 
-    // Mark completed
+    // Mark completed, keeping the outcome and who completed it on the task itself
     let now = chrono::Utc::now();
+    let completed_by = explicit_agent.or_else(|| task.assigned_to.clone());
     task.status = TaskStatus::Completed;
     task.updated_at = now;
     task.completed_at = Some(now);
+    task.result_summary = provided_summary.map(str::to_string);
+    task.completed_by = completed_by.clone();
 
     if let Err(e) = task_mgr.update_task(&task) {
         return CallToolResult::error(format!("Failed to update task: {e}"));
@@ -437,13 +453,15 @@ fn handle_complete_task(args: &Value, forge_dir: &Path) -> CallToolResult {
     }
 
     // Log event
-    if let Err(e) = event_logger.log(
-        &ForgeEvent::new(
-            EventType::TaskCompleted,
-            format!("Task {task_id} completed: {result_summary}"),
-        )
-        .with_task(task_id),
-    ) {
+    let mut event = ForgeEvent::new(
+        EventType::TaskCompleted,
+        format!("Task {task_id} completed: {result_summary}"),
+    )
+    .with_task(task_id);
+    if let Some(agent) = completed_by {
+        event = event.with_agent(agent);
+    }
+    if let Err(e) = event_logger.log(&event) {
         eprintln!("[forge-orchestrator] event log error: {e}");
     }
 
