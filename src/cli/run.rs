@@ -4,7 +4,7 @@ use crate::adapters::gemini::GeminiAdapter;
 use crate::adapters::{ToolAdapter, execute_command_async};
 use crate::core::event::{EventLogger, EventType, ForgeEvent};
 use crate::core::state::StateManager;
-use crate::core::task::{AgentType, Task, TaskManager, TaskStatus};
+use crate::core::task::{AgentType, CompletedBySource, Task, TaskManager, TaskStatus};
 use crate::tui::app::commit_type_for_task;
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -118,6 +118,8 @@ pub async fn execute(project_root: &Path, task_id: &str, agent_name: &str) -> an
     if result.success {
         task.status = TaskStatus::Completed;
         task.completed_at = Some(chrono::Utc::now());
+        task.completed_by = Some(agent_type.clone());
+        task.completed_by_source = Some(CompletedBySource::Engine);
         sp.finish_and_clear();
         println!("  {} {} completed", "✓".green(), task_id);
 
@@ -608,6 +610,7 @@ mod tests {
             verified_at: None,
             result_summary: None,
             completed_by: None,
+            completed_by_source: None,
         }
     }
 }
