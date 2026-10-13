@@ -414,7 +414,15 @@ fn handle_complete_task(args: &Value, forge_dir: &Path) -> CallToolResult {
         None => return CallToolResult::error("Missing required parameter: task_id"),
     };
 
-    let provided_summary = args.get("result_summary").and_then(|v| v.as_str());
+    let provided_summary = match args.get("result_summary") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(s)) => Some(s.as_str()),
+        Some(other) => {
+            return CallToolResult::error(format!(
+                "Invalid result_summary: expected a string, got {other}"
+            ));
+        }
+    };
 
     // Absent or null means "not given"; any other non-string is refused, not read as absent.
     let explicit_agent: Option<AgentType> = match args.get("agent") {

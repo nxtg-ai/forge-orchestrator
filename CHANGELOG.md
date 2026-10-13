@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `engine` or `claimer`: whether the agent was stated, ran under forge's own engine, or was inferred
   from the claim) and `completed_at`. The task's `.forge/tasks/T-xxx.md` gains an "Outcome"
   section. `forge_complete_task` takes an optional `agent` (defaults to the agent that claimed the
-  task; `any` and non-string values are refused), and the `task_completed` event now names that
+  task; `any` and non-string values are refused, as is a non-string `result_summary`), and the `task_completed` event now names that
   agent instead of `null`. A repeat completion overwrites only what it states, so completing a task
   again without a summary keeps the stored one. `forge run`, `forge start` and the dashboard record
   the agent they ran. Task files written before this version load unchanged.

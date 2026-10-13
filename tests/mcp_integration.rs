@@ -606,6 +606,18 @@ fn test_mcp_complete_task_refuses_non_string_agent() {
             "{bad}: {out}"
         );
     }
+    // Same for a non-string result_summary: refused, not read as "no summary".
+    let out = mcp_call(
+        &dir,
+        &tool_call(
+            "forge_complete_task",
+            serde_json::json!({"task_id": "T-001", "result_summary": 123}),
+        ),
+    );
+    assert!(
+        last_response(&out).contains("Invalid result_summary"),
+        "{out}"
+    );
     let list = mcp_call(
         &dir,
         &tool_call(
