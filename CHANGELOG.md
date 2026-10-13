@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-10-13
+
 ### Added
 - `forge_get_tasks` returns each task's outcome: `result_summary` (as passed to
   `forge_complete_task`), `completed_by` (the completing agent), `completed_by_source` (`explicit`,
@@ -29,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Release notes point to the canonical installer, `https://forge.nxtg.ai/install.sh`.
 - `install.sh` finds the latest release from the `github.com/.../releases/latest` redirect instead of
   `api.github.com`, whose unauthenticated limit (60/hour per IP) made installs fail on shared IPs.
+- `install.sh` puts forge on `PATH` for new shells: it adds one guarded, idempotent line to
+  `~/.profile`, `~/.bashrc` and `~/.zshenv` (opt out with `FORGE_NO_MODIFY_PATH=1`). Before, forge
+  landed in `~/.local/bin`, off `PATH` in fresh login and non-login shells, so the plugin's
+  `orchestrator-mcp` (`command -v forge`) could not find it (#44).
 
 ## [1.6.2] - 2026-10-07
 
