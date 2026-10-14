@@ -142,22 +142,52 @@ else
 fi
 
 # Claude Code: the companion plugin nxtg-forge-orchestrator registers forge's MCP server
-# (orchestrator-mcp). It is added only through the claude CLI; this script writes no Claude config
-# by any other path. Opt out with FORGE_NO_CLAUDE_PLUGIN=1.
-PLUGIN_CMD="claude plugin install nxtg-forge-orchestrator --marketplace nxtg-ai/forge-plugin"
+# (orchestrator-mcp). Everything goes through the claude CLI; this script writes no Claude config
+# by any other path, and prints one line per change. Opt out with FORGE_NO_CLAUDE_PLUGIN=1.
+MKT_SOURCE="nxtg-ai/forge-plugin"
+MKT="nxtg-forge"
+MAIN_PLUGIN="nxtg-forge@$MKT"
+COMPANION="nxtg-forge-orchestrator@$MKT"
+claude_manual() {
+  echo "  claude plugin marketplace add $MKT_SOURCE"
+  echo "  claude plugin marketplace update $MKT"
+  echo "  claude plugin update $MAIN_PLUGIN   # only if nxtg-forge is already installed"
+  echo "  claude plugin install $COMPANION"
+}
+# claude_step <what it changes> <claude args...>: one line per step; on failure, its last output line.
+claude_step() {
+  what=$1; shift
+  if step_out=$(claude "$@" </dev/null 2>&1); then
+    echo "  - $what"
+  else
+    echo "  - FAILED: $what ($(printf '%s\n' "$step_out" | tail -1))"
+    return 1
+  fi
+}
 echo ""
 if [ -n "${FORGE_NO_CLAUDE_PLUGIN:-}" ]; then
-  echo "Claude Code plugin skipped (FORGE_NO_CLAUDE_PLUGIN is set). To add forge's MCP tools later:"
-  echo "  $PLUGIN_CMD"
-elif command -v claude >/dev/null 2>&1; then
-  echo "Adding forge's MCP tools to Claude Code (plugin nxtg-forge-orchestrator)..."
-  if claude plugin install nxtg-forge-orchestrator --marketplace nxtg-ai/forge-plugin </dev/null; then
-    echo "Claude Code: forge's MCP tools load in new sessions."
-  else
-    echo "Could not add the Claude Code plugin automatically. Forge itself is installed. Run:"
-    echo "  $PLUGIN_CMD"
-  fi
-else
+  echo "Claude Code plugin skipped (FORGE_NO_CLAUDE_PLUGIN is set). To add forge's MCP tools later, run:"
+  claude_manual
+elif ! command -v claude >/dev/null 2>&1; then
   echo "Claude Code not found. To use forge's MCP tools in Claude Code, install it, then run:"
-  echo "  $PLUGIN_CMD"
+  claude_manual
+else
+  echo "Adding forge's MCP tools to Claude Code:"
+  if claude_step "marketplace $MKT added ($MKT_SOURCE; no change if already there)" plugin marketplace add "$MKT_SOURCE" &&
+    claude_step "marketplace $MKT refreshed" plugin marketplace update "$MKT" &&
+    { installed=$(claude plugin list --json </dev/null 2>/dev/null) ||
+      { echo "  - FAILED: listing installed Claude Code plugins"; false; }; } &&
+    {
+      # An older nxtg-forge still registers its own orchestrator-mcp; update it so the companion's
+      # copy is the only one.
+      if printf '%s' "$installed" | grep -q "\"id\": *\"$MAIN_PLUGIN\""; then
+        claude_step "plugin $MAIN_PLUGIN updated" plugin update "$MAIN_PLUGIN"
+      fi
+    } &&
+    claude_step "plugin $COMPANION installed" plugin install "$COMPANION"; then
+    echo "Claude Code: forge's MCP tools load in new sessions (restart any open session)."
+  else
+    echo "Forge itself is installed. To finish adding its MCP tools to Claude Code, run:"
+    claude_manual
+  fi
 fi
