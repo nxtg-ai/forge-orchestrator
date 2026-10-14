@@ -1,0 +1,92 @@
+name: Release Smoke
+
+# Executes the PUBLISHED assets of a release on a host of each target's own OS and architecture,
+# and installs the Homebrew formula on both macOS architectures. Run it after a release (and after
+# the tap bump); its run URL is the receipt that the shipped artifacts run where they claim to.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to check (e.g. v1.6.4). Empty means the latest release.
+        required: false
+  pull_request:
+    paths:
+      - .github/workflows/release-smoke.yml
+      - .github/scripts/smoke-binary.sh
+
+permissions:
+  contents: read
+
+jobs:
+  assets:
+    name: Asset ${{ matrix.archive }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - archive: forge-linux-x86_64.tar.gz
+            os: ubuntu-latest
+          - archive: forge-linux-aarch64.tar.gz
+            os: ubuntu-24.04-arm
+          - archive: forge-macos-x86_64.tar.gz
+            os: macos-15-intel
+          - archive: forge-macos-aarch64.tar.gz
+            os: macos-latest
+          - archive: forge-windows-x86_64.zip
+            os: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          tag="${{ inputs.tag }}"
+          [ -n "$tag" ] || tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Download the published asset
+        shell: bash
+        run: gh release download "${{ steps.tag.outputs.tag }}" --repo "$GITHUB_REPOSITORY" -p "${{ matrix.archive }}" -p "${{ matrix.archive }}.sha256"
+      - name: Run the published binary
+        shell: bash
+        run: bash .github/scripts/smoke-binary.sh "${{ matrix.archive }}" "${TAG#v}"
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+
+  brew:
+    name: brew install (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15-intel]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
+    steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          tag="${{ inputs.tag }}"
+          [ -n "$tag" ] || tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: brew install nxtg-ai/tap/forge
+        run: brew install nxtg-ai/tap/forge
+      - name: brew test forge
+        run: brew test forge
+      - name: Installed version matches the release
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          uname -sm
+          out=$(forge --version)
+          echo "$out"
+          case "$out" in
+            "forge ${TAG#v} (stage: "*) echo "ok: brew installs forge ${TAG#v}" ;;
+            *) echo "::error::brew installed '$out', want forge ${TAG#v} (is the tap formula bumped?)"; exit 1 ;;
+          esac
