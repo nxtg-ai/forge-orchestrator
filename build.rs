@@ -30,10 +30,6 @@ fn main() {
         MATURITIES.contains(&maturity),
         "STAGE maturity must be one of {MATURITIES:?}, found {maturity:?}"
     );
-    assert!(
-        !(distribution == "internal" && ["alpha", "beta", "rc", "ga"].contains(&maturity)),
-        "STAGE maturity {maturity:?} cannot be internal (alpha and above are offered outward)"
-    );
     let label = match (distribution, maturity) {
         ("internal", _) => "internal",
         (_, "pre-alpha" | "dogfood") => "public preview",

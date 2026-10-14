@@ -8,11 +8,11 @@
 
 **Stage: Public preview.** Forge is public: anyone may install and use it. Its maturity is below alpha (pre-alpha): no SLA, and interfaces may change without notice.
 
-**Orchestrate Claude Code, Codex CLI, and Gemini CLI on shared repos — single Rust binary, zero deps.**
+**Orchestration for Claude Code, with Codex CLI as a task runner, on shared repos — single Rust binary, zero deps. Gemini CLI support is in development (build B1, target 2026-10-27).**
 
-Multi-agent inside a single tool works fine. Claude Code runs 20 subagents and they stay aligned because the tool manages that orchestration internally. The problem is multi-tool: Claude Code, Codex CLI, and Gemini CLI on the same repo with no shared state. That's what the orchestrator solves.
+Multi-agent inside a single tool works fine. Claude Code runs 20 subagents and they stay aligned because the tool manages that orchestration internally. The problem is multi-tool: several AI coding tools on the same repo with no shared state. That's what the orchestrator solves: today for Claude Code, with Codex CLI as a task runner. Gemini CLI support is in development (build B1, target 2026-10-27).
 
-It adds file locking, knowledge capture, task planning, drift detection, and multi-tool orchestration to your development workflow. Three tools reading from and writing to a single state directory. An 11-tool MCP server exposes the full orchestration state to any connected AI client.
+It adds file locking, knowledge capture, task planning, drift detection, and multi-tool orchestration to your development workflow. The tools read from and write to a single state directory. An 11-tool MCP server exposes the full orchestration state to any connected AI client.
 
 The orchestrator exists because I ran two AI tools on the same codebase and watched them fail in the same ways human teams fail. Claude refactored a module. Codex updated tests against the pre-refactor interface. Both saved. Tests failed. Neither tool knew the other existed. I'd spent 23 years watching this exact scenario with talented human teams. The solution was always the same: orchestration infrastructure.
 
@@ -51,16 +51,16 @@ From here you can:
 - `forge dashboard --pty` — launch the TUI dashboard with interactive agent panes
 
 
-## Real-World Result: Stargate Mode
+## Past Result: Stargate Mode (before v1.6.1)
 
-From a 94-line specification, the orchestrator coordinated three AI coding tools to build a complete CLI toolkit:
+From a 94-line specification, an earlier version of the orchestrator coordinated three AI coding tools to build a complete CLI toolkit. That run drove Gemini CLI; since v1.6.1 the "gemini" adapter drives Antigravity `agy` instead, and the run has not been re-measured. Gemini CLI support is in development (build B1, target 2026-10-27).
 
 ```
 SPEC.md (94 lines) → forge plan --generate → 15 tasks
 
 Claude Code:  6 design tasks     → completed
 Codex CLI:    6 implementation   → completed
-Gemini CLI:   3 test/doc tasks   → completed
+Gemini CLI:   3 test/doc tasks   → completed   (pre-1.6.1 adapter)
 
 Result: 5,306 lines of working code
         10 auto-committed git entries
@@ -83,7 +83,7 @@ forge dashboard --pty
 | Plan generation | `forge plan --generate` decomposes specs into dependency-aware task graphs |
 | Drift detection | Compares in-progress work against specs, flags divergence early |
 | Task board | Dependency-tracked tasks, tool assignment, progress monitoring |
-| Multi-tool adapters | Claude Code (MCP stdio) + Codex CLI + Gemini CLI (filesystem) |
+| Multi-tool adapters | Claude Code (MCP stdio); Codex CLI as a task runner (filesystem). Gemini CLI support is in development (build B1, target 2026-10-27) |
 | TUI dashboard | `forge dashboard`: live tool panes, task status, lock state |
 | Headless mode | `forge run`: autonomous execution for CI/CD pipelines |
 | MCP server | 11 tools accessible by any connected AI tool via stdio |
@@ -129,7 +129,7 @@ The orchestrator is the policy core of Forge. All governance rules, file locks, 
 
 **Communication**: `.forge/` filesystem + MCP stdio. No daemon. No database. State is files.
 
-**Tool adapters**: Claude Code uses MCP stdio. Codex CLI and Gemini CLI use filesystem conventions. Each tool reads its own config format. No Forge-specific configuration language.
+**Tool adapters**: Claude Code uses MCP stdio. Codex CLI runs tasks through filesystem conventions. Gemini CLI support is in development (build B1, target 2026-10-27); today the "gemini" adapter drives Antigravity `agy`. Each tool reads its own config format. No Forge-specific configuration language.
 
 ## How File Locking Works
 
