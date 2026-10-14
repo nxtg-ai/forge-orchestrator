@@ -9,13 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.4] - 2026-10-13
+
 ### Changed
 - Release stage on two axes: the root `STAGE` file records `distribution: public` and
   `maturity: pre-alpha` (the same format as forge-plugin), and the label is derived from them.
   Forge is a **Public preview**: public, below alpha. `forge --version` prints
   `(stage: public preview)`, `forge_get_health` returns `"stage": "public preview"`, and the README,
   CHANGELOG and `server.json` say the same. CI fails if any of them disagrees with `STAGE`. Forge was
-  mislabelled `internal` before.
+  mislabelled `internal` before (#49).
+- README, `server.json` (MCP Registry) and the crates.io description state today's tool support:
+  Claude Code, with Codex CLI as a task runner; Gemini CLI support is in development (build B1,
+  target 2026-10-27). Since v1.6.1 the "gemini" adapter drives Antigravity `agy`. The README's
+  Stargate result is labelled as a pre-1.6.1 run (#50).
+- `build.rs` accepts any maturity under `distribution: internal`; the label stays `internal` (#50).
 
 ### Fixed
 - README: the forge-ui install line now runs `cd forge-ui` before `npm install`.
