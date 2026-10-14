@@ -9,18 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-14
+
 ### Added
 - MCP tool `forge_create_task`: creates exactly one pending task from a `title` and `description`
   and returns its `task_id`, which `forge_claim_task` and `forge_complete_task` accept. A task can now
   be created, claimed and completed through MCP alone. Ids are reserved with an exclusive file
   create, so concurrent MCP servers never share an id or overwrite a task. The tool is appended to
-  `tools/list`, so existing tools keep their positions (12 tools).
+  `tools/list`, so existing tools keep their positions (12 tools) (#58).
+- Release pipeline: every packaged binary (Linux x86_64/aarch64, macOS x86_64/aarch64, Windows) runs
+  on a native runner and must print `forge <version> (stage: <label from STAGE>)` before the GitHub
+  release is created; Create Release now also waits for CI. A `release-smoke` workflow re-runs
+  the published assets of any tag and `brew install` + `brew test` on both macOS architectures (#54).
 
 ### Changed
 - Creating a task never overwrites an existing one: `TaskManager::create_task` reserves the id with
   an exclusive create and fails if it is taken (the plan generator, the dashboard and MCP all
   create through it). `update_task` is the only path that overwrites. Task `.json` and `.md` files
-  are written through a temp file and a rename, so readers never see a partly written task.
+  are written through a temp file and a rename, so readers never see a partly written task (#58).
+
+### Fixed
+- `forge dashboard` shell pane on native Windows: with `SHELL` unset it opens `%COMSPEC%` (else
+  `cmd.exe`) instead of `/bin/bash`, which does not exist there (#57).
+
+### Security
+- rustls 0.23.46 (RUSTSEC-2026-0346, -0347, -0348, -0349) (#55).
+- Workflows pass dispatch inputs and manifest-derived values to the shell only through `env:`,
+  validated; `release-protocol-check` parses manifests as TOML (#54, #56).
 
 ## [1.6.4] - 2026-10-13
 
