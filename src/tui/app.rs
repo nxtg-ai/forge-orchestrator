@@ -1305,7 +1305,11 @@ impl App {
             return;
         }
 
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+        let shell = default_shell(
+            cfg!(windows),
+            std::env::var("SHELL").ok(),
+            std::env::var("COMSPEC").ok(),
+        );
 
         // DX-024: PTY mode — spawn shell with a real PTY
         if self.pty_mode {
@@ -2600,6 +2604,21 @@ pub fn commit_type_for_task(task_type: Option<&str>) -> &'static str {
 }
 
 /// Check if recent agent output contains rate limit indicators.
+/// The shell the dashboard's shell pane runs: `$SHELL` when set, else the platform default.
+/// Native Windows usually has no `SHELL`, so it gets `%COMSPEC%` (else `cmd.exe`) instead of
+/// /bin/bash, which does not exist there.
+fn default_shell(is_windows: bool, shell: Option<String>, comspec: Option<String>) -> String {
+    let nonempty = |v: Option<String>| v.filter(|v| !v.trim().is_empty());
+    if let Some(shell) = nonempty(shell) {
+        return shell;
+    }
+    if is_windows {
+        nonempty(comspec).unwrap_or_else(|| "cmd.exe".to_string())
+    } else {
+        "/bin/bash".to_string()
+    }
+}
+
 fn is_rate_limited(output: &VecDeque<String>) -> bool {
     output.iter().rev().take(20).any(|line| {
         let lower = line.to_lowercase();
@@ -2803,6 +2822,28 @@ fn truncate_str(s: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// DIRECTIVE-NXTG-20261014-07: native Windows has no `SHELL`; the pane must open the user's
+    /// shell (`%COMSPEC%`, else `cmd.exe`), not /bin/bash. Unix is unchanged.
+    #[test]
+    fn test_default_shell_per_platform() {
+        let s = |v: &str| Some(v.to_string());
+        // Windows, SHELL unset: COMSPEC, else cmd.exe.
+        assert_eq!(
+            default_shell(true, None, s(r"C:\Windows\system32\cmd.exe")),
+            r"C:\Windows\system32\cmd.exe"
+        );
+        assert_eq!(default_shell(true, None, None), "cmd.exe");
+        // Windows, SHELL set (Git Bash, MSYS2): honour it.
+        assert_eq!(
+            default_shell(true, s("/usr/bin/bash"), s("cmd.exe")),
+            "/usr/bin/bash"
+        );
+        // Unix, SHELL unset: /bin/bash, as before; COMSPEC is ignored.
+        assert_eq!(default_shell(false, None, s("cmd.exe")), "/bin/bash");
+        // Unix, SHELL set.
+        assert_eq!(default_shell(false, s("/bin/zsh"), None), "/bin/zsh");
+    }
 
     fn make_task(id: &str, status: TaskStatus, deps: Vec<String>) -> Task {
         Task {
