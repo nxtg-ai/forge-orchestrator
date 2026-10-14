@@ -351,9 +351,8 @@ fn handle_create_task(args: &Value, forge_dir: &Path) -> CallToolResult {
     if let Err(e) = EventLogger::new(forge_dir).log(&event) {
         eprintln!("[forge-orchestrator] event log error: {e}");
     }
-    if let Err(e) = StateManager::new(forge_dir).refresh_task_summary() {
-        eprintln!("[forge-orchestrator] state summary refresh error: {e}");
-    }
+    // No state.json write here: its load/modify/save is unlocked, so a refresh could drop a file
+    // lock another server just saved. The summary refreshes on the next claim or completion.
 
     CallToolResult::text(
         serde_json::to_string_pretty(&json!({

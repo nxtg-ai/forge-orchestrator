@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   create, so concurrent MCP servers never share an id or overwrite a task. The tool is appended to
   `tools/list`, so existing tools keep their positions (12 tools).
 
+### Changed
+- Creating a task never overwrites an existing one: `TaskManager::create_task` reserves the id with
+  an exclusive create and fails if it is taken (the plan generator, the dashboard and MCP all
+  create through it). `update_task` is the only path that overwrites. Task `.json` and `.md` files
+  are written through a temp file and a rename, so readers never see a partly written task.
+
 ## [1.6.4] - 2026-10-13
 
 ### Changed
