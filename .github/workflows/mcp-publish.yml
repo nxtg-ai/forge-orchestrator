@@ -27,6 +27,13 @@ jobs:
     name: Publish to MCP Registry
     runs-on: ubuntu-latest
     steps:
+      # The tag reaches shell only through env, and only once it is a plain release tag: a dispatched
+      # input is untrusted, and ${{ }} inside run: is spliced into the script as code.
+      - name: Validate tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "::error::not a release tag: $TAG"; exit 1; }
       # Workflow's own commit, for the stamp script (an older tag may predate it).
       - uses: actions/checkout@v4
       # The tag being published, for server.json and Cargo.toml.
@@ -46,7 +53,8 @@ jobs:
         working-directory: release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash ../.github/scripts/stamp-server-json.sh "${{ inputs.tag }}" server.json
+          TAG: ${{ inputs.tag }}
+        run: bash ../.github/scripts/stamp-server-json.sh "$TAG" server.json
 
       - name: Validate server.json
         run: ./mcp-publisher validate release/server.json

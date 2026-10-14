@@ -43,6 +43,8 @@ jobs:
 
       - name: Detect manifest version + registry
         id: detect
+        env:
+          INPUT_REGISTRY: ${{ inputs.registry }}
         run: |
           set -e
           VERSION=""
@@ -70,8 +72,12 @@ jobs:
           fi
 
           # Override from workflow inputs
-          if [ -n "${{ inputs.registry }}" ]; then
-            REGISTRY="${{ inputs.registry }}"
+          # Read via env, never spliced into the script; only the documented values are accepted.
+          if [ -n "$INPUT_REGISTRY" ]; then
+            case "$INPUT_REGISTRY" in
+              npm|cargo|pypi|none) REGISTRY="$INPUT_REGISTRY" ;;
+              *) echo "::error::registry must be npm, cargo, pypi or none"; exit 1 ;;
+            esac
           fi
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
