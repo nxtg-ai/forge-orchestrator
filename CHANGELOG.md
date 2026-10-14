@@ -1,6 +1,6 @@
 # Changelog
 
-Stage: internal (see STAGE)
+Stage: Public preview (see STAGE)
 
 All notable changes to this project will be documented in this file.
 
@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Changed
+- Release stage on two axes: the root `STAGE` file records `distribution: public` and
+  `maturity: pre-alpha` (the same format as forge-plugin), and the label is derived from them.
+  Forge is a **Public preview**: public, below alpha. `forge --version` prints
+  `(stage: public preview)`, `forge_get_health` returns `"stage": "public preview"`, and the README,
+  CHANGELOG and `server.json` say the same. CI fails if any of them disagrees with `STAGE`. Forge was
+  mislabelled `internal` before.
+
+### Fixed
+- README: the forge-ui install line now runs `cd forge-ui` before `npm install`.
 
 ## [1.6.3] - 2026-10-13
 

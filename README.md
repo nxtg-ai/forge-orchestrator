@@ -4,9 +4,9 @@
 
 # forge-orchestrator
 
-[![stage: internal](https://img.shields.io/badge/stage-internal-grey)](STAGE) [![MCP Registry](https://img.shields.io/badge/MCP_Registry-active-00b4ab)](https://registry.modelcontextprotocol.io) [![License: FSL-1.1-ALv2](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue.svg)](LICENSE.md) [![Version](https://img.shields.io/badge/version-v1.6.3-blue)](https://github.com/nxtg-ai/forge-orchestrator/releases/tag/v1.6.3) [![CI](https://github.com/nxtg-ai/forge-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/nxtg-ai/forge-orchestrator/actions) [![GitHub stars](https://img.shields.io/github/stars/nxtg-ai/forge-orchestrator)](https://github.com/nxtg-ai/forge-orchestrator) [![crates.io](https://img.shields.io/crates/v/forge-orchestrator)](https://crates.io/crates/forge-orchestrator)
+[![stage: public preview](https://img.shields.io/badge/stage-public_preview-blue)](STAGE) [![MCP Registry](https://img.shields.io/badge/MCP_Registry-active-00b4ab)](https://registry.modelcontextprotocol.io) [![License: FSL-1.1-ALv2](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue.svg)](LICENSE.md) [![Version](https://img.shields.io/badge/version-v1.6.3-blue)](https://github.com/nxtg-ai/forge-orchestrator/releases/tag/v1.6.3) [![CI](https://github.com/nxtg-ai/forge-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/nxtg-ai/forge-orchestrator/actions) [![GitHub stars](https://img.shields.io/github/stars/nxtg-ai/forge-orchestrator)](https://github.com/nxtg-ai/forge-orchestrator) [![crates.io](https://img.shields.io/crates/v/forge-orchestrator)](https://crates.io/crates/forge-orchestrator)
 
-**Stage: internal.** Built for and used inside NXTG. The source is public, but it is not yet offered or supported for outside use: no SLA, and interfaces may change without notice.
+**Stage: Public preview.** Forge is public: anyone may install and use it. Its maturity is below alpha (pre-alpha): no SLA, and interfaces may change without notice.
 
 **Orchestrate Claude Code, Codex CLI, and Gemini CLI on shared repos — single Rust binary, zero deps.**
 
@@ -154,7 +154,7 @@ The TUI dashboard shows everything. Forge UI shows it better.
 Visual dashboards. Governance HUD. Real-time agent collaboration network. And the Infinity Terminal: sessions that survive browser close, network drops, and server restarts. If you've lost a 3-hour agent session to a disconnected SSH pipe, you know why this matters.
 
 ```bash
-git clone https://github.com/nxtg-ai/forge-ui && npm install && npm run dev
+git clone https://github.com/nxtg-ai/forge-ui && cd forge-ui && npm install && npm run dev
 ```
 
 58 components. 4,165 tests. 87% coverage.

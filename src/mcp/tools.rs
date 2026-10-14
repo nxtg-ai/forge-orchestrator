@@ -885,7 +885,21 @@ mod tests {
         let output: Value = serde_json::from_str(&result.content[0].text).unwrap();
         assert_eq!(output["version"], env!("CARGO_PKG_VERSION"));
         assert_eq!(output["stage"], env!("FORGE_STAGE"));
-        let stage_file = include_str!("../../STAGE").trim();
-        assert_eq!(output["stage"], stage_file);
+        // The label is derived from the two STAGE axes (see build.rs), never stored.
+        let stage_file = include_str!("../../STAGE");
+        let field = |key: &str| {
+            stage_file
+                .lines()
+                .find_map(|l| l.trim().strip_prefix(key)?.strip_prefix(':'))
+                .map(str::trim)
+                .unwrap()
+        };
+        let expected = match (field("distribution"), field("maturity")) {
+            ("internal", _) => "internal",
+            (_, "pre-alpha" | "dogfood") => "public preview",
+            (_, "rc") => "release candidate",
+            (_, m) => m,
+        };
+        assert_eq!(output["stage"], expected);
     }
 }
