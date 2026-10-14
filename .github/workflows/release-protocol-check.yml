@@ -60,15 +60,27 @@ jobs:
               REGISTRY="npm"
             fi
           elif [ -f "Cargo.toml" ]; then
-            VERSION=$(grep -oP '^version\s*=\s*"\K[^"]+' Cargo.toml | head -1)
-            PKG_NAME=$(grep -oP '^name\s*=\s*"\K[^"]+' Cargo.toml | head -1)
-            if ! grep -q '^publish\s*=\s*false' Cargo.toml; then
+            # Parse TOML, so only [package] counts (a `version` under [package.metadata.*] or any
+            # other table is ignored).
+            VERSION=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml","rb")).get("package",{}).get("version",""))')
+            PKG_NAME=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml","rb")).get("package",{}).get("name",""))')
+            PUBLISH=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml","rb")).get("package",{}).get("publish",True) is not False)')
+            if [ "$PUBLISH" = "True" ]; then
               REGISTRY="cargo"
             fi
           elif [ -f "pyproject.toml" ]; then
-            VERSION=$(grep -oP '^version\s*=\s*"\K[^"]+' pyproject.toml | head -1)
-            PKG_NAME=$(grep -oP '^name\s*=\s*"\K[^"]+' pyproject.toml | head -1)
+            VERSION=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb")).get("project",{}).get("version",""))')
+            PKG_NAME=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb")).get("project",{}).get("name",""))')
             REGISTRY="pypi"
+          fi
+
+          # Manifest values are repo data: accept only a plain version and package name, so nothing
+          # later can read them as shell, a jq program or a URL path.
+          if [ -n "$VERSION" ] && ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::manifest version is not a plain semver: $VERSION"; exit 1
+          fi
+          if [ -n "$PKG_NAME" ] && ! [[ "$PKG_NAME" =~ ^(@[a-z0-9._-]+/)?[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::manifest package name has unexpected characters: $PKG_NAME"; exit 1
           fi
 
           # Override from workflow inputs
@@ -85,11 +97,14 @@ jobs:
           echo "pkg_name=$PKG_NAME" >> "$GITHUB_OUTPUT"
           echo "Detected: name=$PKG_NAME version=v$VERSION registry=$REGISTRY"
 
+      # Every step output below reaches the shell through env:, never ${{ }} inside run:.
       - name: Check git tag
         id: tag
         if: steps.detect.outputs.version != ''
+        env:
+          VERSION: ${{ steps.detect.outputs.version }}
         run: |
-          TAG="v${{ steps.detect.outputs.version }}"
+          TAG="v$VERSION"
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "tag_status=ok" >> "$GITHUB_OUTPUT"
           else
@@ -101,8 +116,9 @@ jobs:
         if: steps.detect.outputs.version != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.detect.outputs.version }}
         run: |
-          TAG="v${{ steps.detect.outputs.version }}"
+          TAG="v$VERSION"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "release_status=ok" >> "$GITHUB_OUTPUT"
           else
@@ -112,10 +128,11 @@ jobs:
       - name: Check registry publish
         id: registry
         if: steps.detect.outputs.version != '' && steps.detect.outputs.registry != '' && steps.detect.outputs.registry != 'none'
+        env:
+          REG: ${{ steps.detect.outputs.registry }}
+          PKG: ${{ steps.detect.outputs.pkg_name }}
+          VERSION: ${{ steps.detect.outputs.version }}
         run: |
-          REG="${{ steps.detect.outputs.registry }}"
-          PKG="${{ steps.detect.outputs.pkg_name }}"
-          VERSION="${{ steps.detect.outputs.version }}"
           PUBLISHED=""
           STATUS="missing"
 
@@ -141,8 +158,9 @@ jobs:
       - name: Check CHANGELOG
         id: changelog
         if: steps.detect.outputs.version != ''
+        env:
+          VERSION: ${{ steps.detect.outputs.version }}
         run: |
-          VERSION="${{ steps.detect.outputs.version }}"
           STATUS="ok"
           if [ -f "CHANGELOG.md" ]; then
             if ! grep -qE "^##[[:space:]]*\[?v?$VERSION\]?\s*[—\-]\s*[0-9]{4}-[0-9]{2}-[0-9]{2}" CHANGELOG.md; then
@@ -157,17 +175,17 @@ jobs:
         if: steps.detect.outputs.version != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.detect.outputs.version }}
+          TAG_OK: ${{ steps.tag.outputs.tag_status }}
+          RELEASE_OK: ${{ steps.release.outputs.release_status }}
+          REGISTRY_OK: ${{ steps.registry.outputs.registry_status }}
+          PUBLISHED: ${{ steps.registry.outputs.registry_published }}
+          CHANGELOG_OK: ${{ steps.changelog.outputs.changelog_status }}
+          REGISTRY: ${{ steps.detect.outputs.registry }}
+          PKG: ${{ steps.detect.outputs.pkg_name }}
         run: |
           set -e
-          VERSION="${{ steps.detect.outputs.version }}"
           TAG="v$VERSION"
-          TAG_OK="${{ steps.tag.outputs.tag_status }}"
-          RELEASE_OK="${{ steps.release.outputs.release_status }}"
-          REGISTRY_OK="${{ steps.registry.outputs.registry_status }}"
-          PUBLISHED="${{ steps.registry.outputs.registry_published }}"
-          CHANGELOG_OK="${{ steps.changelog.outputs.changelog_status }}"
-          REGISTRY="${{ steps.detect.outputs.registry }}"
-          PKG="${{ steps.detect.outputs.pkg_name }}"
 
           DRIFT=false
           MISSING=""
