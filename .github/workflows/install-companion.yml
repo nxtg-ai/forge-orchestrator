@@ -1,0 +1,23 @@
+name: Install script companion plugin
+
+# install.sh adds the Claude Code companion plugin through the claude CLI and nothing else
+# (DIRECTIVE-NXTG-20261014-12 Part O). tests/install/companion.sh runs the real installer with a
+# stub claude in an empty HOME: claude present, re-run, install failure, no claude, opt-out.
+on:
+  pull_request:
+    paths: [install.sh, tests/install/**, .github/workflows/install-companion.yml]
+  push:
+    branches: [main]
+    paths: [install.sh, tests/install/**]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  companion:
+    name: install.sh adds the companion plugin only through the claude CLI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sh tests/install/companion.sh install.sh

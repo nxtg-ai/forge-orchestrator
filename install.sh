@@ -140,3 +140,24 @@ else
   echo ""
   echo "Run 'forge --version' to verify (you may need to restart your shell)."
 fi
+
+# Claude Code: the companion plugin nxtg-forge-orchestrator registers forge's MCP server
+# (orchestrator-mcp). It is added only through the claude CLI; this script writes no Claude config
+# by any other path. Opt out with FORGE_NO_CLAUDE_PLUGIN=1.
+PLUGIN_CMD="claude plugin install nxtg-forge-orchestrator --marketplace nxtg-ai/forge-plugin"
+echo ""
+if [ -n "${FORGE_NO_CLAUDE_PLUGIN:-}" ]; then
+  echo "Claude Code plugin skipped (FORGE_NO_CLAUDE_PLUGIN is set). To add forge's MCP tools later:"
+  echo "  $PLUGIN_CMD"
+elif command -v claude >/dev/null 2>&1; then
+  echo "Adding forge's MCP tools to Claude Code (plugin nxtg-forge-orchestrator)..."
+  if claude plugin install nxtg-forge-orchestrator --marketplace nxtg-ai/forge-plugin </dev/null; then
+    echo "Claude Code: forge's MCP tools load in new sessions."
+  else
+    echo "Could not add the Claude Code plugin automatically. Forge itself is installed. Run:"
+    echo "  $PLUGIN_CMD"
+  fi
+else
+  echo "Claude Code not found. To use forge's MCP tools in Claude Code, install it, then run:"
+  echo "  $PLUGIN_CMD"
+fi

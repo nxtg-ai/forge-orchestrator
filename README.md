@@ -26,6 +26,8 @@ forge init
 
 The installer puts `forge` in `~/.local/bin` (change it with `FORGE_INSTALL_DIR`) and adds that directory to your PATH with one guarded line in `~/.profile`, `~/.bashrc` and, if you have zsh, `~/.zshenv`. Set `FORGE_NO_MODIFY_PATH=1` to leave your shell files alone.
 
+If the `claude` CLI is on your PATH, the installer then adds forge's MCP tools to Claude Code by running `claude plugin install nxtg-forge-orchestrator --marketplace nxtg-ai/forge-plugin` (the companion plugin `nxtg-forge-orchestrator`). It changes no Claude configuration any other way. Without `claude`, or if that step fails, it prints the command for you to run later and still exits 0. Set `FORGE_NO_CLAUDE_PLUGIN=1` to skip it.
+
 Single binary. 4.7 MB. No runtime dependencies.
 
 ## Quick Demo
