@@ -296,8 +296,7 @@ impl Task {
         );
 
         let path = tasks_dir.join(format!("{}.md", self.id));
-        std::fs::write(path, content)?;
-        Ok(())
+        write_atomic(&path, content.as_bytes())
     }
 
     /// Read task from a JSON sidecar file
@@ -313,9 +312,27 @@ impl Task {
         std::fs::create_dir_all(&tasks_dir)?;
         let path = tasks_dir.join(format!("{}.json", self.id));
         let content = serde_json::to_string_pretty(self)?;
-        std::fs::write(path, content)?;
-        Ok(())
+        write_atomic(&path, content.as_bytes())
     }
+}
+
+/// Write `content` to `path` through a temp file in the same directory and a rename, so a reader
+/// never sees a partly written file, and a symlink at `path` is replaced instead of followed.
+fn write_atomic(path: &Path, content: &[u8]) -> anyhow::Result<()> {
+    use std::io::Write;
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("task");
+    let tmp = dir.join(format!(".{name}.{}.tmp", uuid::Uuid::new_v4()));
+    let result = (|| {
+        let mut file = std::fs::File::create(&tmp)?;
+        file.write_all(content)?;
+        file.sync_all()?;
+        std::fs::rename(&tmp, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    Ok(result?)
 }
 
 /// Manages the collection of tasks stored in `.forge/tasks/`.
@@ -335,11 +352,38 @@ impl TaskManager {
         }
     }
 
-    /// Persist a task to disk as both markdown and JSON files.
+    /// Persist a NEW task to disk as both markdown and JSON files.
+    ///
+    /// Refuses an id that already exists instead of overwriting it, so two writers that picked
+    /// the same next id (the plan generator, the dashboard, an MCP client) cannot destroy each
+    /// other's task. Use [`TaskManager::update_task`] to change an existing task.
     pub fn create_task(&self, task: &Task) -> anyhow::Result<()> {
-        task.write_to_file(&self.forge_dir)?;
-        task.write_json(&self.forge_dir)?;
-        Ok(())
+        if !self.reserve_id(&task.id)? {
+            anyhow::bail!("task {} already exists", task.id);
+        }
+        if let Err(e) = task.write_json(&self.forge_dir) {
+            let _ = std::fs::remove_file(self.json_path(&task.id));
+            return Err(e);
+        }
+        task.write_to_file(&self.forge_dir)
+    }
+
+    fn json_path(&self, id: &str) -> PathBuf {
+        self.forge_dir.join("tasks").join(format!("{id}.json"))
+    }
+
+    /// Claim `tasks/<id>.json` with an exclusive create. `Ok(false)` means the id is taken.
+    fn reserve_id(&self, id: &str) -> anyhow::Result<bool> {
+        std::fs::create_dir_all(self.forge_dir.join("tasks"))?;
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(self.json_path(id))
+        {
+            Ok(_) => Ok(true),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+            Err(e) => Err(e.into()),
+        }
     }
 
     /// List all tasks from JSON files on disk, sorted by ID.
@@ -372,7 +416,8 @@ impl TaskManager {
 
     /// Update a task by overwriting its files on disk.
     pub fn update_task(&self, task: &Task) -> anyhow::Result<()> {
-        self.create_task(task) // overwrite
+        task.write_json(&self.forge_dir)?;
+        task.write_to_file(&self.forge_dir)
     }
 
     /// Return the IDs of all tasks with `Completed` status.
@@ -383,6 +428,29 @@ impl TaskManager {
             .filter(|t| t.status == TaskStatus::Completed)
             .map(|t| t.id)
             .collect())
+    }
+
+    /// Create one new build task with the next free `T-NNN` id and return it.
+    ///
+    /// The id is reserved by creating `tasks/T-NNN.json` with `create_new` (as every
+    /// [`TaskManager::create_task`] does), so concurrent writers can never take the same id or
+    /// overwrite each other's task: a caller that loses the race moves on to the next number.
+    pub fn create_next_task(&self, title: &str, description: &str) -> anyhow::Result<Task> {
+        let mut n = self.next_task_number()?;
+        for _ in 0..1000 {
+            let id = format!("T-{n:03}");
+            if self.reserve_id(&id)? {
+                let task = Task::new(id, title, description);
+                if let Err(e) = task.write_json(&self.forge_dir) {
+                    let _ = std::fs::remove_file(self.json_path(&task.id));
+                    return Err(e);
+                }
+                task.write_to_file(&self.forge_dir)?;
+                return Ok(task);
+            }
+            n += 1;
+        }
+        anyhow::bail!("no free task id after 1000 attempts starting at T-{n:03}")
     }
 
     /// Find the highest existing task ID number and return the next one.
@@ -1357,6 +1425,53 @@ mod tests {
             "Non-UI tasks should NOT have Playwright checks"
         );
     }
+    /// DIRECTIVE-NXTG-20261014-10 (Codex finding 1): a second writer that picked the same id gets
+    /// an error; the first task is untouched. Updates still overwrite.
+    #[test]
+    fn test_create_task_refuses_existing_id_and_keeps_original() {
+        let dir = tempfile::tempdir().unwrap();
+        let mgr = TaskManager::new(dir.path());
+        mgr.create_task(&Task::new("T-001", "First", "mcp"))
+            .unwrap();
+        let err = mgr
+            .create_task(&Task::new("T-001", "Second", "plan"))
+            .unwrap_err();
+        assert!(err.to_string().contains("already exists"), "{err}");
+        assert_eq!(mgr.get_task("T-001").unwrap().title, "First");
+
+        let mut t = mgr.get_task("T-001").unwrap();
+        t.title = "Renamed".into();
+        mgr.update_task(&t).unwrap();
+        assert_eq!(mgr.get_task("T-001").unwrap().title, "Renamed");
+
+        // Next-id creation skips the taken id; no temp files are left behind.
+        let next = mgr.create_next_task("Next", "d").unwrap();
+        assert_eq!(next.id, "T-002");
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path().join("tasks"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .filter(|n| n.ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
+    }
+
+    /// Codex finding 2: a dangling `T-NNN.md` symlink aimed at the JSON is replaced by the
+    /// markdown file, never followed into the JSON.
+    #[cfg(unix)]
+    #[test]
+    fn test_create_next_task_replaces_md_symlink_instead_of_following_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let tasks = dir.path().join("tasks");
+        std::fs::create_dir_all(&tasks).unwrap();
+        std::os::unix::fs::symlink(tasks.join("T-001.json"), tasks.join("T-001.md")).unwrap();
+        let mgr = TaskManager::new(dir.path());
+        let task = mgr.create_next_task("x", "d").unwrap();
+        assert_eq!(task.id, "T-001");
+        assert_eq!(mgr.get_task("T-001").unwrap().title, "x");
+        let md_meta = std::fs::symlink_metadata(tasks.join("T-001.md")).unwrap();
+        assert!(md_meta.file_type().is_file());
+    }
+
     /// Task files written before v1.6.3 have no outcome fields; they must still load.
     #[test]
     fn test_legacy_task_json_without_outcome_fields_loads() {

@@ -32,7 +32,7 @@ runtime dependencies that coordinates Claude Code, Codex CLI, and Gemini CLI on 
 File-level locking prevents concurrent write conflicts. A knowledge flywheel captures decisions and
 patterns across tool sessions so the next agent starts with context, not from scratch. Drift
 detection compares in-progress work against the original spec before divergence compounds. An
-11-tool MCP server lets any connected AI client query and update orchestration state via stdio.
+12-tool MCP server lets any connected AI client query and update orchestration state via stdio.
 Local-first, no cloud account, no daemon. Runs headless in CI or as a live TUI dashboard.
 
 *(112 words)*
@@ -44,9 +44,10 @@ Local-first, no cloud account, no daemon. Runs headless in CI or as a live TUI d
 - **Install**: `curl -fsSL https://forge.nxtg.ai/install.sh | sh`
 - **Binary**: 4.7 MB — LTO + stripped; musl static build available for glibc <2.39
 - **Tests**: 378 (356 unit + 10 CLI + 12 MCP integration)
-- **MCP tools**: 11 — `forge_get_tasks`, `forge_claim_task`, `forge_complete_task`,
+- **MCP tools**: 12 — `forge_get_tasks`, `forge_claim_task`, `forge_complete_task`,
   `forge_get_state`, `forge_get_plan`, `forge_capture_knowledge`, `forge_get_knowledge`,
-  `forge_check_drift`, `forge_get_health`, `forge_set_project`, `forge_get_events`
+  `forge_check_drift`, `forge_get_health`, `forge_set_project`, `forge_get_events`,
+  `forge_create_task`
 - **License**: FSL-1.1-ALv2 — converts to Apache-2.0 on 2028-03-18
 - **Version**: 1.5.0
 - **Repo**: https://github.com/nxtg-ai/forge-orchestrator

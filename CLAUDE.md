@@ -45,7 +45,7 @@ src/
 │   ├── claude.rs        #   Writes CLAUDE.md, smart --allowedTools by task type
 │   ├── codex.rs         #   Writes AGENTS.md, codex --task-mode
 │   └── gemini.rs        #   Writes GEMINI.md, gemini CLI
-├── mcp/                 # MCP server (stdio transport, 10 tools)
+├── mcp/                 # MCP server (stdio transport, 12 tools)
 │   ├── server.rs        #   JSON-RPC 2.0 dispatcher
 │   ├── tools.rs         #   Tool implementations
 │   └── protocol.rs      #   Type definitions
@@ -62,7 +62,7 @@ src/
 └── detect/              # Tool detection (scan PATH for claude, codex, gemini)
 ```
 
-## MCP Tools (11)
+## MCP Tools (12)
 
 forge-orchestrator exposes these tools via `forge mcp` (stdio JSON-RPC 2.0):
 
@@ -79,6 +79,7 @@ forge-orchestrator exposes these tools via `forge mcp` (stdio JSON-RPC 2.0):
 | `forge_get_health` | Comprehensive governance health check |
 | `forge_set_project` | Switch active project |
 | `forge_get_events` | Query event history (count, task_id, event_type filters) |
+| `forge_create_task` | Create one pending task from a title and description; returns its `task_id` |
 
 ## Task Model
 
@@ -139,7 +140,7 @@ Every adapter's `build_command_interactive()` MUST pass the tool's auto-approve 
 ## Cross-Repo Integration
 
 ```
-forge-plugin (Claude Code)  ──stdio MCP──►  forge-orchestrator (this repo, 10 tools)
+forge-plugin (Claude Code)  ──stdio MCP──►  forge-orchestrator (this repo, 12 tools)
 forge-plugin                ──spawns──►     forge-ui (http://localhost:5050)
 forge-orchestrator          ──headless──►   runs CLI or TUI dashboard independently
 ```
