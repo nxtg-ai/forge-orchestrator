@@ -94,9 +94,46 @@ jobs:
             ${{ matrix.archive }}
             ${{ matrix.archive }}.sha256
 
+  # Execute every packaged binary on a host of its own OS and architecture before anything is
+  # published: a target that builds but does not run never reaches a release.
+  smoke:
+    name: Smoke ${{ matrix.archive }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - archive: forge-linux-x86_64.tar.gz
+            os: ubuntu-latest
+          - archive: forge-linux-aarch64.tar.gz
+            os: ubuntu-24.04-arm
+          - archive: forge-macos-x86_64.tar.gz
+            os: macos-15-intel
+          - archive: forge-macos-aarch64.tar.gz
+            os: macos-latest
+          - archive: forge-windows-x86_64.zip
+            os: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+      # STAGE comes from the tagged commit (sparse checkout keeps root files), so the binary must
+      # print exactly the label the tag declares.
+      - name: Run the packaged binary
+        shell: bash
+        env:
+          ARCHIVE: ${{ matrix.archive }}
+        run: bash .github/scripts/smoke-binary.sh "$ARCHIVE" "${GITHUB_REF_NAME#v}" STAGE
+
   release:
     name: Create Release
-    needs: build
+    # The release is created only after every packaged binary ran (smoke) and the tagged SHA
+    # passed CI.
+    needs: [build, smoke, ci]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
