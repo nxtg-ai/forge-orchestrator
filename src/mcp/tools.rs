@@ -203,6 +203,24 @@ pub fn list_tools() -> Vec<ToolDefinition> {
                 "required": ["path"]
             }),
         },
+        ToolDefinition {
+            name: "forge_create_task".into(),
+            description: "Create one pending task from a title and description; returns its task_id for forge_claim_task and forge_complete_task".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Short one-line title (max 200 characters)"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "What the task must achieve"
+                    }
+                },
+                "required": ["title", "description"]
+            }),
+        },
     ]
 }
 
@@ -236,6 +254,7 @@ pub fn call_tool(name: &str, args: &Value, project_root: &Path) -> CallToolResul
     tracing::debug!(tool = name, "MCP tool call");
     match name {
         "forge_get_tasks" => handle_get_tasks(args, &forge_dir),
+        "forge_create_task" => handle_create_task(args, &forge_dir),
         "forge_claim_task" => handle_claim_task(args, &forge_dir),
         "forge_complete_task" => handle_complete_task(args, &forge_dir),
         "forge_get_state" => handle_get_state(&forge_dir),
@@ -297,6 +316,54 @@ fn handle_get_tasks(args: &Value, forge_dir: &Path) -> CallToolResult {
     });
 
     CallToolResult::text(serde_json::to_string_pretty(&result).unwrap_or_default())
+}
+
+fn handle_create_task(args: &Value, forge_dir: &Path) -> CallToolResult {
+    let title = match args.get("title") {
+        Some(Value::String(t)) if !t.trim().is_empty() => t.trim(),
+        Some(Value::String(_)) => return CallToolResult::error("title must not be empty"),
+        Some(_) => return CallToolResult::error("title must be a string"),
+        None => return CallToolResult::error("Missing required parameter: title"),
+    };
+    if title.contains(['\n', '\r']) {
+        return CallToolResult::error("title must be a single line");
+    }
+    if title.chars().count() > 200 {
+        return CallToolResult::error("title must be at most 200 characters");
+    }
+    let description = match args.get("description") {
+        Some(Value::String(d)) => d.as_str(),
+        Some(_) => return CallToolResult::error("description must be a string"),
+        None => return CallToolResult::error("Missing required parameter: description"),
+    };
+
+    let task_mgr = TaskManager::new(forge_dir);
+    let task = match task_mgr.create_next_task(title, description) {
+        Ok(t) => t,
+        Err(e) => return CallToolResult::error(format!("Failed to create task: {e}")),
+    };
+
+    let event = ForgeEvent::new(
+        EventType::TaskCreated,
+        format!("Task {} created: {}", task.id, task.title),
+    )
+    .with_task(&task.id);
+    if let Err(e) = EventLogger::new(forge_dir).log(&event) {
+        eprintln!("[forge-orchestrator] event log error: {e}");
+    }
+    if let Err(e) = StateManager::new(forge_dir).refresh_task_summary() {
+        eprintln!("[forge-orchestrator] state summary refresh error: {e}");
+    }
+
+    CallToolResult::text(
+        serde_json::to_string_pretty(&json!({
+            "task_id": task.id,
+            "title": task.title,
+            "status": "pending",
+            "next": "forge_claim_task, then forge_complete_task",
+        }))
+        .unwrap_or_default(),
+    )
 }
 
 fn handle_claim_task(args: &Value, forge_dir: &Path) -> CallToolResult {
@@ -845,9 +912,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_list_tools_returns_eleven() {
+    fn test_list_tools_returns_twelve() {
         let tools = list_tools();
-        assert_eq!(tools.len(), 11);
+        assert_eq!(tools.len(), 12);
         assert_eq!(tools[0].name, "forge_get_tasks");
         assert_eq!(tools[1].name, "forge_claim_task");
         assert_eq!(tools[2].name, "forge_complete_task");
@@ -859,6 +926,8 @@ mod tests {
         assert_eq!(tools[8].name, "forge_get_health");
         assert_eq!(tools[9].name, "forge_get_events");
         assert_eq!(tools[10].name, "forge_set_project");
+        // New tools are appended, so existing positions never move.
+        assert_eq!(tools[11].name, "forge_create_task");
     }
 
     #[test]

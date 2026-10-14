@@ -658,3 +658,174 @@ fn test_mcp_complete_task_refuses_non_string_agent() {
     assert_eq!(tasks["tasks"][0]["completed_by"], "claude");
     assert_eq!(tasks["tasks"][0]["completed_by_source"], "claimer");
 }
+
+/// MCP-only project: a bare `.forge/` made with the filesystem, so no CLI call is involved.
+fn bare_forge_project() -> TempDir {
+    let dir = TempDir::new().unwrap();
+    std::fs::create_dir_all(dir.path().join(".forge")).unwrap();
+    dir
+}
+
+fn tool_json(output: &str) -> serde_json::Value {
+    serde_json::from_str(&tool_text(output)).unwrap()
+}
+
+/// DIRECTIVE-NXTG-20261014-10 (C7 as registered): a task is created, claimed and completed
+/// through MCP alone, and shows in `forge_get_tasks` with its outcome.
+#[test]
+fn test_mcp_create_claim_complete_get_tasks() {
+    let dir = bare_forge_project();
+    let title = "Add a --json flag to status";
+    let description = "Print the task board as JSON — \"quoted\", ünïcode ✓";
+
+    let created = tool_json(&mcp_call(
+        &dir,
+        &tool_call(
+            "forge_create_task",
+            serde_json::json!({"title": title, "description": description}),
+        ),
+    ));
+    let id = created["task_id"].as_str().expect("task_id").to_string();
+    assert_eq!(id, "T-001");
+    assert_eq!(created["status"], "pending");
+
+    let claim = mcp_call(
+        &dir,
+        &tool_call(
+            "forge_claim_task",
+            serde_json::json!({"task_id": id, "agent": "claude"}),
+        ),
+    );
+    assert!(tool_text(&claim).contains("claimed by claude"));
+
+    let complete = mcp_call(
+        &dir,
+        &tool_call(
+            "forge_complete_task",
+            serde_json::json!({"task_id": id, "agent": "claude", "result_summary": "Added --json"}),
+        ),
+    );
+    assert!(tool_text(&complete).contains(&format!("{id} completed")));
+
+    let tasks = tool_json(&mcp_call(
+        &dir,
+        &tool_call("forge_get_tasks", serde_json::json!({})),
+    ));
+    assert_eq!(tasks["count"], 1, "exactly one task: {tasks}");
+    let t = &tasks["tasks"][0];
+    assert_eq!(t["id"], id.as_str());
+    assert_eq!(t["title"], title);
+    assert_eq!(t["status"], "completed");
+    assert_eq!(t["completed_by"], "claude");
+    assert_eq!(t["completed_by_source"], "explicit");
+    assert_eq!(t["result_summary"], "Added --json");
+
+    // The description is stored byte-equal on the task file.
+    let stored: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(dir.path().join(format!(".forge/tasks/{id}.json"))).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(stored["description"], description);
+
+    // The creation is in the audit trail.
+    let events = std::fs::read_to_string(dir.path().join(".forge/events.jsonl")).unwrap();
+    assert!(
+        events
+            .lines()
+            .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+            .any(|e| e["event_type"] == "task_created" && e["task_id"] == id.as_str())
+    );
+}
+
+/// New ids continue after the plan's tasks and never overwrite one; bad input creates nothing.
+#[test]
+fn test_mcp_create_task_numbering_and_validation() {
+    let dir = TempDir::new().unwrap();
+    setup_project_with_tasks(&dir);
+    let before = tool_json(&mcp_call(
+        &dir,
+        &tool_call("forge_get_tasks", serde_json::json!({})),
+    ));
+    let n = before["count"].as_u64().unwrap();
+    assert!(n >= 2);
+
+    let created = tool_json(&mcp_call(
+        &dir,
+        &tool_call(
+            "forge_create_task",
+            serde_json::json!({"title": "Extra", "description": "d"}),
+        ),
+    ));
+    assert_eq!(created["task_id"], format!("T-{:03}", n + 1));
+    let after = tool_json(&mcp_call(
+        &dir,
+        &tool_call("forge_get_tasks", serde_json::json!({})),
+    ));
+    assert_eq!(after["count"].as_u64().unwrap(), n + 1);
+
+    for bad in [
+        serde_json::json!({"description": "no title"}),
+        serde_json::json!({"title": "  ", "description": "blank title"}),
+        serde_json::json!({"title": 42, "description": "d"}),
+        serde_json::json!({"title": "t"}),
+        serde_json::json!({"title": "t", "description": ["d"]}),
+        serde_json::json!({"title": "two\nlines", "description": "d"}),
+    ] {
+        let out = mcp_call(&dir, &tool_call("forge_create_task", bad.clone()));
+        let resp: serde_json::Value = serde_json::from_str(&last_response(&out)).unwrap();
+        assert_eq!(
+            resp["result"]["isError"], true,
+            "{bad} should be refused: {resp}"
+        );
+    }
+    let still = tool_json(&mcp_call(
+        &dir,
+        &tool_call("forge_get_tasks", serde_json::json!({})),
+    ));
+    assert_eq!(
+        still["count"].as_u64().unwrap(),
+        n + 1,
+        "refused calls created nothing"
+    );
+}
+
+/// Concurrent MCP servers creating tasks get distinct ids: one call, one task, none lost.
+#[test]
+fn test_mcp_create_task_concurrent_calls_get_distinct_ids() {
+    let dir = bare_forge_project();
+    let path = dir.path().to_path_buf();
+    let handles: Vec<_> = (0..8)
+        .map(|i| {
+            let path = path.clone();
+            std::thread::spawn(move || {
+                let input = tool_call(
+                    "forge_create_task",
+                    serde_json::json!({"title": format!("Task {i}"), "description": "d"}),
+                );
+                let out = forge_cmd()
+                    .args(["--project", path.to_str().unwrap(), "mcp"])
+                    .write_stdin(input)
+                    .output()
+                    .unwrap();
+                let out = String::from_utf8(out.stdout).unwrap();
+                tool_json(&out)["task_id"].as_str().unwrap().to_string()
+            })
+        })
+        .collect();
+    let mut ids: Vec<String> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+    ids.sort();
+    let mut unique = ids.clone();
+    unique.dedup();
+    assert_eq!(unique.len(), 8, "duplicate ids: {ids:?}");
+    let files = std::fs::read_dir(path.join(".forge/tasks"))
+        .unwrap()
+        .filter(|e| {
+            e.as_ref()
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".json")
+        })
+        .count();
+    assert_eq!(files, 8, "each call wrote exactly one task file");
+}

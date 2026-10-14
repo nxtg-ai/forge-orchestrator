@@ -385,6 +385,38 @@ impl TaskManager {
             .collect())
     }
 
+    /// Create one new build task with the next free `T-NNN` id and return it.
+    ///
+    /// The id is reserved by creating `tasks/T-NNN.json` with `create_new`, so two concurrent
+    /// callers (two MCP servers on one project) can never take the same id or overwrite each
+    /// other's task: a caller that loses the race moves on to the next number.
+    pub fn create_next_task(&self, title: &str, description: &str) -> anyhow::Result<Task> {
+        let tasks_dir = self.forge_dir.join("tasks");
+        std::fs::create_dir_all(&tasks_dir)?;
+        let mut n = self.next_task_number()?;
+        for _ in 0..1000 {
+            let id = format!("T-{n:03}");
+            let path = tasks_dir.join(format!("{id}.json"));
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(mut file) => {
+                    use std::io::Write;
+                    let task = Task::new(id, title, description);
+                    file.write_all(serde_json::to_string_pretty(&task)?.as_bytes())?;
+                    file.sync_all()?;
+                    task.write_to_file(&self.forge_dir)?;
+                    return Ok(task);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => n += 1,
+                Err(e) => return Err(e.into()),
+            }
+        }
+        anyhow::bail!("no free task id after 1000 attempts starting at T-{n:03}")
+    }
+
     /// Find the highest existing task ID number and return the next one.
     /// If no tasks exist, returns 1.
     pub fn next_task_number(&self) -> anyhow::Result<u32> {

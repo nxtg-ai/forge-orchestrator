@@ -12,7 +12,7 @@
 
 Multi-agent inside a single tool works fine. Claude Code runs 20 subagents and they stay aligned because the tool manages that orchestration internally. The problem is multi-tool: several AI coding tools on the same repo with no shared state. That's what the orchestrator solves: today for Claude Code, with Codex CLI as a task runner. Gemini CLI support is in development (build B1, target 2026-10-27).
 
-It adds file locking, knowledge capture, task planning, drift detection, and multi-tool orchestration to your development workflow. The tools read from and write to a single state directory. An 11-tool MCP server exposes the full orchestration state to any connected AI client.
+It adds file locking, knowledge capture, task planning, drift detection, and multi-tool orchestration to your development workflow. The tools read from and write to a single state directory. A 12-tool MCP server exposes the full orchestration state to any connected AI client, and can create, claim and complete tasks.
 
 The orchestrator exists because I ran two AI tools on the same codebase and watched them fail in the same ways human teams fail. Claude refactored a module. Codex updated tests against the pre-refactor interface. Both saved. Tests failed. Neither tool knew the other existed. I'd spent 23 years watching this exact scenario with talented human teams. The solution was always the same: orchestration infrastructure.
 
@@ -86,7 +86,7 @@ forge dashboard --pty
 | Multi-tool adapters | Claude Code (MCP stdio); Codex CLI as a task runner (filesystem). Gemini CLI support is in development (build B1, target 2026-10-27) |
 | TUI dashboard | `forge dashboard`: live tool panes, task status, lock state |
 | Headless mode | `forge run`: autonomous execution for CI/CD pipelines |
-| MCP server | 11 tools accessible by any connected AI tool via stdio |
+| MCP server | 12 tools accessible by any connected AI tool via stdio, including `forge_create_task` |
 
 ## Key Commands
 

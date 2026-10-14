@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- MCP tool `forge_create_task`: creates exactly one pending task from a `title` and `description`
+  and returns its `task_id`, which `forge_claim_task` and `forge_complete_task` accept. A task can now
+  be created, claimed and completed through MCP alone. Ids are reserved with an exclusive file
+  create, so concurrent MCP servers never share an id or overwrite a task. The tool is appended to
+  `tools/list`, so existing tools keep their positions (12 tools).
+
 ## [1.6.4] - 2026-10-13
 
 ### Changed
