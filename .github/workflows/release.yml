@@ -121,9 +121,13 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: ${{ matrix.archive }}
+      # STAGE comes from the tagged commit (sparse checkout keeps root files), so the binary must
+      # print exactly the label the tag declares.
       - name: Run the packaged binary
         shell: bash
-        run: bash .github/scripts/smoke-binary.sh "${{ matrix.archive }}" "${GITHUB_REF_NAME#v}"
+        env:
+          ARCHIVE: ${{ matrix.archive }}
+        run: bash .github/scripts/smoke-binary.sh "$ARCHIVE" "${GITHUB_REF_NAME#v}" STAGE
 
   release:
     name: Create Release

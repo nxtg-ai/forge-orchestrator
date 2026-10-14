@@ -44,18 +44,28 @@ jobs:
       - name: Resolve tag
         id: tag
         shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          tag="${{ inputs.tag }}"
+          tag=$INPUT_TAG
           [ -n "$tag" ] || tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "::error::not a release tag: $tag"; exit 1; }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-      - name: Download the published asset
+      - name: Download the published asset and the tag's STAGE
         shell: bash
-        run: gh release download "${{ steps.tag.outputs.tag }}" --repo "$GITHUB_REPOSITORY" -p "${{ matrix.archive }}" -p "${{ matrix.archive }}.sha256"
-      - name: Run the published binary
-        shell: bash
-        run: bash .github/scripts/smoke-binary.sh "${{ matrix.archive }}" "${TAG#v}"
         env:
           TAG: ${{ steps.tag.outputs.tag }}
+          ARCHIVE: ${{ matrix.archive }}
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" -p "$ARCHIVE" -p "$ARCHIVE.sha256"
+          gh api "repos/$GITHUB_REPOSITORY/contents/STAGE?ref=$TAG" -H "Accept: application/vnd.github.raw" > STAGE.tag
+          cat STAGE.tag
+      - name: Run the published binary
+        shell: bash
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          ARCHIVE: ${{ matrix.archive }}
+        run: bash .github/scripts/smoke-binary.sh "$ARCHIVE" "${TAG#v}" STAGE.tag
 
   brew:
     name: brew install (${{ matrix.os }})
@@ -71,9 +81,12 @@ jobs:
     steps:
       - name: Resolve tag
         id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          tag="${{ inputs.tag }}"
+          tag=$INPUT_TAG
           [ -n "$tag" ] || tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "::error::not a release tag: $tag"; exit 1; }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: brew install nxtg-ai/tap/forge
         run: brew install nxtg-ai/tap/forge
@@ -87,6 +100,7 @@ jobs:
           out=$(forge --version)
           echo "$out"
           case "$out" in
+            *"stage: internal"*) echo "::error::brew installed '$out': a public release must not say internal"; exit 1 ;;
             "forge ${TAG#v} (stage: "*) echo "ok: brew installs forge ${TAG#v}" ;;
             *) echo "::error::brew installed '$out', want forge ${TAG#v} (is the tap formula bumped?)"; exit 1 ;;
           esac

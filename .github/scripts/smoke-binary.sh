@@ -1,12 +1,26 @@
 #!/usr/bin/env bash
 # Execute one packaged release binary and check it reports the expected version.
-# Usage: smoke-binary.sh <archive> <version>
-#   <archive>  forge-<os>-<arch>.tar.gz or .zip, with <archive>.sha256 beside it
-#   <version>  e.g. 1.6.4 (no leading v)
+# Usage: smoke-binary.sh <archive> <version> [stage-file]
+#   <archive>     forge-<os>-<arch>.tar.gz or .zip, with <archive>.sha256 beside it
+#   <version>     e.g. 1.6.4 (no leading v)
+#   <stage-file>  the STAGE file of the tagged commit (default ./STAGE); the binary must print the
+#                 label derived from it exactly, and never "stage: internal" (this repo is public)
 # Run it on a host of the archive's own OS and architecture: the point is that the shipped
 # artifact runs there, not that the source compiles.
 set -euo pipefail
-archive=$1 version=$2
+archive=$1 version=$2 stage_file=${3:-STAGE}
+
+# Expected label, derived from the two STAGE axes exactly as build.rs does.
+field() { sed -n "s/^$1:[[:space:]]*//p" "$stage_file" | tr -d '\r[:space:]'; }
+dist=$(field distribution) mat=$(field maturity)
+case "$dist/$mat" in
+  internal/*) stage=internal ;;
+  public/pre-alpha|public/dogfood) stage="public preview" ;;
+  public/alpha|public/beta|public/ga) stage=$mat ;;
+  public/rc) stage="release candidate" ;;
+  *) echo "::error::$stage_file has no valid distribution/maturity (got '$dist'/'$mat')"; exit 1 ;;
+esac
+want_line="forge $version (stage: $stage)"
 
 # The checksum file is "<hash>  <archive>".
 want=$(cut -d' ' -f1 < "$archive.sha256" | tr -d '\r')
@@ -29,9 +43,10 @@ case "$(uname -s)" in
   Linux) ldd "$bin" || true ;;
 esac
 
-out=$("$bin" --version)
+out=$("$bin" --version | tr -d '\r')
 echo "$out"
 case "$out" in
-  "forge $version (stage: "*) echo "ok: $archive runs on $(uname -sm) and prints forge $version" ;;
-  *) echo "::error::$archive printed '$out', want 'forge $version (stage: …)'"; exit 1 ;;
+  *"stage: internal"*) echo "::error::$archive printed '$out': a public release must not say internal"; exit 1 ;;
 esac
+[ "$out" = "$want_line" ] || { echo "::error::$archive printed '$out', want '$want_line'"; exit 1; }
+echo "ok: $archive runs on $(uname -sm) and prints '$want_line'"
