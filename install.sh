@@ -155,6 +155,8 @@ claude_manual() {
   echo "  claude plugin install $COMPANION"
 }
 # claude_step <what it changes> <claude args...>: one line per step; on failure, its last output line.
+# No -y: both plugins are git-subdir installs, and the CLI needs -y only to accept a
+# marketplace-declared command, which an installer should not accept for the user.
 claude_step() {
   what=$1; shift
   if step_out=$(claude "$@" </dev/null 2>&1); then

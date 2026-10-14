@@ -14,6 +14,8 @@ UPD="plugin marketplace update nxtg-forge"
 LST="plugin list --json"
 PUPD="plugin update nxtg-forge@nxtg-forge"
 INS="plugin install nxtg-forge-orchestrator@nxtg-forge"
+# forge-plugin's session hint, byte for byte (plugins/nxtg-forge/hooks/scripts/pre-task.sh:91 at f1ed12c).
+HINT="claude plugin install nxtg-forge-orchestrator@nxtg-forge"
 fail=0
 ok()  { echo "  ok   $1"; }
 bad() { echo "  FAIL $1"; fail=1; }
@@ -61,6 +63,13 @@ expect_manual() {
     printf '%s\n' "$out" | grep -qF "  $c" || { bad "manual command missing: $c"; return; }
   done
   ok "prints the manual commands"
+  printf '%s\n' "$out" | grep -qxF "  $HINT" && ok "install line is exactly forge-plugin's hint" || bad "install line differs from the hint: $HINT"
+}
+# Every command the installer ran (except the read-only list) is one it prints for the user to run.
+ran_equals_printed() {
+  printed=$(printf '%s\n' "$out" | sed -n 's/^  claude \(plugin [^#]*[^ #]\).*$/\1/p')
+  missing=$(calls | grep -vxF "$LST" | while IFS= read -r c; do printf '%s\n' "$printed" | grep -qxF "$c" || echo "$c"; done)
+  [ -z "$missing" ] && ok "commands run = commands printed" || bad "ran but not printed as-is: $missing"
 }
 no_claude_config() {
   found=$(find "$home" \( -name '.claude' -o -name '.claude.json' -o -name 'settings.json' \) 2>/dev/null)
@@ -84,6 +93,9 @@ printf '%s\n' "$out" | grep -q "MCP tools load in new sessions" && ok "companion
 
 run "nxtg-forge 3.13.1 installed" yes STUB_STATE=old313
 expect_rc0; expect_calls "$FULL_OLD"; changes_listed 4
+# One command form, no extra flags: the companion is a git-subdir plugin, and `claude plugin install
+# --help` (2.1.299) requires -y only for a command-source or headersHelper install.
+calls | grep -q -- ' -y\| --yes\| --marketplace' && bad "install carries a flag: $(calls | tr '\n' '|')" || ok "no -y / --marketplace on any call"
 printf '%s\n' "$out" | grep -q "MCP tools load in new sessions" && ok "updated nxtg-forge, then installed the companion" || bad "no success line"
 
 run "re-run on the same machine" yes STUB_STATE=old313
@@ -93,7 +105,7 @@ expect_rc0
 
 for step in add update list pupdate install; do
   run "failure at $step" yes STUB_STATE=old313 STUB_FAIL=$step
-  expect_rc0; expect_manual
+  expect_rc0; expect_manual; ran_equals_printed
   printf '%s\n' "$out" | grep -q "FAILED" && ok "names the failed step" || bad "failure not reported"
   printf '%s\n' "$out" | grep -q "MCP tools load in new sessions" && bad "claims success" || ok "does not claim success"
 done
