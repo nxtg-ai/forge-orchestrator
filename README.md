@@ -28,7 +28,7 @@ The installer puts `forge` in `~/.local/bin` (change it with `FORGE_INSTALL_DIR`
 
 If the `claude` CLI is on your PATH, the installer then adds forge's MCP tools to Claude Code, using only that CLI: it adds and refreshes the `nxtg-forge` marketplace (`nxtg-ai/forge-plugin`), updates `nxtg-forge@nxtg-forge` if you already have it, and installs the companion plugin `nxtg-forge-orchestrator@nxtg-forge`. It prints one line per change and changes no Claude configuration any other way. Without `claude`, or if a step fails, it prints the commands for you to run and still exits 0. Set `FORGE_NO_CLAUDE_PLUGIN=1` to skip it.
 
-Single binary. 4.7 MB. No runtime dependencies.
+Single binary. No runtime dependencies.
 
 ## Quick Demo
 
@@ -111,7 +111,7 @@ The orchestrator is the policy core of Forge. All governance rules, file locks, 
 ```
 ┌──────────────────────────────────────┐
 │        forge-orchestrator            │
-│        (Rust, 4.7 MB, 378 tests)      │
+│        (Rust)                        │
 │                                      │
 │  File locking · Task planning        │
 │  Knowledge · Governance · MCP        │
@@ -139,7 +139,7 @@ File locking exists because I've watched teams lose days to conflicting edits.
 
 When Claude Code starts editing a file, the orchestrator acquires an exclusive lock in `.forge/locks/`. Codex CLI requesting the same file is queued with a notification of who holds the lock. Locks include timeouts (crashed tools don't hold locks forever) and deadlock detection.
 
-378 tests cover concurrent access, timeout behavior, multi-adapter locking, and edge cases.
+The test suite covers concurrent access, timeout behavior, multi-adapter locking, and edge cases.
 
 ## How the Knowledge Flywheel Works
 
@@ -158,8 +158,6 @@ Visual dashboards. Governance HUD. Real-time agent collaboration network. And th
 ```bash
 git clone https://github.com/nxtg-ai/forge-ui && cd forge-ui && npm install && npm run dev
 ```
-
-58 components. 4,165 tests. 87% coverage.
 
 ## Links
 
