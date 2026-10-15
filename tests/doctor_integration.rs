@@ -59,8 +59,7 @@ impl Fixture {
         // (each fixture is its own crate) and try to build that instead of forge.
         let mut full = vec!["doctor"];
         full.extend_from_slice(args);
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_forge"));
-        let output = common::clear_git_env(&mut cmd)
+        let output = common::forge_std()
             .args(&full)
             .current_dir(&self.path)
             .env("NO_COLOR", "1")
