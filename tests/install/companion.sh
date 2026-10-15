@@ -1,6 +1,6 @@
 #!/bin/sh
 # install.sh and the Claude Code companion plugin (DIRECTIVE-NXTG-20261014-12 Part O).
-# Each case runs the real installer (it downloads the latest release) in an empty HOME with a stub
+# Each case runs the real installer (it downloads the pinned release) in an empty HOME with a stub
 # `claude` that records its arguments and plays a starting state, so no real Claude config is used.
 #   STUB_STATE fresh   no marketplace, nothing installed
 #              mkt     the nxtg-forge marketplace is already on disk (stale until updated)
