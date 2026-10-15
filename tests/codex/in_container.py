@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Runs inside the network-none container for tests/codex/argv-check.sh. For one adapter argv:
-1. parse: `codex <argv> --help` exits 0, so codex-cli accepts every flag the adapter passes;
+1. parse: `codex <argv options> --help` exits 0, so codex-cli accepts every flag the adapter passes;
 2. config: the argv's `-c` overrides load (`codex <overrides> mcp get forge`) and approve forge's tools;
 3. mcp (only when the argv defines the forge MCP server): the exact argv runs against the local mock
    model, which calls forge_get_knowledge; the rollout must show that call `completed` and the answer
@@ -30,7 +30,9 @@ def run(args, **kw):
 ver = run([codex, "--version"]).stdout.strip()
 step("codex version", ver == "codex-cli 0.162.1", ver)
 
-r = run([codex, *argv, "--help"])
+# Options end at `--` (the adapter puts the prompt after it), so `--help` and `-o` go before it.
+cut = argv.index("--") if "--" in argv else len(argv) - 1
+r = run([codex, *argv[:cut], "--help"])
 step("parse: codex accepts every flag", r.returncode == 0,
      "" if r.returncode == 0 else (r.stderr.strip().splitlines() or ["rc %d" % r.returncode])[0])
 
@@ -62,7 +64,7 @@ if defines_server:
     mock = subprocess.Popen(["python3", "/t/mock_responses.py", "8787", "/tmp/requests.log"])
     time.sleep(1)
     try:
-        r = run([codex, *run_argv[:-1], "-o", "/tmp/answer.txt", run_argv[-1]], cwd="/work")
+        r = run([codex, *run_argv[:cut], "-o", "/tmp/answer.txt", *run_argv[cut:]], cwd="/work")
     finally:
         mock.kill()
     calls = []
