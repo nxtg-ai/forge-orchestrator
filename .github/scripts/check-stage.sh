@@ -48,12 +48,28 @@ has  "$README" "**Stage: $L.**"                            "README stage line"
 none "$README" "\*\*Stage: ($OTHERS)\.\*\*"                "README has no other stage line"
 none "$README" "not yet offered or supported for outside use|internal use only" "README does not say a public product is not offered outward"
 
+# Ruled stage text, byte for byte (EMMA-SOUL Dx3 cc950597; FINAL A, ASIF PR 426). Line 9 is what
+# forge-pm and dx3-pm read: the derived label, then the ruled sentence. Below alpha, no text is
+# ruled yet beyond the label.
+FINAL_A='The Forge plugin and orchestrator are in alpha. On 2026-10-15 (UTC) a separate NXTG.AI team (product-oracle) ran the pre-registered core-job test on a clean install of the plugin (v3.14.0) and the orchestrator (forge 1.7.0). The test passed; each repeated check passed 3 of 3 (run 7). The evidence is attached to the forge-plugin v3.14.0 release. No SLA; interfaces may change without notice.'
+line9=$(sed -n 9p "$README" | tr -d '\r')
+case "$MAT" in
+  alpha)
+    if [ "$line9" = "**Stage: $L.** $FINAL_A" ]; then ok "README line 9 = label + FINAL A"; else bad "README line 9 is not '**Stage: $L.** ' + FINAL A: $line9"; fi
+    # A checker that matches the word "alpha" would pass on leftover pre-alpha text, so none may remain.
+    none "$README" "pre-alpha|below alpha|public preview" "README has no pre-alpha or public-preview text" ;;
+  *)
+    if [[ "$line9" == "**Stage: $L.**"* ]]; then ok "README line 9 starts with the label"; else bad "README line 9 does not start with '**Stage: $L.**': $line9"; fi ;;
+esac
+
 if head -n 5 CHANGELOG.md | tr -d '\r' | grep -qxF "Stage: $L (see STAGE)"; then ok "CHANGELOG top line"; else bad "CHANGELOG top line (want 'Stage: $L (see STAGE)' in first 5 lines)"; fi
 none CHANGELOG.md "^Stage: ($OTHERS) "                     "CHANGELOG has no other stage line"
 
 # MCP Registry metadata (published from server.json on each release).
 d=$(jq -r '.description' server.json)
 if [[ "$d" == *"($LOW)"* ]]; then ok "server.json description"; else bad "server.json description lacks '($LOW)'"; fi
+# The registry schema caps description at 100 characters; publish would reject a longer one.
+if [ "${#d}" -le 100 ]; then ok "server.json description is ${#d} <= 100 characters"; else bad "server.json description is ${#d} characters (registry limit 100)"; fi
 if [[ "$d" =~ \(stage:\ [a-z-]+\) ]]; then bad "server.json description still has a '(stage: …)' marker: ${BASH_REMATCH[0]}"; fi
 
 if [ -n "${1:-}" ]; then

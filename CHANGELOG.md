@@ -1,6 +1,6 @@
 # Changelog
 
-Stage: Public preview (see STAGE)
+Stage: Alpha (see STAGE)
 
 All notable changes to this project will be documented in this file.
 
@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stops registering its own orchestrator-mcp), then `claude plugin install
   nxtg-forge-orchestrator@nxtg-forge`. It prints one line per change. Without `claude`, or if any
   step fails, it prints those commands and still exits 0. Opt out with `FORGE_NO_CLAUDE_PLUGIN=1`.
+
+### Changed
+- Stage: alpha (STAGE `maturity: alpha`, EMMA-SOUL Dx3 cc950597). `forge --version` and the MCP
+  health tool report `stage: alpha`; the README states the ruled alpha text. check-stage requires
+  that text byte for byte on README line 9 and rejects any leftover pre-alpha wording; its red
+  controls run in CI (`tests/stage/red-controls.sh`). The MCP Registry description now scopes the
+  alpha to the Claude Code MCP server that run 7 tested; Codex and Gemini runners are outside it.
 
 ## [1.7.0] - 2026-10-14
 

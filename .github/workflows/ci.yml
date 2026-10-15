@@ -76,6 +76,9 @@ jobs:
       # The release stage lives in one root file, STAGE; every surface must agree with it.
       - name: Stage surfaces match STAGE
         run: cargo build --locked && bash .github/scripts/check-stage.sh target/debug/forge
+      # The check must also go red: old pre-alpha text, a changed ruled sentence, a stale STAGE.
+      - name: Stage check red controls
+        run: bash tests/stage/red-controls.sh
 
       - name: Create issue on CI failure
         uses: jayqi/failed-build-issue-action@v1
