@@ -49,6 +49,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matches signatures by numeric GitHub `id`, which stays, and v2.6.1 writes no email for a new
   signature, so the workflow is unchanged.
 
+### Fixed
+
+- **Codex dispatch works on codex-cli 0.162.1** (DIRECTIVE-NXTG-20261015-07). That release rejects
+  `--full-auto` ("unexpected argument"), which every Forge release up to 1.7.0 passed, so Forge's
+  unattended Codex tasks (`permissions = yolo`, and every dashboard pane) failed to start. They now
+  pass `--sandbox workspace-write`, so the model's shell commands may write only inside the
+  project, and define the `forge` MCP server inline (this forge binary, `forge mcp`, in the project)
+  with `default_tools_approval_mode = "approve"`, so Codex can call Forge's own tools; without it
+  `codex exec` fails them ("MCP tool call requires approval, but approval policy is never"). Other
+  MCP servers keep their own settings. `--dangerously-bypass-approvals-and-sandbox` is not used.
+  New CI job `tests/codex/argv-check.sh` runs the adapter's real argv through codex-cli 0.162.1 in a
+  `--network none` container against a local mock model: every flag must parse, and a
+  `forge_get_knowledge` call must complete. Red controls (`tests/codex/red-controls.sh`): the old
+  `--full-auto` argv, a missing approve setting, and an unknown flag each fail it.
+
 ## [1.7.0] - 2026-10-14
 
 ### Added

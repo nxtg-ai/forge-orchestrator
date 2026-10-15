@@ -110,7 +110,7 @@ Every adapter's `build_command_interactive()` MUST pass the tool's auto-approve 
 | Tool | Auto-Approve Flag | Status |
 |------|------------------|--------|
 | Claude | `--dangerously-skip-permissions` | Working (v1.3.0+) |
-| Codex | `codex exec --full-auto --skip-git-repo-check "prompt"` | Fixed (v1.3.2) |
+| Codex | `codex exec --sandbox workspace-write -c mcp_servers.forge.*=… --skip-git-repo-check "prompt"` (forge's own MCP tools approved; `--full-auto` was removed in codex-cli 0.162.1) | v1.7.1+, checked by `tests/codex/argv-check.sh` |
 | agy (Antigravity CLI) | `--dangerously-skip-permissions` | v1.6.1+ |
 
 **Rule**: When adding a new adapter, the first thing to verify is its unattended-execution flag. If the CLI tool has no such flag, it cannot be used in Stargate mode.

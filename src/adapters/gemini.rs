@@ -128,7 +128,7 @@ impl ToolAdapter for GeminiAdapter {
     ) -> Command {
         let mut cmd = Command::new("agy");
         // Always auto-approve in dashboard PTY — agents cannot wait for approval prompts.
-        // (Mirrors Claude's --dangerously-skip-permissions and Codex's --full-auto.)
+        // (Mirrors Claude's --dangerously-skip-permissions and Codex's unattended flags, codex.rs.)
         cmd.arg("--dangerously-skip-permissions");
         cmd.current_dir(project_root);
 

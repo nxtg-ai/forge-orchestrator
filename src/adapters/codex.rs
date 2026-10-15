@@ -6,7 +6,65 @@ use std::process::Command;
 
 pub struct CodexAdapter;
 
+/// The sandbox Codex runs a Forge task in when it runs unattended (`yolo`, and every PTY pane).
+const UNATTENDED_SANDBOX: &str = "workspace-write";
+
+/// Quote `s` as a TOML basic string, for a `codex -c key=value` override (codex parses the value as
+/// TOML). Escapes backslash, double quote and control characters, so a Windows path stays one value.
+fn toml_basic_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            c if c.is_control() => out.push_str(&format!("\\u{:04X}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
 impl CodexAdapter {
+    /// The `codex exec` flags for an unattended Forge task (DIRECTIVE-NXTG-20261015-07).
+    ///
+    /// codex-cli 0.162.1 rejects `--full-auto` ("unexpected argument"), which every earlier Forge
+    /// release passed. Its replacement here is two parts:
+    /// - `--sandbox workspace-write`: the model's shell commands may write only inside the project,
+    ///   the sandbox half of what `--full-auto` meant. `codex exec` never waits on a person (its
+    ///   approval policy is `never`), so no flag is needed for that.
+    /// - the `forge` MCP server, defined inline as this forge binary run as `forge mcp` in the project,
+    ///   with `default_tools_approval_mode = "approve"`. Under `never`, an MCP call that needs approval
+    ///   fails ("MCP tool call requires approval, but approval policy is never", the B1 Codex turn).
+    ///   Only Forge's own server is approved; any other MCP server the user registered keeps its
+    ///   own setting.
+    ///
+    /// Not used: `--dangerously-bypass-approvals-and-sandbox` (no sandbox at all; ruled out by
+    /// EMMA-SOUL Dx3 30e57667) and `--approve-for-me` (it sends approvals to an automatic model
+    /// review, and in the $0 mock check it did not let the MCP call through).
+    /// `tests/codex/argv-check.sh` runs these exact flags through codex-cli 0.162.1.
+    pub(crate) fn unattended_args(forge_exe: &Path, project_root: &Path) -> Vec<String> {
+        let server = |key: &str, value: String| format!("mcp_servers.forge.{key}={value}");
+        vec![
+            "--sandbox".into(),
+            UNATTENDED_SANDBOX.into(),
+            "-c".into(),
+            server("command", toml_basic_str(&forge_exe.to_string_lossy())),
+            "-c".into(),
+            server("args", r#"["mcp"]"#.into()),
+            "-c".into(),
+            server("cwd", toml_basic_str(&project_root.to_string_lossy())),
+            "-c".into(),
+            server("default_tools_approval_mode", r#""approve""#.into()),
+        ]
+    }
+
+    /// The forge binary that the dispatched Codex starts as its `forge` MCP server: this one.
+    fn forge_exe() -> std::path::PathBuf {
+        std::env::current_exe().unwrap_or_else(|_| "forge".into())
+    }
+
     /// Build the task prompt text (shared between headless and initial_input).
     pub(crate) fn task_prompt(task: &Task, task_type: &str) -> String {
         let criteria = if task.acceptance_criteria.is_empty() {
@@ -169,11 +227,11 @@ impl ToolAdapter for CodexAdapter {
         let prompt = Self::task_prompt(task, task_type);
 
         let mut cmd = Command::new("codex");
+        cmd.arg("exec");
         if permissions == "yolo" {
-            cmd.args(["exec", "--full-auto", "--skip-git-repo-check", &prompt]);
-        } else {
-            cmd.args(["exec", "--skip-git-repo-check", &prompt]);
+            cmd.args(Self::unattended_args(&Self::forge_exe(), project_root));
         }
+        cmd.args(["--skip-git-repo-check", &prompt]);
         cmd.current_dir(project_root);
 
         if auth_mode == "subscription" {
@@ -203,7 +261,9 @@ impl ToolAdapter for CodexAdapter {
         let prompt = Self::task_prompt(task, task_type);
 
         let mut cmd = Command::new("codex");
-        cmd.args(["exec", "--full-auto", "--skip-git-repo-check", &prompt]);
+        cmd.arg("exec");
+        cmd.args(Self::unattended_args(&Self::forge_exe(), project_root));
+        cmd.args(["--skip-git-repo-check", &prompt]);
         cmd.current_dir(project_root);
 
         if auth_mode == "subscription" {
@@ -251,6 +311,89 @@ mod tests {
         let prompt = CodexAdapter::task_prompt(&task, "review");
         assert!(prompt.contains("REVIEW task"));
         assert!(prompt.contains("Do NOT modify files"));
+    }
+
+    fn argv(cmd: &Command) -> Vec<String> {
+        cmd.get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn test_unattended_argv_has_no_removed_or_bypass_flag() {
+        let task = make_task("implement");
+        let root = Path::new("/proj");
+        for cmd in [
+            CodexAdapter.build_command(&task, root, "api", "yolo"),
+            CodexAdapter.build_command_interactive(&task, root, "api", "default"),
+        ] {
+            let a = argv(&cmd);
+            assert_eq!(a[0], "exec");
+            assert!(!a.iter().any(|x| x == "--full-auto"), "{a:?}");
+            assert!(!a.iter().any(|x| x.starts_with("--dangerously")), "{a:?}");
+            let i = a
+                .iter()
+                .position(|x| x == "--sandbox")
+                .expect("sandbox flag");
+            assert_eq!(a[i + 1], "workspace-write");
+            assert!(a.contains(
+                &r#"mcp_servers.forge.default_tools_approval_mode="approve""#.to_string()
+            ));
+            assert!(a.contains(&r#"mcp_servers.forge.args=["mcp"]"#.to_string()));
+            assert!(a.contains(&r#"mcp_servers.forge.cwd="/proj""#.to_string()));
+            assert_eq!(
+                a.last().unwrap(),
+                &CodexAdapter::task_prompt(&task, "implement")
+            );
+        }
+    }
+
+    #[test]
+    fn test_restricted_headless_argv_approves_nothing() {
+        let task = make_task("implement");
+        let a = argv(&CodexAdapter.build_command(&task, Path::new("/proj"), "api", "default"));
+        assert_eq!(a[..2], ["exec", "--skip-git-repo-check"]);
+        assert_eq!(a.len(), 3, "{a:?}");
+    }
+
+    #[test]
+    fn test_toml_basic_str_escapes_paths() {
+        assert_eq!(toml_basic_str("/a b/forge"), r#""/a b/forge""#);
+        assert_eq!(
+            toml_basic_str(r"C:\Users\x\forge.exe"),
+            r#""C:\\Users\\x\\forge.exe""#
+        );
+        assert_eq!(toml_basic_str("q\"t"), r#""q\"t""#);
+        assert_eq!(toml_basic_str("t\tn"), r#""t\u0009n""#);
+    }
+
+    /// Writes the adapter's real argv for `tests/codex/argv-check.sh` (one JSON array per line).
+    /// Runs only when FORGE_CODEX_ARGV_OUT names the output file.
+    #[test]
+    fn dump_codex_argv_for_argv_check() {
+        let Ok(out) = std::env::var("FORGE_CODEX_ARGV_OUT") else {
+            return;
+        };
+        let task = make_task("implement");
+        let root = Path::new("/work");
+        let lines: Vec<String> = [
+            (
+                "headless-yolo",
+                CodexAdapter.build_command(&task, root, "api", "yolo"),
+            ),
+            (
+                "headless-default",
+                CodexAdapter.build_command(&task, root, "api", "default"),
+            ),
+            (
+                "pty",
+                CodexAdapter.build_command_interactive(&task, root, "api", "default"),
+            ),
+        ]
+        .iter()
+        .map(|(name, cmd)| serde_json::json!({"name": name, "argv": argv(cmd)}).to_string())
+        .collect();
+        std::fs::write(out, lines.join("\n") + "\n").unwrap();
     }
 
     #[test]
