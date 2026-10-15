@@ -38,7 +38,8 @@ impl CodexAdapter {
     ///   with `default_tools_approval_mode = "approve"`. Under `never`, an MCP call that needs approval
     ///   fails ("MCP tool call requires approval, but approval policy is never", the B1 Codex turn).
     ///   Only Forge's own server is approved; any other MCP server the user registered keeps its
-    ///   own setting.
+    ///   own setting. Codex deep-merges `-c` into the config, so a `[mcp_servers.forge]` block the
+    ///   user already has keeps any key not set here (for example `env` or `enabled_tools`).
     ///
     /// Not used: `--dangerously-bypass-approvals-and-sandbox` (no sandbox at all; ruled out by
     /// EMMA-SOUL Dx3 30e57667) and `--approve-for-me` (it sends approvals to an automatic model
@@ -231,7 +232,8 @@ impl ToolAdapter for CodexAdapter {
         if permissions == "yolo" {
             cmd.args(Self::unattended_args(&Self::forge_exe(), project_root));
         }
-        cmd.args(["--skip-git-repo-check", &prompt]);
+        // `--` ends the options, so a prompt that starts with '-' can never become a flag.
+        cmd.args(["--skip-git-repo-check", "--", &prompt]);
         cmd.current_dir(project_root);
 
         if auth_mode == "subscription" {
@@ -263,7 +265,7 @@ impl ToolAdapter for CodexAdapter {
         let mut cmd = Command::new("codex");
         cmd.arg("exec");
         cmd.args(Self::unattended_args(&Self::forge_exe(), project_root));
-        cmd.args(["--skip-git-repo-check", &prompt]);
+        cmd.args(["--skip-git-repo-check", "--", &prompt]);
         cmd.current_dir(project_root);
 
         if auth_mode == "subscription" {
@@ -341,6 +343,7 @@ mod tests {
             ));
             assert!(a.contains(&r#"mcp_servers.forge.args=["mcp"]"#.to_string()));
             assert!(a.contains(&r#"mcp_servers.forge.cwd="/proj""#.to_string()));
+            assert_eq!(a[a.len() - 2], "--", "prompt must follow `--`: {a:?}");
             assert_eq!(
                 a.last().unwrap(),
                 &CodexAdapter::task_prompt(&task, "implement")
@@ -352,8 +355,8 @@ mod tests {
     fn test_restricted_headless_argv_approves_nothing() {
         let task = make_task("implement");
         let a = argv(&CodexAdapter.build_command(&task, Path::new("/proj"), "api", "default"));
-        assert_eq!(a[..2], ["exec", "--skip-git-repo-check"]);
-        assert_eq!(a.len(), 3, "{a:?}");
+        assert_eq!(a[..3], ["exec", "--skip-git-repo-check", "--"]);
+        assert_eq!(a.len(), 4, "{a:?}");
     }
 
     #[test]

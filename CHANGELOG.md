@@ -59,6 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `default_tools_approval_mode = "approve"`, so Codex can call Forge's own tools; without it
   `codex exec` fails them ("MCP tool call requires approval, but approval policy is never"). Other
   MCP servers keep their own settings. `--dangerously-bypass-approvals-and-sandbox` is not used.
+  The prompt follows `--`, so a prompt that starts with '-' can never be read as a flag.
   New CI job `tests/codex/argv-check.sh` runs the adapter's real argv through codex-cli 0.162.1 in a
   `--network none` container against a local mock model: every flag must parse, and a
   `forge_get_knowledge` call must complete. Red controls (`tests/codex/red-controls.sh`): the old
