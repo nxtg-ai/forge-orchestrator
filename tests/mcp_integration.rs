@@ -4,13 +4,15 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
+mod common;
+
 fn forge_cmd() -> Command {
-    Command::cargo_bin("forge").unwrap()
+    common::forge()
 }
 
 fn setup_project_with_tasks(dir: &TempDir) {
     // Git init
-    std::process::Command::new("git")
+    common::git()
         .args(["init"])
         .current_dir(dir.path())
         .output()

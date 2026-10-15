@@ -8,10 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Variables git reads before it looks at the working directory. A test run from a git hook
-/// inherits them (a pre-push hook in a linked worktree exports an absolute `GIT_DIR`), and then
-/// a fixture's `git init`, `config` and `commit` write to that outer repo instead of the fixture.
-const GIT_ENV: [&str; 3] = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"];
+mod common;
 
 /// Scratch directory that cleans itself up.
 struct Fixture {
@@ -43,21 +40,16 @@ impl Fixture {
 
     /// Seed a git repo with one commit and an optional tag, so release-debt has real git state.
     fn git_init(&self, tag: Option<&str>) -> &Self {
-        run(&self.path, "git", &["init", "-q"]);
-        run(
+        git(&self.path, &["init", "-q"]);
+        git(&self.path, &["config", "user.email", "t@example.com"]);
+        git(&self.path, &["config", "user.name", "t"]);
+        git(&self.path, &["add", "-A"]);
+        git(
             &self.path,
-            "git",
-            &["config", "user.email", "t@example.com"],
-        );
-        run(&self.path, "git", &["config", "user.name", "t"]);
-        run(&self.path, "git", &["add", "-A"]);
-        run(
-            &self.path,
-            "git",
             &["commit", "-q", "--no-gpg-sign", "-m", "fixture"],
         );
         if let Some(tag) = tag {
-            run(&self.path, "git", &["tag", tag]);
+            git(&self.path, &["tag", tag]);
         }
         self
     }
@@ -68,10 +60,7 @@ impl Fixture {
         let mut full = vec!["doctor"];
         full.extend_from_slice(args);
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_forge"));
-        for var in GIT_ENV {
-            cmd.env_remove(var);
-        }
-        let output = cmd
+        let output = common::clear_git_env(&mut cmd)
             .args(&full)
             .current_dir(&self.path)
             .env("NO_COLOR", "1")
@@ -90,19 +79,15 @@ impl Drop for Fixture {
     }
 }
 
-fn run(cwd: &Path, program: &str, args: &[&str]) {
-    let mut cmd = Command::new(program);
-    for var in GIT_ENV {
-        cmd.env_remove(var);
-    }
-    let status = cmd
+fn git(cwd: &Path, args: &[&str]) {
+    let status = common::git()
         .args(args)
         .current_dir(cwd)
         .output()
-        .unwrap_or_else(|e| panic!("failed to run {program}: {e}"));
+        .unwrap_or_else(|e| panic!("failed to run git: {e}"));
     assert!(
         status.status.success(),
-        "{program} {args:?} failed: {}",
+        "git {args:?} failed: {}",
         String::from_utf8_lossy(&status.stderr)
     );
 }
@@ -428,11 +413,11 @@ fn unreadable_surface_is_reported_not_skipped() {
 
 /// `git <args>` in `cwd` with the inherited git variables cleared; returns stdout.
 fn git_stdout(cwd: &Path, args: &[&str]) -> String {
-    let mut cmd = Command::new("git");
-    for var in GIT_ENV {
-        cmd.env_remove(var);
-    }
-    let out = cmd.args(args).current_dir(cwd).output().expect("run git");
+    let out = common::git()
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .expect("run git");
     assert!(out.status.success(), "git {args:?} failed");
     String::from_utf8_lossy(&out.stdout).to_string()
 }

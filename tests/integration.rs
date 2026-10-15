@@ -4,8 +4,10 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
+mod common;
+
 fn forge_cmd() -> Command {
-    Command::cargo_bin("forge").unwrap()
+    common::forge()
 }
 
 #[test]
@@ -13,7 +15,7 @@ fn test_init_creates_forge_directory() {
     let dir = TempDir::new().unwrap();
 
     // Initialize git (required for context discovery)
-    std::process::Command::new("git")
+    common::git()
         .args(["init"])
         .current_dir(dir.path())
         .output()
@@ -54,7 +56,7 @@ fn test_status_without_init_shows_warning() {
 fn test_status_after_init_shows_dashboard() {
     let dir = TempDir::new().unwrap();
 
-    std::process::Command::new("git")
+    common::git()
         .args(["init"])
         .current_dir(dir.path())
         .output()
@@ -86,7 +88,7 @@ fn test_status_after_init_shows_dashboard() {
 fn test_plan_generate_creates_tasks() {
     let dir = TempDir::new().unwrap();
 
-    std::process::Command::new("git")
+    common::git()
         .args(["init"])
         .current_dir(dir.path())
         .output()
@@ -136,7 +138,7 @@ fn test_plan_generate_creates_tasks() {
 fn test_plan_show_template_after_init() {
     let dir = TempDir::new().unwrap();
 
-    std::process::Command::new("git")
+    common::git()
         .args(["init"])
         .current_dir(dir.path())
         .output()
@@ -165,7 +167,7 @@ fn test_plan_show_template_after_init() {
 fn test_sync_reconciles_state() {
     let dir = TempDir::new().unwrap();
 
-    std::process::Command::new("git")
+    common::git()
         .args(["init"])
         .current_dir(dir.path())
         .output()
@@ -223,7 +225,7 @@ fn test_sync_reconciles_state() {
 fn test_full_loop_init_plan_sync_status() {
     let dir = TempDir::new().unwrap();
 
-    std::process::Command::new("git")
+    common::git()
         .args(["init"])
         .current_dir(dir.path())
         .output()
@@ -297,7 +299,7 @@ fn test_full_loop_init_plan_sync_status() {
 fn test_plan_generate_without_any_context_shows_error() {
     let dir = TempDir::new().unwrap();
 
-    std::process::Command::new("git")
+    common::git()
         .args(["init"])
         .current_dir(dir.path())
         .output()
@@ -331,7 +333,7 @@ fn test_plan_generate_without_any_context_shows_error() {
 fn test_plan_generate_from_readme_context() {
     let dir = TempDir::new().unwrap();
 
-    std::process::Command::new("git")
+    common::git()
         .args(["init"])
         .current_dir(dir.path())
         .output()
@@ -376,7 +378,7 @@ fn test_plan_generate_from_readme_context() {
 fn test_init_detects_context_files() {
     let dir = TempDir::new().unwrap();
 
-    std::process::Command::new("git")
+    common::git()
         .args(["init"])
         .current_dir(dir.path())
         .output()
