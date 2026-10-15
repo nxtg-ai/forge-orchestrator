@@ -2,9 +2,9 @@
 
 **Banked**: 2026-07-18 22:30 PDT · **Reason**: pane at ~516k tokens, past the 500k COMPACT
 threshold, at an atomic boundary (checkpoint 3 shipped and pushed).
-**Repo**: `/home/axw/projects/NXTG-Forge/forge-orchestrator` · **Branch**: `main` · **Tip**: `2b025cb`
-**Directive**: DIRECTIVE-NXTG-20260718-09 (`/home/axw/projects/NXTG-Forge/.asif/NEXUS.md`)
-**Spec**: `/home/axw/projects/NXTG-Forge/ecosystem/forge/research/2026-07-18-consolidation-rfc.md`
+**Repo**: `~/projects/NXTG-Forge/forge-orchestrator` · **Branch**: `main` · **Tip**: `2b025cb`
+**Directive**: DIRECTIVE-NXTG-20260718-09 (`~/projects/NXTG-Forge/.asif/NEXUS.md`)
+**Spec**: `~/projects/NXTG-Forge/ecosystem/forge/research/2026-07-18-consolidation-rfc.md`
 (v10.1, GATED-PASS, Codex round 10, zero blocking findings)
 
 ---
@@ -138,7 +138,7 @@ the RFC differ, **the RFC wins** — it is what Codex gated.
    between what shipped and what §1.5 adds.
 4. Build the **isolation harness + race matrix first**.
 5. Then adopt / shim / hook-rebind.
-6. Write the Response inline in `/home/axw/projects/NXTG-Forge/.asif/NEXUS.md` under
+6. Write the Response inline in `~/projects/NXTG-Forge/.asif/NEXUS.md` under
    DIRECTIVE-NXTG-20260718-09 with real SHAs and the live-store md5 as the constraint proof.
 
 ## 4. Working norms that have been earning their keep

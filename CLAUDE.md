@@ -202,7 +202,6 @@ This is how the portfolio compounds intelligence. Your work benefits from every 
 ## Voice Identity
 
 **Voice**: `am_onyx`
-**Service**: http://100.123.83.34:8880/v1/audio/speech
 **Registry**: ~/ASIF/standards/voice-registry.md
 **Use**: every cycle-complete, every P0/P1 completion, every directive response.
 
@@ -211,7 +210,7 @@ Speak via: `~/ASIF/scripts/cos-speak-remote --voice am_onyx "text"`
 <!-- ASIF:TEAM-ALIGNMENT-WIRING:START -->
 ## ASIF Alignment Wiring
 
-@/home/axw/ASIF/standards/claude-team-alignment-wiring.md
+@~/ASIF/standards/claude-team-alignment-wiring.md
 
 - Team alignment id: `forge-orchestrator` (label "Forge Orchestrator"; split from the retired `forge` id, DIRECTIVE-NXTG-20261013-22).
 - Cross-team room: `/alignment`, written through `~/ASIF/scripts/alignment-say --as forge-orchestrator`.

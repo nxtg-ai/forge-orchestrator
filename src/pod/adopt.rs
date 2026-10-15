@@ -849,6 +849,6 @@ mod tests {
     #[test]
     #[should_panic(expected = "REFUSING to install the shim outside the temp dir")]
     fn installing_the_live_shim_panics_under_test() {
-        assert_shim_write_allowed(Path::new("/home/axw/.local/bin/cosmux"));
+        assert_shim_write_allowed(&expand_path("~/.local/bin/cosmux"));
     }
 }

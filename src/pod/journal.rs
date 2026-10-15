@@ -1047,6 +1047,6 @@ mod tests {
     #[test]
     #[should_panic(expected = "REFUSING to write the adoption journal outside the temp dir")]
     fn writing_the_live_journal_panics_under_test() {
-        assert_write_allowed(Path::new("/home/axw/.local/state/forge/pod-adoption.json"));
+        assert_write_allowed(&expand_path("~/.local/state/forge/pod-adoption.json"));
     }
 }
