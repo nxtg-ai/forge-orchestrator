@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `install.sh` adds forge's MCP tools to Claude Code when the `claude` CLI is on PATH, only through
+  that CLI: `claude plugin marketplace add nxtg-ai/forge-plugin`, `claude plugin marketplace update
+  nxtg-forge`, `claude plugin update nxtg-forge@nxtg-forge` (only if installed, so an older copy
+  stops registering its own orchestrator-mcp), then `claude plugin install
+  nxtg-forge-orchestrator@nxtg-forge`. It prints one line per change. Without `claude`, or if any
+  step fails, it prints those commands and still exits 0. Opt out with `FORGE_NO_CLAUDE_PLUGIN=1`.
+
 ## [1.7.0] - 2026-10-14
 
 ### Added
