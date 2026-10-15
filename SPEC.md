@@ -9,7 +9,7 @@
 
 ## 1. Vision
 
-NXTG-Forge Orchestrator is a **universal orchestration engine for AI-powered development**. It lets developers harness Claude Code, Codex CLI, Gemini CLI, and future AI tools as a unified team — with governance, knowledge capture, and conflict prevention.
+NXTG-Forge Orchestrator is a **universal orchestration engine for AI-powered development**. It lets developers harness Claude Code, Codex CLI, Antigravity CLI (agy), and future AI tools as a unified team — with governance, knowledge capture, and conflict prevention.
 
 **One-sentence pitch:** "The tech lead that never sleeps — plans work, assigns it to the right AI tool, tracks progress, captures knowledge, and ensures quality."
 
@@ -60,7 +60,7 @@ forge-orchestrator (Rust binary)
 ├── Adapters (tool-specific renderers)
 │   ├── Claude Adapter      — writes CLAUDE.md, .claude/
 │   ├── Codex Adapter       — writes AGENTS.md, .agents/
-│   ├── Gemini Adapter      — writes GEMINI.md, .gemini/
+│   ├── Gemini Adapter      — launches agy (Antigravity CLI), writes ANTIGRAVITY.md
 │   └── Generic Adapter     — future AI tools
 │
 ├── MCP Server (forge-mcp, unified)

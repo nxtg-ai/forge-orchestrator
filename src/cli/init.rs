@@ -136,7 +136,7 @@ pub fn execute(project_root: &Path, name: Option<String>) -> anyhow::Result<()> 
             .template("  {spinner:.cyan} {msg}")
             .unwrap(),
     );
-    spinner.set_message("Scanning PATH for AI tools (claude, codex, gemini)...");
+    spinner.set_message("Scanning PATH for AI tools (claude, codex, agy)...");
     spinner.enable_steady_tick(std::time::Duration::from_millis(80));
     let tools = detect_tools();
     spinner.finish_and_clear();

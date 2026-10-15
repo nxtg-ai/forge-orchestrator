@@ -58,7 +58,8 @@ pub enum AgentType {
     Claude,
     /// OpenAI Codex CLI.
     Codex,
-    /// Google Gemini CLI.
+    /// Antigravity CLI (`agy`). The variant and its serialized id stay `gemini` because task files,
+    /// config keys and MCP arguments already store that id; renaming it would break existing projects.
     Gemini,
     /// Any available agent (auto-assigned by the scheduler).
     Any,

@@ -10,7 +10,7 @@
 ## Register 1 — One-liner (≤100 chars, Cargo.toml description, crates.io card)
 
 ```
-Orchestrate Claude Code, Codex CLI, and Gemini CLI on shared repos — single Rust binary, zero deps.
+Orchestration for Claude Code on shared repos, with Codex CLI and Antigravity CLI (agy) as task runners — single Rust binary, zero deps.
 ```
 
 ---
@@ -19,8 +19,8 @@ Orchestrate Claude Code, Codex CLI, and Gemini CLI on shared repos — single Ru
 
 Running multiple AI coding tools on the same repo without coordination guarantees conflicts: one tool
 refactors a module while another updates tests against the old interface. forge-orchestrator adds
-file-level locking, task planning, drift detection, and a shared knowledge base so Claude Code,
-Codex CLI, and Gemini CLI can work the same codebase safely.
+file-level locking, task planning and a shared knowledge base so Claude Code, with Codex CLI and
+Antigravity CLI (agy) as task runners, can work the same codebase safely.
 
 ---
 
@@ -28,10 +28,11 @@ Codex CLI, and Gemini CLI can work the same codebase safely.
 
 Most multi-agent AI development breaks when tools don't know about each other.
 forge-orchestrator is the policy core that makes it work: a single Rust binary with zero
-runtime dependencies that coordinates Claude Code, Codex CLI, and Gemini CLI on shared codebases.
+runtime dependencies that coordinates Claude Code on shared codebases, with Codex CLI and Antigravity CLI (agy)
+as task runners.
 File-level locking prevents concurrent write conflicts. A knowledge flywheel captures decisions and
-patterns across tool sessions so the next agent starts with context, not from scratch. Drift
-detection compares in-progress work against the original spec before divergence compounds. An
+patterns across tool sessions so the next agent starts with context, not from scratch. With the openai
+brain, drift detection compares completed tasks against the spec (the default brain does not score drift). An
 12-tool MCP server lets any connected AI client query and update orchestration state via stdio.
 Local-first, no cloud account, no daemon. Runs headless in CI or as a live TUI dashboard.
 

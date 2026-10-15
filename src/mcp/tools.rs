@@ -43,7 +43,7 @@ pub fn list_tools() -> Vec<ToolDefinition> {
                     },
                     "agent": {
                         "type": "string",
-                        "description": "Agent claiming the task: claude, codex, or gemini",
+                        "description": "Agent claiming the task: claude, codex, or gemini (gemini runs Antigravity CLI, agy)",
                         "enum": ["claude", "codex", "gemini"]
                     }
                 },
@@ -67,7 +67,7 @@ pub fn list_tools() -> Vec<ToolDefinition> {
                     },
                     "agent": {
                         "type": "string",
-                        "description": "Agent completing the task (claude, codex, gemini). Defaults to the agent that claimed it; completed_by_source records which"
+                        "description": "Agent completing the task (claude, codex, gemini; gemini runs Antigravity CLI, agy). Defaults to the agent that claimed it; completed_by_source records which"
                     }
                 },
                 "required": ["task_id"]

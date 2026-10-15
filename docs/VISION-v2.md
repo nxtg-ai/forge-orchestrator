@@ -1,5 +1,7 @@
 # Forge Orchestrator — Vision v2.0: "Beyond CLI Spawning"
 
+> **Successor note (2026-10-15):** the Gemini CLI named below is retired. Forge launches Antigravity CLI (`agy`) instead (ASIF canon `standards/google-antigravity-cli-runtime.md`; EMMA-SOUL ruling Dx3 9c94b774). This dated document is kept as written.
+
 > Integrating RESEARCH-001 findings (66 sources, 6 arXiv papers) into a comprehensive roadmap.
 > Date: 2026-02-15 | Status: APPROVED
 

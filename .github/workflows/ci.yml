@@ -79,6 +79,11 @@ jobs:
       # The check must also go red: old pre-alpha text, a changed ruled sentence, a stale STAGE.
       - name: Stage check red controls
         run: bash tests/stage/red-controls.sh
+      # The third CLI is Antigravity CLI (agy); current docs and help must not say Gemini CLI.
+      - name: Docs and help name Antigravity CLI (agy)
+        run: bash .github/scripts/check-agy-naming.sh target/debug/forge
+      - name: agy naming red controls
+        run: bash tests/agy/red-controls.sh
 
       - name: Create issue on CI failure
         uses: jayqi/failed-build-issue-action@v1

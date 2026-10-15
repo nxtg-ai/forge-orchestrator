@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stops registering its own orchestrator-mcp), then `claude plugin install
   nxtg-forge-orchestrator@nxtg-forge`. It prints one line per change. Without `claude`, or if any
   step fails, it prints those commands and still exits 0. Opt out with `FORGE_NO_CLAUDE_PLUGIN=1`.
+- README: how to register the orchestrator's MCP server with Codex CLI (`codex mcp add forge --
+  forge mcp`, optionally `--env FORGE_PROJECT_ROOT=...`). Checked with codex-cli 0.162.1: `codex mcp
+  list` shows it enabled over stdio and the server lists its 12 tools. A tool call from inside a
+  Codex session is not measured yet (build B1).
+- CI check `.github/scripts/check-agy-naming.sh`: current docs and `forge --help` must not say
+  "Gemini CLI" or show the retired install/login flow; history is allowed only in README's Past
+  Result section and in dated docs that open with a successor note. Red controls:
+  `tests/agy/red-controls.sh`.
 
 ### Changed
 - Stage: alpha (STAGE `maturity: alpha`, EMMA-SOUL Dx3 cc950597). `forge --version` and the MCP
@@ -26,6 +34,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The repo no longer tracks internal governance files (`.asif/`, now in `.gitignore`), and no
   tracked file names a private machine address or a `/home/<user>` path. Tests that used a home
   path now build it with `expand_path("~/...")`, the same call the code uses; no behaviour change.
+- The third CLI is named Antigravity CLI (`agy`) wherever users see it (EMMA-SOUL Dx3 9c94b774):
+  README, `forge --help`, the crate description, HUMAN-GUIDE (the retired `gemini login` / npm
+  install flow is gone), positioning, the TUI pane label, `forge init` / `forge start` messages,
+  config-key help and the MCP `agent` descriptions. The agent id stays `gemini` in task files,
+  config keys and MCP arguments, so existing projects keep working. Dated docs get a successor note.
+- `forge sync` reports `ANTIGRAVITY.md updated`, the file the agy adapter writes (it said `GEMINI.md`).
+- The rule-based brain's drift message now says drift needs the `openai` brain; it named `claude`
+  and `gemini` brains, which do not exist. README and positioning say the default brain does not
+  score drift.
 
 ### Removed
 - The `email` field of the one CLA signature in `.github/cla-signatures.json`. The CLA action

@@ -8,9 +8,9 @@
 
 **Stage: Alpha.** The Forge plugin and orchestrator are in alpha. On 2026-10-15 (UTC) a separate NXTG.AI team (product-oracle) ran the pre-registered core-job test on a clean install of the plugin (v3.14.0) and the orchestrator (forge 1.7.0). The test passed; each repeated check passed 3 of 3 (run 7). The evidence is attached to the forge-plugin v3.14.0 release. No SLA; interfaces may change without notice.
 
-**Orchestration for Claude Code, with Codex CLI as a task runner, on shared repos — single Rust binary, zero deps. Gemini CLI support is in development (build B1, target 2026-10-27).**
+**Orchestration for Claude Code on shared repos, with Codex CLI and Antigravity CLI (`agy`) as task runners — single Rust binary, zero deps.**
 
-Multi-agent inside a single tool works fine. Claude Code runs 20 subagents and they stay aligned because the tool manages that orchestration internally. The problem is multi-tool: several AI coding tools on the same repo with no shared state. That's what the orchestrator solves: today for Claude Code, with Codex CLI as a task runner. Gemini CLI support is in development (build B1, target 2026-10-27).
+Multi-agent inside a single tool works fine. Claude Code runs 20 subagents and they stay aligned because the tool manages that orchestration internally. The problem is multi-tool: several AI coding tools on the same repo with no shared state. That's what the orchestrator solves: today for Claude Code, with Codex CLI and Antigravity CLI (`agy`) as task runners. The orchestrator launches `agy` as a task runner; what else Forge does on `agy` is being measured (build B1, target 2026-10-27).
 
 It adds file locking, knowledge capture, task planning, drift detection, and multi-tool orchestration to your development workflow. The tools read from and write to a single state directory. A 12-tool MCP server exposes the full orchestration state to any connected AI client, and can create, claim and complete tasks.
 
@@ -29,6 +29,25 @@ The installer puts `forge` in `~/.local/bin` (change it with `FORGE_INSTALL_DIR`
 If the `claude` CLI is on your PATH, the installer then adds forge's MCP tools to Claude Code, using only that CLI: it adds and refreshes the `nxtg-forge` marketplace (`nxtg-ai/forge-plugin`), updates `nxtg-forge@nxtg-forge` if you already have it, and installs the companion plugin `nxtg-forge-orchestrator@nxtg-forge`. It prints one line per change and changes no Claude configuration any other way. Without `claude`, or if a step fails, it prints the commands for you to run and still exits 0. Set `FORGE_NO_CLAUDE_PLUGIN=1` to skip it.
 
 Single binary. No runtime dependencies.
+
+## Connect Codex CLI to the MCP server
+
+Register the orchestrator's MCP server with Codex CLI, then check that Codex lists it:
+
+```bash
+codex mcp add forge -- forge mcp
+codex mcp list
+```
+
+This writes the entry to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.forge]
+command = "forge"
+args = ["mcp"]
+```
+
+The server works on the project in the directory it starts in. To pin one project, bind it when you register: `codex mcp add forge --env FORGE_PROJECT_ROOT=/path/to/project -- forge mcp`. Checked with codex-cli 0.162.1: `codex mcp list` shows `forge` enabled over stdio, and the server answers `tools/list` with its 12 tools. A tool call made from inside a Codex session has not been measured yet (build B1).
 
 ## Quick Demo
 
@@ -55,7 +74,7 @@ From here you can:
 
 ## Past Result: Stargate Mode (before v1.6.1)
 
-From a 94-line specification, an earlier version of the orchestrator coordinated three AI coding tools to build a complete CLI toolkit. That run drove Gemini CLI; since v1.6.1 the "gemini" adapter drives Antigravity `agy` instead, and the run has not been re-measured. Gemini CLI support is in development (build B1, target 2026-10-27).
+From a 94-line specification, an earlier version of the orchestrator coordinated three AI coding tools to build a complete CLI toolkit. That run drove the retired Gemini CLI; since v1.6.1 the adapter launches Antigravity CLI (`agy`) instead, and the run has not been re-measured.
 
 ```
 SPEC.md (94 lines) → forge plan --generate → 15 tasks
@@ -83,9 +102,9 @@ forge dashboard --pty
 | File locking | Exclusive locks prevent tools from editing the same file simultaneously |
 | Knowledge flywheel | Captures decisions, patterns, learnings across tools. Auto-classified and searchable. |
 | Plan generation | `forge plan --generate` decomposes specs into dependency-aware task graphs |
-| Drift detection | Compares in-progress work against specs, flags divergence early |
+| Drift detection | Compares completed tasks against SPEC.md. Needs the `openai` brain; the default rule-based brain does not score drift |
 | Task board | Dependency-tracked tasks, tool assignment, progress monitoring |
-| Multi-tool adapters | Claude Code (MCP stdio); Codex CLI as a task runner (filesystem). Gemini CLI support is in development (build B1, target 2026-10-27) |
+| Multi-tool adapters | Claude Code (MCP stdio); Codex CLI and Antigravity CLI (`agy`) as task runners (filesystem). Codex CLI can also register the MCP server (see below) |
 | TUI dashboard | `forge dashboard`: live tool panes, task status, lock state |
 | Headless mode | `forge run`: autonomous execution for CI/CD pipelines |
 | MCP server | 12 tools accessible by any connected AI tool via stdio, including `forge_create_task` |
@@ -131,7 +150,7 @@ The orchestrator is the policy core of Forge. All governance rules, file locks, 
 
 **Communication**: `.forge/` filesystem + MCP stdio. No daemon. No database. State is files.
 
-**Tool adapters**: Claude Code uses MCP stdio. Codex CLI runs tasks through filesystem conventions. Gemini CLI support is in development (build B1, target 2026-10-27); today the "gemini" adapter drives Antigravity `agy`. Each tool reads its own config format. No Forge-specific configuration language.
+**Tool adapters**: Claude Code uses MCP stdio. Codex CLI and Antigravity CLI (`agy`) run tasks through filesystem conventions. The `agy` adapter keeps the agent id `gemini` in task files, config keys and MCP arguments, so existing projects keep working. Each tool reads its own config format. No Forge-specific configuration language.
 
 ## How File Locking Works
 

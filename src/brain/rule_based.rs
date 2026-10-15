@@ -288,7 +288,7 @@ impl ForgeBrain for RuleBasedBrain {
         // Return a neutral score
         Ok(DriftScore {
             score: 0.0,
-            explanation: "Drift evaluation requires an LLM brain. Set brain to claude or gemini for intelligent drift detection.".into(),
+            explanation: "Drift evaluation requires the openai brain (forge config brain openai, plus OPENAI_API_KEY). The rule-based brain does not score drift.".into(),
         })
     }
 

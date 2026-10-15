@@ -121,7 +121,7 @@ pub fn pane_label(index: usize) -> &'static str {
     match index {
         0 => "Claude",
         1 => "Codex",
-        2 => "Gemini",
+        2 => "Antigravity (agy)",
         3 => "Summary",
         _ => "?",
     }
