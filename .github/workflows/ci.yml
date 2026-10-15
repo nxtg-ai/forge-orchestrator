@@ -95,6 +95,19 @@ jobs:
           crlf=$(git ls-files -z '*.sh' | xargs -0 grep -l $'\r' || true)
           if [ -n "$crlf" ]; then echo "::error::CR line endings in: $crlf"; exit 1; fi
           sh -n install.sh
+      # Forge FREEZE (DIRECTIVE-NXTG-20261015-08): install.sh installs v1.7.1, never releases/latest.
+      - name: install.sh installs the pinned release
+        run: sh tests/install/pin.sh
+      # Red control: the installer before the pin (de67cdb) followed releases/latest and must fail.
+      - name: Pin check red control
+        run: |
+          git fetch -q --depth=1 origin de67cdb14733af68cac413f385f7111441819dbd
+          git show FETCH_HEAD:install.sh > "$RUNNER_TEMP/install-before-pin.sh"
+          if sh tests/install/pin.sh "$RUNNER_TEMP/install-before-pin.sh" > red.txt 2>&1; then
+            cat red.txt; echo "::error::the pin check passed the installer that follows releases/latest"; exit 1
+          fi
+          cat red.txt
+          grep -qF 'FAIL asks GitHub for releases/latest' red.txt
       # The release stage lives in one root file, STAGE; every surface must agree with it.
       - name: Stage surfaces match STAGE
         run: cargo build --locked && bash .github/scripts/check-stage.sh target/debug/forge

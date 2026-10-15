@@ -5,6 +5,9 @@
 set -e
 
 REPO="nxtg-ai/forge-orchestrator"
+# The release this installer installs: the pinned, tested one, never the newest one
+# (Forge FREEZE, DIRECTIVE-NXTG-20261015-08; paired with forge-plugin v3.14.0).
+TAG="v1.7.1"
 BINARY_NAME="forge"
 INSTALL_DIR="${FORGE_INSTALL_DIR:-$HOME/.local/bin}"
 
@@ -17,7 +20,7 @@ case "$OS" in
   Darwin) PLATFORM="macos" ;;
   *)
     echo "Error: Unsupported OS: $OS"
-    echo "For Windows, download from: https://github.com/$REPO/releases/latest"
+    echo "For Windows, download from: https://github.com/$REPO/releases/tag/$TAG"
     exit 1
     ;;
 esac
@@ -33,21 +36,11 @@ esac
 
 ARCHIVE="forge-${PLATFORM}-${ARCH}.tar.gz"
 
-# Get latest release tag from the releases/latest redirect (github.com/.../releases/tag/vX.Y.Z).
-# No api.github.com call: its unauthenticated limit (60/hour per IP) runs out on shared IPs.
-echo "Detecting latest version..."
-LATEST=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest" 2>/dev/null | sed -n 's|.*/releases/tag/\(v[0-9][^/?#]*\)$|\1|p')
-
-if [ -z "$LATEST" ]; then
-  echo "Error: Could not detect latest version. Check https://github.com/$REPO/releases"
-  exit 1
-fi
-
-VERSION="${LATEST#v}"
+VERSION="${TAG#v}"
 echo "Installing Forge v${VERSION} (${PLATFORM}/${ARCH})..."
 
 # Download
-URL="https://github.com/$REPO/releases/download/$LATEST/$ARCHIVE"
+URL="https://github.com/$REPO/releases/download/$TAG/$ARCHIVE"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 

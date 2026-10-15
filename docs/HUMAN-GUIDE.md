@@ -26,7 +26,9 @@ You also need:
 curl -sSL https://raw.githubusercontent.com/nxtg-ai/forge-orchestrator/main/install.sh | sh
 ```
 
-Verify: `forge --version` should print `forge-orchestrator 0.1.x`
+The installer installs Forge v1.7.1, the pinned release, not whichever release is newest.
+
+Verify: `forge --version` should print `forge 1.7.1`
 
 ## Step 2: Initialize Your Project
 
