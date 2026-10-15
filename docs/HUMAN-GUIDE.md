@@ -2,7 +2,7 @@
 
 **From zero to AI-orchestrated development in 10 minutes.**
 
-This guide walks you through using Forge to build a real project using Claude Code, Codex CLI, and Gemini CLI as a coordinated team.
+This guide walks you through using Forge to build a real project with Claude Code, with Codex CLI and Antigravity CLI (`agy`) as task runners.
 
 ---
 
@@ -14,7 +14,7 @@ You need at least ONE of these AI CLIs installed:
 |:-----|:--------|:-----|
 | [Claude Code](https://docs.anthropic.com/claude-code) | `npm install -g @anthropic-ai/claude-code` | Claude Max subscription (covers both interactive and headless) |
 | [Codex CLI](https://github.com/openai/codex) | `npm install -g @openai/codex` | `codex login` (ChatGPT Pro subscription) |
-| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | `npm install -g @anthropic-ai/gemini-cli` | `gemini login` (Google AI Pro subscription) |
+| [Antigravity CLI (`agy`)](https://antigravity.google/docs) | see the Antigravity CLI docs | sign in as the Antigravity CLI docs describe |
 
 You also need:
 - A project that is a **git repository** (`git init` if not already)
@@ -86,7 +86,7 @@ forge plan --generate
 
 This reads your SPEC.md and decomposes it into tasks with:
 - Dependencies (which tasks must finish before others can start)
-- Agent assignments (architecture → claude, implementation → codex, docs → gemini)
+- Agent assignments (architecture → claude, implementation → codex, docs → gemini, which runs `agy`)
 - File locks (which files each task will touch)
 - Acceptance criteria
 
@@ -115,8 +115,8 @@ Each CLI needs to be logged in before Forge can use it:
 # Codex CLI — opens browser for OAuth
 codex login
 
-# Gemini CLI — opens browser for OAuth
-gemini login
+# Antigravity CLI (agy): sign in as its docs describe, then check it runs
+agy --version
 ```
 
 **Important:** Do NOT set `ANTHROPIC_API_KEY` in your environment — it overrides subscription auth and routes to API billing. All three CLIs use their respective subscriptions for headless execution.
@@ -213,7 +213,7 @@ After tasks complete, sync renders updated config files for each AI tool:
 forge sync
 ```
 
-This regenerates `CLAUDE.md`, `AGENTS.md`, and `GEMINI.md` with current state, so each tool has fresh context if you continue working interactively.
+This regenerates `CLAUDE.md`, `AGENTS.md`, and `ANTIGRAVITY.md` with current state. Claude Code and Codex read theirs; `agy` does not load `ANTIGRAVITY.md`, which is there for reference.
 
 ---
 
@@ -234,9 +234,9 @@ If you genuinely hit your subscription usage limit, wait for it to reset or upgr
 
 Your project must be a git repo. Run `git init` in the project root.
 
-### Codex/Gemini not detected
+### Codex/agy not detected
 
-Run `forge sync` — this re-detects tools. Make sure `codex` and `gemini` are in your PATH.
+Run `forge sync` — this re-detects tools. Make sure `codex` and `agy` are in your PATH. (The retired `gemini` binary is not used.)
 
 ### All tasks blocked, nothing happening
 
@@ -268,14 +268,14 @@ forge start --ceo            # Loop until 100% complete, auto-retry failures
 ## FAQ
 
 **Q: Do I need all three AI tools?**
-No. Forge works with any combination. If you only have Codex, all tasks assigned to Claude/Gemini will be blocked. Reassign them in the task JSON files, or use `forge start --agent codex`.
+No. Forge works with any combination. If you only have Codex, all tasks assigned to Claude or agy (agent id `gemini`) will be blocked. Reassign them in the task JSON files, or use `forge start --agent codex`.
 
 **Q: Does Forge cost money?**
 Forge itself is free to use and source-available under FSL-1.1-ALv2 (converts to Apache 2.0 on 2028-03-18; see LICENSE.md). The AI tools have their own billing:
 - Plan generation requires an `OPENAI_API_KEY` (or use the free rule-based brain)
 - Claude headless mode uses your Max subscription (do NOT set `ANTHROPIC_API_KEY`)
 - Codex requires a ChatGPT Pro subscription
-- Gemini requires a Google AI Pro subscription
+- Antigravity CLI (`agy`) requires a Google account sign-in; see its docs for plans and limits
 
 **Q: Can I edit the plan manually?**
 Yes. Tasks are JSON files in `.forge/tasks/`. Edit `assigned_to`, `depends_on`, `status`, or anything else. Forge reads them fresh each time.

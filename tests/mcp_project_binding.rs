@@ -9,11 +9,9 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
-fn bin() -> &'static str {
-    env!("CARGO_BIN_EXE_forge")
-}
+mod common;
 
 /// Scaffold a project and seed a known health profile. `healthy` → SPEC + README (100/100);
 /// otherwise bare (90/100, 2 warnings) — a deterministic discriminator between two consumers.
@@ -21,7 +19,7 @@ fn make_project(tag: &str, healthy: bool) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("forge-bind-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let ok = Command::new(bin())
+    let ok = common::forge_std()
         .args(["--project", &dir.display().to_string(), "init"])
         .output()
         .expect("forge init");
@@ -40,7 +38,7 @@ fn make_project(tag: &str, healthy: bool) -> PathBuf {
 /// tool-call request lines. Returns the health summary from the LAST `forge_get_health` call
 /// (id 9) plus whether any `forge_set_project` (id 8) was refused.
 fn run_server(cwd: &Path, env: &[(&str, &str)], calls: &[&str]) -> (String, bool) {
-    let mut cmd = Command::new(bin());
+    let mut cmd = common::forge_std();
     cmd.arg("mcp").current_dir(cwd).env("NO_COLOR", "1");
     for (k, v) in env {
         cmd.env(k, v);

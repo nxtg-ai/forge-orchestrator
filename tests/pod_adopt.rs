@@ -11,6 +11,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod common;
+
 fn tmux_available() -> bool {
     Command::new("tmux")
         .arg("-V")
@@ -68,7 +70,7 @@ impl World {
     }
 
     fn forge_env(&self, args: &[&str], extra: &[(&str, &str)]) -> (i32, String, String) {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_forge"));
+        let mut cmd = common::forge_std();
         cmd.arg("pod")
             .args(args)
             .env("FORGE_POD_TMUX_SOCKET", &self.socket)

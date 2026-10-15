@@ -194,7 +194,7 @@ pub async fn execute(project_root: &Path, agent_filter: Option<&str>) -> anyhow:
 
     if available_agents.is_empty() {
         println!(
-            "  {} No AI tools detected. Install claude, codex, or gemini.",
+            "  {} No AI tools detected. Install claude, codex, or agy (Antigravity CLI).",
             "✗".red()
         );
         return Ok(());

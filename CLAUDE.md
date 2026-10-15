@@ -1,6 +1,6 @@
 # CLAUDE.md — Forge Orchestrator
 
-Universal orchestration engine for AI-powered development. Single Rust binary (`forge`) that decomposes specs into tasks, dispatches them to Claude/Codex/Gemini, and reconciles results.
+Universal orchestration engine for AI-powered development. Single Rust binary (`forge`) that decomposes specs into tasks, dispatches them to Claude/Codex/agy (Antigravity CLI), and reconciles results.
 
 ## Quick Reference
 
@@ -40,11 +40,11 @@ src/
 │   ├── knowledge.rs     #   .forge/knowledge/ — research/decisions/learnings/patterns
 │   ├── finding.rs       #   UAT findings with severity classification
 │   └── plan.rs          #   .forge/plan.md + plan.yaml
-├── adapters/            # AI tool adapters (Claude, Codex, Gemini)
+├── adapters/            # AI tool adapters (Claude, Codex, agy)
 │   ├── mod.rs           #   ToolAdapter trait (render_config, build_command, ready_pattern)
 │   ├── claude.rs        #   Writes CLAUDE.md, smart --allowedTools by task type
 │   ├── codex.rs         #   Writes AGENTS.md, codex --task-mode
-│   └── gemini.rs        #   Writes GEMINI.md, gemini CLI
+│   └── gemini.rs        #   Writes ANTIGRAVITY.md, launches agy (name kept for the `gemini` agent id)
 ├── mcp/                 # MCP server (stdio transport, 12 tools)
 │   ├── server.rs        #   JSON-RPC 2.0 dispatcher
 │   ├── tools.rs         #   Tool implementations
@@ -59,7 +59,7 @@ src/
 │   ├── mod.rs           #   ForgeBrain trait
 │   ├── rule_based.rs    #   Free tier (heuristics, no LLM)
 │   └── openai.rs        #   GPT-4o/o3/o4-mini via OpenAI API
-└── detect/              # Tool detection (scan PATH for claude, codex, gemini)
+└── detect/              # Tool detection (scan PATH for claude, codex, agy)
 ```
 
 ## MCP Tools (12)
@@ -95,13 +95,13 @@ Each AI tool has an adapter implementing `ToolAdapter`:
 
 | Method | Purpose |
 |--------|---------|
-| `render_config()` | Write context file (CLAUDE.md, AGENTS.md, GEMINI.md) |
+| `render_config()` | Write context file (CLAUDE.md, AGENTS.md, ANTIGRAVITY.md) |
 | `build_command()` | CLI command for headless execution |
 | `build_command_interactive()` | CLI command for PTY/TUI mode |
 | `initial_input()` | Text typed into TUI after startup |
 | `ready_pattern()` | Pattern indicating TUI ready for input |
 
-**Ready patterns:** Claude=`"to cycle"`, Codex=`"help you with"`, Gemini=`"Type your message"`
+**Ready patterns:** Claude=`"to cycle"`, Codex=`"help you with"`, agy=`"? for shortcuts"`
 
 ### Stargate Auto-Approve Contract (MANDATORY)
 
@@ -111,7 +111,7 @@ Every adapter's `build_command_interactive()` MUST pass the tool's auto-approve 
 |------|------------------|--------|
 | Claude | `--dangerously-skip-permissions` | Working (v1.3.0+) |
 | Codex | `codex exec --full-auto --skip-git-repo-check "prompt"` | Fixed (v1.3.2) |
-| Gemini | `--yolo --sandbox=false` | Fixed (v1.3.2) |
+| agy (Antigravity CLI) | `--dangerously-skip-permissions` | v1.6.1+ |
 
 **Rule**: When adding a new adapter, the first thing to verify is its unattended-execution flag. If the CLI tool has no such flag, it cannot be used in Stargate mode.
 

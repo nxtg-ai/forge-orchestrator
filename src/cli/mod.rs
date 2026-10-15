@@ -43,8 +43,8 @@ use clap::{Parser, Subcommand};
     name = "forge",
     version = concat!(env!("CARGO_PKG_VERSION"), " (stage: ", env!("FORGE_STAGE"), ")"),
     about = "NXTG-Forge Orchestrator — Universal orchestration engine for AI-powered development",
-    long_about = "Forge orchestrates Claude Code, Codex CLI, Gemini CLI, and future AI tools \
-                  as a coordinated team with governance, knowledge capture, and conflict prevention."
+    long_about = "Forge orchestrates Claude Code on shared repos, with Codex CLI and Antigravity CLI (agy) \
+                  as task runners: file locking, knowledge capture and a shared task board."
 )]
 pub struct Cli {
     /// The subcommand to execute.

@@ -11,7 +11,8 @@
 //! forbids touching.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+
+mod common;
 
 fn fixture_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pods")
@@ -31,7 +32,7 @@ fn fixtures() -> Vec<PathBuf> {
 /// Run a `forge pod` verb with the store redirected to a scratch dir and tmux pointed at a
 /// nonexistent private socket, so no live surface can be reached even by accident.
 fn run_pod(args: &[&str], scratch: &Path) -> (i32, String, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_forge"))
+    let out = common::forge_std()
         .arg("pod")
         .args(args)
         .env("FORGE_POD_STATE_DIR", scratch)
@@ -200,7 +201,7 @@ fn missing_tmux_degrades_with_a_clear_message() {
     // Lego Snap: tmux absent must produce a named, actionable error — not a panic or a raw
     // subprocess failure. Simulated with an empty PATH so the binary cannot be found.
     let dir = scratch("notmux");
-    let out = Command::new(env!("CARGO_BIN_EXE_forge"))
+    let out = common::forge_std()
         .args(["pod", "list"])
         .env("FORGE_POD_STATE_DIR", &dir)
         .env("PATH", "")

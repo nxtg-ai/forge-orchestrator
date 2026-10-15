@@ -96,7 +96,7 @@ pub fn execute(project_root: &Path) -> anyhow::Result<()> {
             AgentType::Gemini => {
                 let adapter = GeminiAdapter;
                 adapter.render_config(&updated_state, &tasks, project_root)?;
-                println!("    {} GEMINI.md updated", "✓".green());
+                println!("    {} ANTIGRAVITY.md updated", "✓".green());
             }
             AgentType::Any => {}
         }

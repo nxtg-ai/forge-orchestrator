@@ -9,6 +9,8 @@ use std::process::Command;
 /// Headless: `agy --print "<prompt>"`, PTY unattended: `agy --dangerously-skip-permissions`
 /// Ready pattern "? for shortcuts" disappears to "esc to cancel" during generation
 /// and reappears on completion — verified empirically via tmux PTY capture 2026-08-08.
+/// The file and type keep the `gemini` name to match `AgentType::Gemini`, whose id `gemini` is
+/// stored in task files, config keys and MCP arguments; users see "Antigravity CLI (agy)".
 pub struct GeminiAdapter;
 
 impl ToolAdapter for GeminiAdapter {
