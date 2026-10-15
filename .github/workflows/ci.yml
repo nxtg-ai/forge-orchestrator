@@ -56,6 +56,28 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+  # DIRECTIVE-NXTG-20261015-07: the Codex adapter's real argv must parse under the pinned codex-cli
+  # and let a forge MCP call through. codex runs only in a --network none container (BROWSER=/bin/false)
+  # against a local mock model: $0, no credential. The red controls prove the check can fail.
+  codex-argv:
+    name: Codex argv (codex-cli 0.162.1)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked
+      - name: Adapter argv parses and forge MCP calls go through
+        run: bash tests/codex/argv-check.sh
+      - name: Codex argv red controls
+        run: bash tests/codex/red-controls.sh
+
+      - name: Create issue on CI failure
+        uses: jayqi/failed-build-issue-action@v1
+        if: failure() && github.event.pull_request == null
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
