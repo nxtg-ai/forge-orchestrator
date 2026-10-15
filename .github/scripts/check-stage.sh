@@ -68,6 +68,8 @@ none CHANGELOG.md "^Stage: ($OTHERS) "                     "CHANGELOG has no oth
 # MCP Registry metadata (published from server.json on each release).
 d=$(jq -r '.description' server.json)
 if [[ "$d" == *"($LOW)"* ]]; then ok "server.json description"; else bad "server.json description lacks '($LOW)'"; fi
+# The registry schema caps description at 100 characters; publish would reject a longer one.
+if [ "${#d}" -le 100 ]; then ok "server.json description is ${#d} <= 100 characters"; else bad "server.json description is ${#d} characters (registry limit 100)"; fi
 if [[ "$d" =~ \(stage:\ [a-z-]+\) ]]; then bad "server.json description still has a '(stage: …)' marker: ${BASH_REMATCH[0]}"; fi
 
 if [ -n "${1:-}" ]; then

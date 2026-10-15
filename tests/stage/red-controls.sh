@@ -27,6 +27,7 @@ case_ "old sentence kept below the new line"     red   'python3 -c "import os;p=
 case_ "public preview sentence left elsewhere"   red   'printf "\nForge is a public preview: anyone may install and use it.\n" >> README.md'
 case_ "FINAL A off by one byte"                  red   'sed -i "9s/3 of 3/3 of 4/" README.md'
 case_ "STAGE back to pre-alpha"                  red   'sed -i "s/^maturity: alpha/maturity: pre-alpha/" STAGE'
+case_ "registry description over 100 chars"      red   'jq ".description = (\"x\" * 95 + \" (alpha)\")" server.json > s.tmp && mv s.tmp server.json'
 case_ "badge left at public_preview"             red   'sed -i "s|badge/stage-alpha-|badge/stage-public_preview-|" README.md'
 
 [ "$fail" = 0 ] && echo "stage red controls: all pass" || echo "stage red controls: FAILED"
