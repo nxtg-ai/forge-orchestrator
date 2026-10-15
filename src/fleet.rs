@@ -366,7 +366,7 @@ mod tests {
 
     #[test]
     fn a_pane_with_no_gauge_is_na_never_guessed_or_an_error() {
-        let rows = hud_rows(&[("idle".into(), "  bash  /home/axw/projects".into())]);
+        let rows = hud_rows(&[("idle".into(), "  bash  ~/projects".into())]);
         assert_eq!(rows[0].used_pct, None);
         assert_eq!(rows[0].tool, None);
         assert_eq!(rows[0].level, None);

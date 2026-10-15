@@ -9,3 +9,5 @@
 mutants.out/
 mutants.out.old/
 __pycache__/
+# Internal ASIF governance (NEXUS etc.); kept on disk, never published (DIRECTIVE-NXTG-20261015-02)
+.asif/

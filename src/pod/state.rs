@@ -319,9 +319,9 @@ mod tests {
     "Dx3_Program": {
       "status": "running",
       "started_at": "2026-04-19T21:59:48Z",
-      "source_path": "/home/axw/ASIF/infra/tmux/Dx3_Program.yaml",
+      "source_path": "~/ASIF/infra/tmux/Dx3_Program.yaml",
       "windows": [
-        { "name": "claude", "panes": [ { "index": 0, "cwd": "/home/axw/projects/dx3", "command": "ccyolo" } ] }
+        { "name": "claude", "panes": [ { "index": 0, "cwd": "~/projects/dx3", "command": "ccyolo" } ] }
       ]
     }
   }
@@ -395,7 +395,7 @@ mod tests {
     fn writing_outside_temp_panics_under_test() {
         // The fail-closed guard itself. This is the test that proves a forgetful test cannot
         // damage the live fleet store.
-        assert_write_allowed(Path::new("/home/axw/.cosmux/state.json"));
+        assert_write_allowed(&expand_path("~/.cosmux/state.json"));
     }
 
     #[test]

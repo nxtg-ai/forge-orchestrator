@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that text byte for byte on README line 9 and rejects any leftover pre-alpha wording; its red
   controls run in CI (`tests/stage/red-controls.sh`). The MCP Registry description now scopes the
   alpha to the Claude Code MCP server that run 7 tested; Codex and Gemini runners are outside it.
+- The repo no longer tracks internal governance files (`.asif/`, now in `.gitignore`), and no
+  tracked file names a private machine address or a `/home/<user>` path. Tests that used a home
+  path now build it with `expand_path("~/...")`, the same call the code uses; no behaviour change.
 
 ## [1.7.0] - 2026-10-14
 
