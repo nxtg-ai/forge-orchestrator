@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   controls run in CI (`tests/stage/red-controls.sh`). The MCP Registry description now scopes the
   alpha to the Claude Code MCP server that run 7 tested; Codex and Gemini runners are outside it.
 
+### Removed
+- The `email` field of the one CLA signature in `.github/cla-signatures.json`. The CLA action
+  matches signatures by numeric GitHub `id`, which stays, and v2.6.1 writes no email for a new
+  signature, so the workflow is unchanged.
+
 ## [1.7.0] - 2026-10-14
 
 ### Added
