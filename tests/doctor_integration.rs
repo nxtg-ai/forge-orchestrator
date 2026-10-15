@@ -8,6 +8,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod common;
+
 /// Scratch directory that cleans itself up.
 struct Fixture {
     path: PathBuf,
@@ -38,21 +40,16 @@ impl Fixture {
 
     /// Seed a git repo with one commit and an optional tag, so release-debt has real git state.
     fn git_init(&self, tag: Option<&str>) -> &Self {
-        run(&self.path, "git", &["init", "-q"]);
-        run(
+        git(&self.path, &["init", "-q"]);
+        git(&self.path, &["config", "user.email", "t@example.com"]);
+        git(&self.path, &["config", "user.name", "t"]);
+        git(&self.path, &["add", "-A"]);
+        git(
             &self.path,
-            "git",
-            &["config", "user.email", "t@example.com"],
-        );
-        run(&self.path, "git", &["config", "user.name", "t"]);
-        run(&self.path, "git", &["add", "-A"]);
-        run(
-            &self.path,
-            "git",
             &["commit", "-q", "--no-gpg-sign", "-m", "fixture"],
         );
         if let Some(tag) = tag {
-            run(&self.path, "git", &["tag", tag]);
+            git(&self.path, &["tag", tag]);
         }
         self
     }
@@ -62,7 +59,8 @@ impl Fixture {
         // (each fixture is its own crate) and try to build that instead of forge.
         let mut full = vec!["doctor"];
         full.extend_from_slice(args);
-        let output = Command::new(env!("CARGO_BIN_EXE_forge"))
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_forge"));
+        let output = common::clear_git_env(&mut cmd)
             .args(&full)
             .current_dir(&self.path)
             .env("NO_COLOR", "1")
@@ -81,15 +79,15 @@ impl Drop for Fixture {
     }
 }
 
-fn run(cwd: &Path, program: &str, args: &[&str]) {
-    let status = Command::new(program)
+fn git(cwd: &Path, args: &[&str]) {
+    let status = common::git()
         .args(args)
         .current_dir(cwd)
         .output()
-        .unwrap_or_else(|e| panic!("failed to run {program}: {e}"));
+        .unwrap_or_else(|e| panic!("failed to run git: {e}"));
     assert!(
         status.status.success(),
-        "{program} {args:?} failed: {}",
+        "git {args:?} failed: {}",
         String::from_utf8_lossy(&status.stderr)
     );
 }
@@ -411,4 +409,50 @@ fn unreadable_surface_is_reported_not_skipped() {
     assert_eq!(code, 1, "an unreadable surface must FAIL:\n{out}");
     assert!(out.contains("inventory-error"), "{out}");
     assert!(out.contains("package.json"), "{out}");
+}
+
+/// `git <args>` in `cwd` with the inherited git variables cleared; returns stdout.
+fn git_stdout(cwd: &Path, args: &[&str]) -> String {
+    let out = common::git()
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .expect("run git");
+    assert!(out.status.success(), "git {args:?} failed");
+    String::from_utf8_lossy(&out.stdout).to_string()
+}
+
+#[test]
+fn fixtures_leave_an_inherited_git_dir_untouched() {
+    // Run one fixture test as a child process with GIT_DIR pointing at a scratch repo, which is
+    // what a pre-push hook in a linked worktree exports (an absolute GIT_DIR, no GIT_WORK_TREE).
+    // Before the fix, the fixture's git init/config/add/commit landed in that repo: core.bare =
+    // true, a `t` user, and a "fixture" commit on its branch. It must come out as it went in.
+    let outer = Fixture::new("outer-repo");
+    outer.write("README.md", "outer\n").git_init(None);
+    let git_dir = outer.path.join(".git");
+    let snapshot = || {
+        (
+            fs::read(git_dir.join("config")).expect("read config"),
+            fs::read(git_dir.join("index")).expect("read index"),
+            git_stdout(&outer.path, &["rev-list", "--all"]),
+        )
+    };
+    let before = snapshot();
+
+    let child = Command::new(std::env::current_exe().expect("test binary path"))
+        .args(["clean_repo_exits_zero_even_under_strict", "--exact"])
+        .env("GIT_DIR", &git_dir)
+        .output()
+        .expect("re-run a fixture test");
+
+    assert!(
+        snapshot() == before,
+        "a fixture wrote to the repo named by the inherited GIT_DIR"
+    );
+    assert!(
+        child.status.success(),
+        "the fixture test failed under an inherited GIT_DIR:\n{}",
+        String::from_utf8_lossy(&child.stdout)
+    );
 }
