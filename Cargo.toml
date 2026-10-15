@@ -1,6 +1,6 @@
 [package]
 name = "forge-orchestrator"
-version = "1.7.0"
+version = "1.7.1"
 edition = "2024"
 description = "Orchestration for Claude Code on shared repos, with Codex CLI and Antigravity CLI (agy) as task runners — single Rust binary, zero deps."
 license = "FSL-1.1-ALv2"

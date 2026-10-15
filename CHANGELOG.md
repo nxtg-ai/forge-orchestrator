@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-10-15
+
 ### Added
 - `install.sh` adds forge's MCP tools to Claude Code when the `claude` CLI is on PATH, only through
   that CLI: `claude plugin marketplace add nxtg-ai/forge-plugin`, `claude plugin marketplace update
@@ -27,7 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Stage: alpha (STAGE `maturity: alpha`, EMMA-SOUL Dx3 cc950597). `forge --version` and the MCP
-  health tool report `stage: alpha`; the README states the ruled alpha text. check-stage requires
+  health tool report `stage: alpha` (the v1.7.0 release binaries still print `(stage: public
+  preview)`; 1.7.1 is the first release that prints `stage: alpha`); the README states the ruled alpha text. check-stage requires
   that text byte for byte on README line 9 and rejects any leftover pre-alpha wording; its red
   controls run in CI (`tests/stage/red-controls.sh`). The MCP Registry description now scopes the
   alpha to the Claude Code MCP server that run 7 tested; Codex and Gemini runners are outside it.
@@ -579,7 +582,8 @@ Forge 1.0 is the first release where you can type `forge init && forge plan --ge
 - Animated SVG banner for README
 - 51 tests (30 unit + 9 CLI + 12 MCP integration)
 
-[Unreleased]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.7.1...HEAD
+[1.7.1]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.7.0...v1.7.1
 [1.3.0]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.0.0...v1.1.0
