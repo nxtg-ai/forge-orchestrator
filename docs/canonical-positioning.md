@@ -27,7 +27,7 @@ Codex CLI, and Gemini CLI can work the same codebase safely.
 ## Register 3 — Canonical paragraph (80–150 words, forge.nxtg.ai /orchestrator hero block)
 
 Most multi-agent AI development breaks when tools don't know about each other.
-forge-orchestrator is the policy core that makes it work: a single 4.7 MB Rust binary with zero
+forge-orchestrator is the policy core that makes it work: a single Rust binary with zero
 runtime dependencies that coordinates Claude Code, Codex CLI, and Gemini CLI on shared codebases.
 File-level locking prevents concurrent write conflicts. A knowledge flywheel captures decisions and
 patterns across tool sessions so the next agent starts with context, not from scratch. Drift
@@ -35,15 +35,14 @@ detection compares in-progress work against the original spec before divergence 
 12-tool MCP server lets any connected AI client query and update orchestration state via stdio.
 Local-first, no cloud account, no daemon. Runs headless in CI or as a live TUI dashboard.
 
-*(112 words)*
+*(110 words)*
 
 ---
 
 ## Register 4 — Bullet evidence (install + numbers for landing page / Show HN)
 
 - **Install**: `curl -fsSL https://forge.nxtg.ai/install.sh | sh`
-- **Binary**: 4.7 MB — LTO + stripped; musl static build available for glibc <2.39
-- **Tests**: 378 (356 unit + 10 CLI + 12 MCP integration)
+- **Binary**: one file, LTO + stripped; the Linux x86_64 build is static (musl), so it runs on glibc <2.39
 - **MCP tools**: 12 — `forge_get_tasks`, `forge_claim_task`, `forge_complete_task`,
   `forge_get_state`, `forge_get_plan`, `forge_capture_knowledge`, `forge_get_knowledge`,
   `forge_check_drift`, `forge_get_health`, `forge_set_project`, `forge_get_events`,
