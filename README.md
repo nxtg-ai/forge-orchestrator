@@ -99,7 +99,7 @@ forge dashboard --pty
 
 | Feature | What It Does |
 |---------|-------------|
-| File locking | A task names the files it touches; a claim through MCP or `forge run` is refused while another task holds one of them |
+| File locking | A task names the files it touches; a claim through MCP or `forge run --task … --agent …` is refused while another task holds one of them |
 | Knowledge flywheel | Captures decisions, patterns, learnings across tools. Auto-classified and searchable. |
 | Plan generation | `forge plan --generate` decomposes specs into dependency-aware task graphs |
 | Drift detection | Compares completed tasks against SPEC.md. Needs the `openai` brain; the default rule-based brain does not score drift |
@@ -156,7 +156,7 @@ The orchestrator holds Forge's shared state: tasks, file locks, knowledge and th
 
 File locking exists because I've watched teams lose days to conflicting edits.
 
-Each task lists the files it touches. A claim through the `forge_claim_task` MCP tool or `forge run` first checks those files against the locks held in `.forge/state.json`. If any overlap, the claim is refused, and the refusal names the task and agent that hold them; otherwise the files are recorded as locked by that task. `forge start` and the dashboard record locks the same way when they launch a task, but do not check for overlap first. Finishing the task releases its locks.
+Each task lists the files it touches. A claim through the `forge_claim_task` MCP tool or single-task `forge run --task <id> --agent <agent>` first checks those files against the locks held in `.forge/state.json`. If any overlap, the claim is refused, and the refusal names the task and agent that hold them; otherwise the files are recorded as locked by that task. `forge start` and the dashboard record locks the same way when they launch a task, but do not check for overlap first. Autonomous `forge run` (no `--task`) neither checks for overlap nor records locks. Finishing the task releases its locks.
 
 The lock governs claims, not edits: it does not stop a tool from writing a file. Locks have no timeout: if the process that took a lock dies, the lock stays in the state file. The state file is read and rewritten without a cross-process lock, so two claims made at the same moment can both succeed.
 
