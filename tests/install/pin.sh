@@ -5,7 +5,7 @@
 # refuses every download, so nothing is installed and the installer stops at the download step.
 # Usage: sh tests/install/pin.sh [path/to/install.sh]   (default: ./install.sh)
 set -u
-PIN=v1.7.1
+PIN=v1.8.0
 INSTALL_SH=$(cd "$(dirname "${1:-install.sh}")" && pwd)/$(basename "${1:-install.sh}")
 fail=0
 ok()  { echo "  ok   $1"; }

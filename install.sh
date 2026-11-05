@@ -7,7 +7,7 @@ set -e
 REPO="nxtg-ai/forge-orchestrator"
 # The release this installer installs: the pinned, tested one, never the newest one
 # (Forge FREEZE, DIRECTIVE-NXTG-20261015-08; paired with forge-plugin v3.14.0).
-TAG="v1.7.1"
+TAG="v1.8.0"
 BINARY_NAME="forge"
 INSTALL_DIR="${FORGE_INSTALL_DIR:-$HOME/.local/bin}"
 
