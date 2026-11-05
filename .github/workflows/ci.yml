@@ -127,9 +127,12 @@ jobs:
         # crate packages, not that the tree is clean.
         run: python3 .github/scripts/check-cargo-meta.py && cargo package --list --locked --allow-dirty > /dev/null
       - name: Docs gates red controls
+        # Title-independent: CI does not re-run on a PR title edit, so the PR's own CHANGELOG line is
+        # checked only by conventional.yml (which does). Here the committed-CHANGELOG baseline runs
+        # on push; the red cases run everywhere.
         env:
           CHANGELOG_REV: ${{ github.event.pull_request.base.sha || 'HEAD' }}
-          CHANGELOG_WITH: ${{ github.event.pull_request.number && format('{0} (#{1})', github.event.pull_request.title, github.event.pull_request.number) || '' }}
+          CHANGELOG_BASELINE: ${{ github.event_name == 'pull_request' && 'skip' || 'run' }}
         run: bash tests/docs-gates/red-controls.sh target/debug/forge
       # The third CLI is Antigravity CLI (agy); current docs and help must not say Gemini CLI.
       - name: Docs and help name Antigravity CLI (agy)

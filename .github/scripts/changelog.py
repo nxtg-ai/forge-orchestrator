@@ -12,7 +12,9 @@ version), the block for that version (`<!-- changelog:generated vX.Y.Z -->`), an
 Unreleased block must be empty.
 
 On a pull request, pass --rev <base sha> and --with "<PR title> (#<number>)": the squash commit
-that merge will create is the PR title plus its number.
+that merge will create is the PR title plus its number. Breaking changes are marked from a `!`
+after the type or a `BREAKING CHANGE:` footer in the commit body; a PR's footer is not on main
+yet, so the workflow passes --with-breaking when the PR's commits carry one.
 
 Usage: changelog.py (--check | --write) [--rev REV] [--with SUBJECT]... [--changelog CHANGELOG.md]
 """
@@ -42,17 +44,21 @@ def last_tag(rev):
     return git("describe", "--tags", "--abbrev=0", "--match", "v[0-9]*", rev).strip()
 
 
-def render(subjects):
-    """Markdown for a list of commit subjects, newest first. Raises on a non-conventional one."""
+BREAKING_FOOTER = re.compile(r"^BREAKING[ -]CHANGE: ", re.M)
+
+
+def render(commits):
+    """Markdown for (subject, body) pairs, newest first. Raises on a non-conventional subject.
+    A commit is breaking when its type has `!` or its body has a `BREAKING CHANGE:` footer."""
     groups = {t: [] for t, _ in GROUPS}
-    for s in subjects:
+    for s, body in commits:
         m = TYPE.match(s)
         if not m or m.group("type") not in KNOWN:
             raise ValueError(f"not a conventional commit subject: {s!r}")
         if m.group("type") in SKIPPED:
             continue
         scope = f"**{m.group('scope')}:** " if m.group("scope") else ""
-        breaking = "**BREAKING** " if m.group("bang") else ""
+        breaking = "**BREAKING** " if m.group("bang") or BREAKING_FOOTER.search(body) else ""
         groups[m.group("type")].append(f"- {breaking}{scope}{m.group('desc')}")
     parts = [f"### {title}\n" + "\n".join(groups[t]) for t, title in GROUPS if groups[t]]
     return "\n\n".join(parts)
@@ -74,6 +80,8 @@ def main():
     mode.add_argument("--write", action="store_true")
     ap.add_argument("--rev", default="HEAD")
     ap.add_argument("--with", dest="extra", action="append", default=[])
+    ap.add_argument("--with-breaking", action="store_true",
+                    help="the --with commits carry a BREAKING CHANGE footer (their bodies are not on main yet)")
     ap.add_argument("--changelog", default="CHANGELOG.md")
     ap.add_argument("--cargo", default="Cargo.toml")
     a = ap.parse_args()
@@ -82,9 +90,15 @@ def main():
     released = tag_exists(f"v{version}")
     key = "unreleased" if released else f"v{version}"
     base = last_tag(a.rev)
-    subjects = list(reversed(a.extra)) + git("log", "--format=%s", f"{base}..{a.rev}").splitlines()
+    footer = "BREAKING CHANGE: see the PR" if a.with_breaking else ""
+    commits = [(x, footer) for x in reversed(a.extra)]
+    for rec in git("log", "--format=%s%x1f%b%x1e", f"{base}..{a.rev}").split("\x1e"):
+        if rec.strip():
+            subject, _, body = rec.strip("\n").partition("\x1f")
+            commits.append((subject, body))
+    subjects = [c[0] for c in commits]
     try:
-        want = block(key, render(subjects))
+        want = block(key, render(commits))
     except ValueError as e:
         print(f"::error::{e}")
         return 1
