@@ -54,8 +54,17 @@ if [ "${CHANGELOG_BASELINE:-run}" = skip ]; then
 else
   green "CHANGELOG as committed passes" python3 $S/changelog.py --check "${CL[@]}"
 fi
-grep -v '^- \*\*ci:\*\* the stale bot never marks' CHANGELOG.md > "$T/c1.md"
-red "a merged fix commit with no entry" "block differs from the commits since" python3 $S/changelog.py --check "${CL[@]}" --changelog "$T/c1.md"
+# A merged fix commit with no entry, in a throwaway repo with one tagged release. It does not use
+# this repo's CHANGELOG: once a release is tagged, only [Unreleased] is checked, and that can be empty.
+M="$T/missing"; mkdir -p "$M" && (
+  cd "$M" && git init -q && git config user.email t@example.invalid && git config user.name t
+  printf '[package]\nname = "x"\nversion = "0.1.0"\n' > Cargo.toml
+  printf '# Changelog\n\n<!-- changelog:generated unreleased -->\n<!-- changelog:end -->\n' > CHANGELOG.md
+  git add -A && git commit -qm "chore: start" && git tag v0.1.0
+  git commit -q --allow-empty -m "fix: a merged fix (#1)"
+)
+red "a merged fix commit with no entry" "block differs from the commits since" \
+  bash -c 'cd "$1" && python3 "$2/changelog.py" --check' _ "$M" "$PWD/$S"
 red "a PR whose own entry is missing" "block differs from the commits since" python3 $S/changelog.py --check "${CL[@]}" --with "fix(mcp): a new fix (#999)"
 red "a non-conventional commit subject" "not a conventional commit subject" python3 $S/changelog.py --check "${CL[@]}" --with "Update stuff (#999)"
 sed 's/^version = "\([0-9.]*\)"/version = "99.0.0"/' Cargo.toml > "$T/Cargo.toml"
