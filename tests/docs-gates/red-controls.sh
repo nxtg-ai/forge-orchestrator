@@ -40,14 +40,36 @@ red "README names a command forge does not have" "\`forge frobnicate\` is not a 
 sed 's/^forge dashboard --pty          #/forge dashboard --pty --nope   #/' README.md > "$T/r3.md"
 red "README names a flag the command does not have" "\`forge dashboard --nope\` is not listed" python3 $S/readme-cli.py --forge "$FORGE" --readme "$T/r3.md"
 
+CLICOLOR_FORCE=1 green "README check ignores CLICOLOR_FORCE" python3 $S/readme-cli.py --forge "$FORGE"
+sed 's/^forge init$/cd my-project \&\& forge frobnicate/' README.md > "$T/r4.md"
+red "a forge call after &&" "\`forge frobnicate\` is not a forge command" python3 $S/readme-cli.py --forge "$FORGE" --readme "$T/r4.md"
+sed 's/^codex mcp add forge -- forge mcp$/codex mcp add forge -- forge mcp --nope/' README.md > "$T/r5.md"
+red "a forge call after --" "\`forge mcp --nope\` is not listed" python3 $S/readme-cli.py --forge "$FORGE" --readme "$T/r5.md"
+printf '\n```\nforge frobnicate\n```\n' | cat README.md - > "$T/r6.md"
+red "a forge call in a bare fence" "\`forge frobnicate\` is not a forge command" python3 $S/readme-cli.py --forge "$FORGE" --readme "$T/r6.md"
+
 # (b) CHANGELOG == conventional commits since the last tag
-green "CHANGELOG as committed passes" python3 $S/changelog.py --check "${CL[@]}"
+if [ "${CHANGELOG_BASELINE:-run}" = skip ]; then
+  echo "  skip CHANGELOG as committed passes (a PR: conventional.yml checks it with the PR title)"
+else
+  green "CHANGELOG as committed passes" python3 $S/changelog.py --check "${CL[@]}"
+fi
 grep -v '^- \*\*ci:\*\* the stale bot never marks' CHANGELOG.md > "$T/c1.md"
 red "a merged fix commit with no entry" "block differs from the commits since" python3 $S/changelog.py --check "${CL[@]}" --changelog "$T/c1.md"
 red "a PR whose own entry is missing" "block differs from the commits since" python3 $S/changelog.py --check "${CL[@]}" --with "fix(mcp): a new fix (#999)"
 red "a non-conventional commit subject" "not a conventional commit subject" python3 $S/changelog.py --check "${CL[@]}" --with "Update stuff (#999)"
 sed 's/^version = "\([0-9.]*\)"/version = "99.0.0"/' Cargo.toml > "$T/Cargo.toml"
 red "a release PR without its version block" "changelog:generated v99.0.0" python3 $S/changelog.py --check "${CL[@]}" --cargo "$T/Cargo.toml"
+# A BREAKING CHANGE footer marks the entry, in a throwaway repo with one tagged release.
+G="$T/repo"; mkdir -p "$G" && (
+  cd "$G" && git init -q && git config user.email t@example.invalid && git config user.name t
+  printf '[package]\nname = "x"\nversion = "0.1.0"\n' > Cargo.toml
+  printf '# Changelog\n\n<!-- changelog:generated unreleased -->\n<!-- changelog:end -->\n' > CHANGELOG.md
+  git add -A && git commit -qm "chore: start" && git tag v0.1.0
+  git commit -q --allow-empty -m "feat: drop the old flag" -m "BREAKING CHANGE: --old is gone"
+  python3 "$OLDPWD/$S/changelog.py" --write >/dev/null
+) && if grep -qF -- '- **BREAKING** drop the old flag' "$G/CHANGELOG.md"; then echo "  ok   a BREAKING CHANGE footer marks the entry"
+else echo "  FAIL a BREAKING CHANGE footer marks the entry"; fail=1; fi
 green "PR title: conventional" python3 $S/pr-title.py "fix(install): say already installed on a re-run"
 red "PR title: not conventional" "not a conventional commit subject" python3 $S/pr-title.py "Update install script"
 red "PR title: unknown type" "not a conventional commit subject" python3 $S/pr-title.py "feature: new thing"

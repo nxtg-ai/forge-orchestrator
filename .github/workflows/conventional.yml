@@ -29,10 +29,15 @@ jobs:
       - name: CHANGELOG generated block matches the commits since the last tag
         env:
           REV: ${{ github.event.pull_request.base.sha || 'HEAD' }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
           SUBJECT: ${{ github.event.pull_request.number && format('{0} (#{1})', github.event.pull_request.title, github.event.pull_request.number) || '' }}
         run: |
           if [ -n "$SUBJECT" ]; then
-            python3 .github/scripts/changelog.py --check --rev "$REV" --with "$SUBJECT"
+            # The squash body keeps the PR's commit messages, so a BREAKING CHANGE footer in any of
+            # them lands on main; mark this PR's entry breaking now.
+            breaking=()
+            if git log --format=%b "$REV..$PR_HEAD" | grep -qE '^BREAKING[ -]CHANGE: '; then breaking=(--with-breaking); fi
+            python3 .github/scripts/changelog.py --check --rev "$REV" --with "$SUBJECT" "${breaking[@]}"
           else
             python3 .github/scripts/changelog.py --check --rev "$REV"
           fi

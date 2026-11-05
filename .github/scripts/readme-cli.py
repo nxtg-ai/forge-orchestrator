@@ -4,13 +4,17 @@
 Two checks, both against the forge binary given with --forge:
 1. The block between the forge-help markers is the verbatim `forge --help` output (trailing
    whitespace stripped). `--write` regenerates it; without it, any difference fails.
-2. Every `forge <command>` line in a bash/sh/console code block names a real command, and every
-   flag on it is listed by `forge <command> --help` (or by `forge --help` for global flags).
+2. Every forge invocation in a bash/sh/console or bare code block names a real command, and every
+   flag on it is listed by `forge <command> --help` (or by `forge --help` for global flags). An
+   invocation is `forge` at the start of a command: the line start, after `&&`, `||`, `;` or `|`,
+   or after a `--` that hands the rest of the line to another program (`codex mcp add forge --
+   forge mcp`).
 
 Usage: readme-cli.py --forge target/debug/forge [--readme README.md] [--write]
 Exit 1 with one line per mismatch.
 """
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -20,7 +24,11 @@ END = "<!-- forge-help:end -->"
 
 
 def run_help(forge, *args):
-    out = subprocess.run([forge, *args, "--help"], capture_output=True, text=True, check=True).stdout
+    # No colour, whatever the caller's environment says: CLICOLOR_FORCE=1 would put escape codes in.
+    env = {k: v for k, v in os.environ.items() if k not in ("CLICOLOR_FORCE", "CLICOLOR")}
+    env["NO_COLOR"] = "1"
+    out = subprocess.run([forge, *args, "--help"], capture_output=True, text=True, check=True,
+                         env=env).stdout
     return "\n".join(line.rstrip() for line in out.splitlines()).strip("\n")
 
 
@@ -49,14 +57,17 @@ def flags(help_text):
 
 
 def code_lines(readme):
-    """Lines inside ```bash / ```sh / ```console fences."""
-    inside = False
+    """Lines inside ```bash / ```sh / ```console fences and bare ``` fences."""
+    open_fence, scanned = False, False
     for n, line in enumerate(readme.splitlines(), 1):
         fence = re.match(r"^\s*```(\w*)", line)
         if fence:
-            inside = (not inside) and fence.group(1) in ("bash", "sh", "shell", "console")
+            # A fence line opens a block when none is open and closes it otherwise, so a closing
+            # bare ``` is never read as the opening of a new bare block.
+            open_fence = not open_fence
+            scanned = open_fence and fence.group(1) in ("", "bash", "sh", "shell", "console")
             continue
-        if inside:
+        if scanned:
             yield n, line
 
 
@@ -64,21 +75,35 @@ def check_commands(readme, forge, top_help):
     errors, cmds, global_flags, cache = [], commands(top_help), flags(top_help), {}
     for n, line in code_lines(readme):
         text = re.sub(r"^\s*\$\s*", "", line.split("#", 1)[0]).strip()
-        if not text.startswith("forge "):
-            continue
-        words = text.split()
-        cmd = words[1]
-        if cmd.startswith("-"):
-            continue
-        if cmd not in cmds:
-            errors.append(f"README.md:{n}: `forge {cmd}` is not a forge command (forge --help)")
-            continue
-        if cmd not in cache:
-            cache[cmd] = flags(run_help(forge, cmd))
-        for w in words[2:]:
-            flag = w.split("=", 1)[0]
-            if re.fullmatch(r"--?[A-Za-z0-9][A-Za-z0-9-]*", flag) and flag not in cache[cmd] | global_flags:
-                errors.append(f"README.md:{n}: `forge {cmd} {flag}` is not listed by `forge {cmd} --help`")
+        for words in invocations(text):
+            errors += check_invocation(n, words, forge, cmds, global_flags, cache)
+    return errors
+
+
+def invocations(text):
+    """The word lists of each forge invocation on one shell line."""
+    for segment in re.split(r"\s*(?:&&|\|\||;|\|)\s*", text):
+        words = segment.split()
+        for i, w in enumerate(words):
+            if w == "forge" and (i == 0 or words[i - 1] == "--") and len(words) > i + 1:
+                yield words[i:]
+                break
+
+
+def check_invocation(n, words, forge, cmds, global_flags, cache):
+    errors = []
+    cmd = words[1]
+    if cmd.startswith("-"):
+        return errors
+    if cmd not in cmds:
+        errors.append(f"README.md:{n}: `forge {cmd}` is not a forge command (forge --help)")
+        return errors
+    if cmd not in cache:
+        cache[cmd] = flags(run_help(forge, cmd))
+    for w in words[2:]:
+        flag = w.split("=", 1)[0]
+        if re.fullmatch(r"--?[A-Za-z0-9][A-Za-z0-9-]*", flag) and flag not in cache[cmd] | global_flags:
+            errors.append(f"README.md:{n}: `forge {cmd} {flag}` is not listed by `forge {cmd} --help`")
     return errors
 
 
