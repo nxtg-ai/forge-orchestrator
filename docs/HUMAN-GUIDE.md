@@ -42,10 +42,15 @@ This creates a `.forge/` directory with state tracking. Forge auto-detects which
 **What you'll see:**
 
 ```
-✓ Initialized Forge for "your-project"
-  Detected tools: claude, codex, gemini
-  Brain: rule_based (default)
+Detected AI Tools:
+  ✓ claude (<version>)
+  ✓ codex (<version>)
+  ✓ agy (<version>)
+...
+✓ Forge initialized for your-project
 ```
+
+Only the tools on your PATH are listed. In task files and config, `agy` keeps the agent id `gemini`.
 
 ## Step 3: Write Your Spec
 
