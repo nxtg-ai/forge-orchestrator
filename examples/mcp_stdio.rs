@@ -15,11 +15,6 @@ fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
     let forge = args.next().unwrap_or_else(|| "forge".into());
     let project = PathBuf::from(args.next().unwrap_or_else(|| ".".into()));
-    let state = StateManager::new(project.join(".forge"));
-    if !project.join(".forge").exists() {
-        state.save(&ForgeState::default())?;
-    }
-
     let mut server = Command::new(&forge)
         .arg("--project")
         .arg(&project)
@@ -28,6 +23,10 @@ fn main() -> anyhow::Result<()> {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()?;
+    // Only once the server has started: a wrong binary path then leaves no .forge/ behind.
+    if !project.join(".forge").exists() {
+        StateManager::new(project.join(".forge")).save(&ForgeState::default())?;
+    }
     let mut stdin = server.stdin.take().expect("piped stdin");
     let mut stdout = BufReader::new(server.stdout.take().expect("piped stdout"));
     // One JSON-RPC message per line, each way.
