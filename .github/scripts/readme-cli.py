@@ -56,37 +56,79 @@ def flags(help_text):
     return set(re.findall(r"(?<![\w-])(--[a-z0-9][a-z0-9-]*|-[a-zA-Z])\b", help_text))
 
 
+SHELL_LANGS = ("", "bash", "sh", "shell", "console")
+
+
 def code_lines(readme):
-    """Lines inside ```bash / ```sh / ```console fences and bare ``` fences."""
-    open_fence, scanned = False, False
+    """(line number, text, fence language) for lines inside ```bash / ```sh / ```console
+    fences and bare fences, with ``` and ~~~ both fence markers. A line ending in a backslash
+    is joined with the next one, as the shell does."""
+    marker, scanned, held = None, False, None
     for n, line in enumerate(readme.splitlines(), 1):
-        fence = re.match(r"^\s*```(\w*)", line)
+        fence = re.match(r"^\s*(```+|~~~+)\s*(\w*)", line)
         if fence:
-            # A fence line opens a block when none is open and closes it otherwise, so a closing
-            # bare ``` is never read as the opening of a new bare block.
-            open_fence = not open_fence
-            scanned = open_fence and fence.group(1) in ("", "bash", "sh", "shell", "console")
+            if marker is None:
+                marker, lang = fence.group(1), fence.group(2)
+                scanned = lang in SHELL_LANGS
+                held = None
+                continue
+            # Only the opener's marker closes a block: ``` inside a ~~~ block is content.
+            if fence.group(1).startswith(marker[0]) and len(fence.group(1)) >= len(marker) and not fence.group(2):
+                marker, scanned, held = None, False, None
+                continue
+        if not scanned:
             continue
-        if scanned:
-            yield n, line
+        if held is not None:
+            start, text = held
+            text = text + " " + line.strip()
+        else:
+            start, text = n, line
+        if text.rstrip().endswith("\\"):
+            held = (start, text.rstrip()[:-1])
+            continue
+        held = None
+        yield start, text, lang
 
 
 def check_commands(readme, forge, top_help):
     errors, cmds, global_flags, cache = [], commands(top_help), flags(top_help), {}
-    for n, line in code_lines(readme):
+    for n, line, lang in code_lines(readme):
         text = re.sub(r"^\s*\$\s*", "", line.split("#", 1)[0]).strip()
         for words in invocations(text):
-            errors += check_invocation(n, words, forge, cmds, global_flags, cache)
+            found = check_invocation(n, words, forge, cmds, global_flags, cache)
+            if found and lang == "":
+                # A bare fence is read as shell. Prose in one reads as a forge call.
+                found = [e + "; if this fence holds prose, label it ```text" for e in found]
+            errors += found
     return errors
+
+
+ENV_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def is_forge(word):
+    return word == "forge" or word.endswith("/forge")
+
+
+def runs_forge(words, i):
+    """True when words[i] is the program the shell runs: first in the segment, or after only
+    sudo/env and VAR=value assignments, or a bare `forge` after `--` (`codex mcp add forge --
+    forge mcp`). A path after `--` is an argument (`cargo run --example x -- target/debug/forge`)."""
+    if i > 0 and words[i - 1] == "--":
+        return words[i] == "forge"
+    return all(w in ("sudo", "env") or ENV_ASSIGN.match(w) for w in words[:i])
 
 
 def invocations(text):
     """The word lists of each forge invocation on one shell line."""
+    # $( and backticks start a nested command; a closing ) or backtick ends it.
+    text = re.sub(r"\$\(|`", " ; ", text)
     for segment in re.split(r"\s*(?:&&|\|\||;|\|)\s*", text):
-        words = segment.split()
+        words = [w.strip("\"'").rstrip(")").strip("\"'") for w in segment.split()]
+        words = [w for w in words if w]
         for i, w in enumerate(words):
-            if w == "forge" and (i == 0 or words[i - 1] == "--") and len(words) > i + 1:
-                yield words[i:]
+            if is_forge(w) and runs_forge(words, i) and len(words) > i + 1:
+                yield ["forge"] + words[i + 1:]
                 break
 
 
