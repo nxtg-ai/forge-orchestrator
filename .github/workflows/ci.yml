@@ -83,6 +83,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the CHANGELOG check reads the commits since the last tag
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -117,6 +119,18 @@ jobs:
       # The check must also go red: old pre-alpha text, a changed ruled sentence, a stale STAGE.
       - name: Stage check red controls
         run: bash tests/stage/red-controls.sh
+      # Docs from code (EMMA-SOUL Dx3 73d06ff8 item 6): README CLI text, CHANGELOG, Cargo.toml metadata.
+      - name: README CLI matches forge --help
+        run: python3 .github/scripts/readme-cli.py --forge target/debug/forge
+      - name: Cargo.toml metadata
+        # --allow-dirty: earlier steps leave scratch files (red.txt) in the checkout; this proves the
+        # crate packages, not that the tree is clean.
+        run: python3 .github/scripts/check-cargo-meta.py && cargo package --list --locked --allow-dirty > /dev/null
+      - name: Docs gates red controls
+        env:
+          CHANGELOG_REV: ${{ github.event.pull_request.base.sha || 'HEAD' }}
+          CHANGELOG_WITH: ${{ github.event.pull_request.number && format('{0} (#{1})', github.event.pull_request.title, github.event.pull_request.number) || '' }}
+        run: bash tests/docs-gates/red-controls.sh target/debug/forge
       # The third CLI is Antigravity CLI (agy); current docs and help must not say Gemini CLI.
       - name: Docs and help name Antigravity CLI (agy)
         run: bash .github/scripts/check-agy-naming.sh target/debug/forge

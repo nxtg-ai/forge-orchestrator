@@ -5,6 +5,8 @@ edition = "2024"
 description = "Orchestration for Claude Code on shared repos, with Codex CLI and Antigravity CLI (agy) as task runners — single Rust binary, zero deps."
 license = "FSL-1.1-ALv2"
 repository = "https://github.com/nxtg-ai/forge-orchestrator"
+homepage = "https://forge.nxtg.ai"
+readme = "README.md"
 keywords = ["ai", "orchestration", "claude", "codex", "gemini"]
 categories = ["command-line-utilities", "development-tools"]
 # Never package local release tooling (e.g. the mcp-publisher binary) into the crate.
