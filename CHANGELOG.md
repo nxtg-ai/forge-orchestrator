@@ -13,6 +13,7 @@ Generated from the conventional-commit subjects merged since the last release ta
 
 <!-- changelog:generated unreleased -->
 ### Fixed
+- **cargo:** keywords name antigravity, not gemini (#96)
 - **install:** install v1.8.0 by default (#90)
 
 ### Documentation
