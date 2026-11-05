@@ -4,7 +4,7 @@
 
 # forge-orchestrator
 
-[![stage: alpha](https://img.shields.io/badge/stage-alpha-blue)](STAGE) [![MCP Registry](https://img.shields.io/badge/MCP_Registry-active-00b4ab)](https://registry.modelcontextprotocol.io) [![License: FSL-1.1-ALv2](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue.svg)](LICENSE.md) [![Version](https://img.shields.io/badge/version-v1.7.1-blue)](https://github.com/nxtg-ai/forge-orchestrator/releases/tag/v1.7.1) [![CI](https://github.com/nxtg-ai/forge-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/nxtg-ai/forge-orchestrator/actions) [![GitHub stars](https://img.shields.io/github/stars/nxtg-ai/forge-orchestrator)](https://github.com/nxtg-ai/forge-orchestrator) [![crates.io](https://img.shields.io/crates/v/forge-orchestrator)](https://crates.io/crates/forge-orchestrator)
+[![stage: alpha](https://img.shields.io/badge/stage-alpha-blue)](STAGE) [![MCP Registry](https://img.shields.io/badge/MCP_Registry-active-00b4ab)](https://registry.modelcontextprotocol.io) [![License: FSL-1.1-ALv2](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue.svg)](LICENSE.md) [![Version](https://img.shields.io/badge/version-v1.8.0-blue)](https://github.com/nxtg-ai/forge-orchestrator/releases/tag/v1.8.0) [![docs.rs](https://img.shields.io/docsrs/forge-orchestrator/1.8.0)](https://docs.rs/forge-orchestrator/1.8.0/forge_orchestrator/) [![CI](https://github.com/nxtg-ai/forge-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/nxtg-ai/forge-orchestrator/actions) [![GitHub stars](https://img.shields.io/github/stars/nxtg-ai/forge-orchestrator)](https://github.com/nxtg-ai/forge-orchestrator) [![crates.io](https://img.shields.io/crates/v/forge-orchestrator)](https://crates.io/crates/forge-orchestrator)
 
 **Stage: Alpha.** The Forge plugin and orchestrator are in alpha. On 2026-10-15 (UTC) a separate NXTG.AI team (product-oracle) ran the pre-registered core-job test on a clean install of the plugin (v3.14.0) and the orchestrator (forge 1.7.0). The test passed; each repeated check passed 3 of 3 (run 7). The evidence is attached to the forge-plugin v3.14.0 release. No SLA; interfaces may change without notice.
 
@@ -24,7 +24,7 @@ export PATH="$HOME/.local/bin:$PATH"   # this shell only; new shells already hav
 forge init
 ```
 
-The installer installs Forge v1.7.1, the pinned release, not whichever release is newest. It puts `forge` in `~/.local/bin` (change it with `FORGE_INSTALL_DIR`) and adds that directory to your PATH with one guarded line in `~/.profile`, `~/.bashrc` and, if you have zsh, `~/.zshenv`. Set `FORGE_NO_MODIFY_PATH=1` to leave your shell files alone.
+The installer installs Forge v1.8.0, the pinned release, not whichever release is newest. It puts `forge` in `~/.local/bin` (change it with `FORGE_INSTALL_DIR`) and adds that directory to your PATH with one guarded line in `~/.profile`, `~/.bashrc` and, if you have zsh, `~/.zshenv`. Set `FORGE_NO_MODIFY_PATH=1` to leave your shell files alone.
 
 If the `claude` CLI is on your PATH, the installer then adds forge's MCP tools to Claude Code, using only that CLI: it adds and refreshes the `nxtg-forge` marketplace (`nxtg-ai/forge-plugin`), updates `nxtg-forge@nxtg-forge` if you already have it, and installs the companion plugin `nxtg-forge-orchestrator@nxtg-forge`. It prints one line per change and changes no Claude configuration any other way. Without `claude`, or if a step fails, it prints the commands for you to run and still exits 0. Set `FORGE_NO_CLAUDE_PLUGIN=1` to skip it.
 
@@ -166,7 +166,7 @@ Options:
 
 ## Use as a library
 
-From the next release (not yet published; v1.7.1 is binary-only), the crate also builds a library, `forge_orchestrator`, for tools that read or write a project's `.forge/` directory without running `forge`. Its documented surface is `forge_orchestrator::core`: project state and file locks, tasks, the event log, the knowledge base and the plan. The rest of the crate is the binary's internals, hidden from the docs. Like the binary, the library is alpha, and its API may change.
+Since v1.8.0, the crate also builds a library, `forge_orchestrator`, for tools that read or write a project's `.forge/` directory without running `forge`. Its documented surface is `forge_orchestrator::core`: project state and file locks, tasks, the event log, the knowledge base and the plan. The rest of the crate is the binary's internals, hidden from the docs. Like the binary, the library is alpha, and its API may change.
 
 ```toml
 [dependencies]
@@ -183,7 +183,7 @@ for task in tasks.list_tasks()? {
 }
 ```
 
-API docs will be on https://docs.rs/forge-orchestrator once that release is published. Until then: `cargo doc --open` in a checkout.
+API docs: https://docs.rs/forge-orchestrator. To build them locally: `cargo doc --open` in a checkout.
 
 Runnable examples, run in CI against the built binary:
 
