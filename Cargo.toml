@@ -1,6 +1,6 @@
 [package]
 name = "forge-orchestrator"
-version = "1.7.1"
+version = "1.8.0"
 edition = "2024"
 description = "Orchestration for Claude Code on shared repos, with Codex CLI and Antigravity CLI (agy) as task runners — single Rust binary, zero deps."
 license = "FSL-1.1-ALv2"
@@ -10,7 +10,15 @@ readme = "README.md"
 keywords = ["ai", "orchestration", "claude", "codex", "gemini"]
 categories = ["command-line-utilities", "development-tools"]
 # Never package local release tooling (e.g. the mcp-publisher binary) into the crate.
-exclude = ["/mcp-publisher"]
+exclude = [
+    "/mcp-publisher",
+    # Repo working files, not part of the crate (opus-seat note on #89).
+    "/.forge/",
+    "/CLAUDE.md",
+    "/ASSIGNMENT-V11-*.md",
+    "/NEXT-ASSIGNMENT.md",
+    "/DX-BACKLOG.md",
+]
 
 [package.metadata.docs.rs]
 # The library's public API is forge_orchestrator::core; one target is enough to document it.
