@@ -141,12 +141,19 @@ jobs:
               PUBLISHED=$(npm view "$PKG" version 2>/dev/null || echo "")
               ;;
             cargo)
-              PUBLISHED=$(curl -sf "https://crates.io/api/v1/crates/$PKG" 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin).get('crate',{}).get('newest_version',''))" 2>/dev/null || echo "")
+              # crates.io answers 403 to curl's default User-Agent; it asks clients to name themselves.
+              PUBLISHED=$(curl -sf -A "release-protocol-check ($GITHUB_REPOSITORY)" "https://crates.io/api/v1/crates/$PKG" 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin).get('crate',{}).get('newest_version',''))" 2>/dev/null || echo "")
               ;;
             pypi)
               PUBLISHED=$(curl -sf "https://pypi.org/pypi/$PKG/json" 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin).get('info',{}).get('version',''))" 2>/dev/null || echo "")
               ;;
           esac
+
+          # An empty read means the registry could not be read, not that nothing is published:
+          # fail this step (no drift issue is filed) instead of reporting drift.
+          if [ -z "$PUBLISHED" ]; then
+            echo "::error::could not read the published $REG version of $PKG"; exit 1
+          fi
 
           if [ "$PUBLISHED" = "$VERSION" ]; then
             STATUS="ok"
