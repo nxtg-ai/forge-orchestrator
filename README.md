@@ -4,13 +4,13 @@
 
 # forge-orchestrator
 
-[![stage: alpha](https://img.shields.io/badge/stage-alpha-blue)](STAGE) [![MCP Registry](https://img.shields.io/badge/MCP_Registry-active-00b4ab)](https://registry.modelcontextprotocol.io) [![License: FSL-1.1-ALv2](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue.svg)](LICENSE.md) [![Version](https://img.shields.io/badge/version-v1.7.0-blue)](https://github.com/nxtg-ai/forge-orchestrator/releases/tag/v1.7.0) [![CI](https://github.com/nxtg-ai/forge-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/nxtg-ai/forge-orchestrator/actions) [![GitHub stars](https://img.shields.io/github/stars/nxtg-ai/forge-orchestrator)](https://github.com/nxtg-ai/forge-orchestrator) [![crates.io](https://img.shields.io/crates/v/forge-orchestrator)](https://crates.io/crates/forge-orchestrator)
+[![stage: alpha](https://img.shields.io/badge/stage-alpha-blue)](STAGE) [![MCP Registry](https://img.shields.io/badge/MCP_Registry-active-00b4ab)](https://registry.modelcontextprotocol.io) [![License: FSL-1.1-ALv2](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue.svg)](LICENSE.md) [![Version](https://img.shields.io/badge/version-v1.7.1-blue)](https://github.com/nxtg-ai/forge-orchestrator/releases/tag/v1.7.1) [![CI](https://github.com/nxtg-ai/forge-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/nxtg-ai/forge-orchestrator/actions) [![GitHub stars](https://img.shields.io/github/stars/nxtg-ai/forge-orchestrator)](https://github.com/nxtg-ai/forge-orchestrator) [![crates.io](https://img.shields.io/crates/v/forge-orchestrator)](https://crates.io/crates/forge-orchestrator)
 
 **Stage: Alpha.** The Forge plugin and orchestrator are in alpha. On 2026-10-15 (UTC) a separate NXTG.AI team (product-oracle) ran the pre-registered core-job test on a clean install of the plugin (v3.14.0) and the orchestrator (forge 1.7.0). The test passed; each repeated check passed 3 of 3 (run 7). The evidence is attached to the forge-plugin v3.14.0 release. No SLA; interfaces may change without notice.
 
 **Orchestration for Claude Code on shared repos, with Codex CLI and Antigravity CLI (`agy`) as task runners — single Rust binary, zero deps.**
 
-Multi-agent inside a single tool works fine. Claude Code runs 20 subagents and they stay aligned because the tool manages that orchestration internally. The problem is multi-tool: several AI coding tools on the same repo with no shared state. That's what the orchestrator solves: today for Claude Code, with Codex CLI and Antigravity CLI (`agy`) as task runners. The orchestrator launches `agy` as a task runner; what else Forge does on `agy` is being measured (build B1, target 2026-10-27).
+Multi-agent inside a single tool works fine. Claude Code runs 20 subagents and they stay aligned because the tool manages that orchestration internally. The problem is multi-tool: several AI coding tools on the same repo with no shared state. That's what the orchestrator solves: today for Claude Code, with Codex CLI and Antigravity CLI (`agy`) as task runners. The orchestrator launches `agy` as a task runner; Forge makes no other claim about `agy`.
 
 It adds file locking, knowledge capture, task planning, drift detection, and multi-tool orchestration to your development workflow. The tools read from and write to a single state directory. A 12-tool MCP server exposes the full orchestration state to any connected AI client, and can create, claim and complete tasks.
 
@@ -47,7 +47,7 @@ command = "forge"
 args = ["mcp"]
 ```
 
-The server works on the project in the directory it starts in. To pin one project, bind it when you register: `codex mcp add forge --env FORGE_PROJECT_ROOT=/path/to/project -- forge mcp`. Checked with codex-cli 0.162.1: `codex mcp list` shows `forge` enabled over stdio, and the server answers `tools/list` with its 12 tools. A tool call made from inside a Codex session has not been measured yet (build B1).
+The server works on the project in the directory it starts in. To pin one project, bind it when you register: `codex mcp add forge --env FORGE_PROJECT_ROOT=/path/to/project -- forge mcp`. Checked with codex-cli 0.162.1: `codex mcp list` shows `forge` enabled over stdio, and the server answers `tools/list` with its 12 tools. A tool call made through this registration from inside a Codex session has not been measured.
 
 ## Quick Demo
 
@@ -99,7 +99,7 @@ forge dashboard --pty
 
 | Feature | What It Does |
 |---------|-------------|
-| File locking | Exclusive locks prevent tools from editing the same file simultaneously |
+| File locking | A task names the files it touches; a claim through MCP or `forge run` is refused while another task holds one of them |
 | Knowledge flywheel | Captures decisions, patterns, learnings across tools. Auto-classified and searchable. |
 | Plan generation | `forge plan --generate` decomposes specs into dependency-aware task graphs |
 | Drift detection | Compares completed tasks against SPEC.md. Needs the `openai` brain; the default rule-based brain does not score drift |
@@ -118,14 +118,14 @@ forge dashboard                # Live TUI dashboard
 forge dashboard --pty          # TUI with interactive agent panes (Stargate)
 forge run                      # Headless autonomous mode
 forge status                   # Current state summary
-forge verify                   # Run automated acceptance tests
+forge verify                   # Create verify tasks for completed build tasks
 forge uat                      # Interactive UAT test runner
-forge ship                     # Release ceremony: changelog, archive, tag
+forge ship                     # Ship phase: changelog, archive, clean state for the next cycle
 ```
 
 ## Architecture
 
-The orchestrator is the policy core of Forge. All governance rules, file locks, and orchestration logic live here. The plugin (L1: Vibe Coder) and UI (L3: Ship Lord) are adapter surfaces. They present the orchestrator's state through different interfaces but don't make policy decisions.
+The orchestrator holds Forge's shared state: tasks, file locks, knowledge and the event log. The plugin (L1: Vibe Coder) adds Claude Code commands, skills and hooks, and its guard hooks run inside Claude Code. The UI (L3: Ship Lord) is a separate React dashboard.
 
 ```
 ┌──────────────────────────────────────┐
@@ -136,8 +136,8 @@ The orchestrator is the policy core of Forge. All governance rules, file locks, 
 │  Knowledge · Governance · MCP        │
 │  Multi-tool adapters                 │
 │                                      │
-│  Policy enforced here.               │
-│  Nowhere else.                       │
+│  Shared state lives here.            │
+│  Guard hooks live in forge-plugin.   │
 └───────────┬──────────────────┬───────┘
             │                  │
    ┌────────┴────────┐  ┌────┴────────┐
@@ -156,23 +156,19 @@ The orchestrator is the policy core of Forge. All governance rules, file locks, 
 
 File locking exists because I've watched teams lose days to conflicting edits.
 
-When Claude Code starts editing a file, the orchestrator acquires an exclusive lock in `.forge/locks/`. Codex CLI requesting the same file is queued with a notification of who holds the lock. Locks include timeouts (crashed tools don't hold locks forever) and deadlock detection.
+Each task lists the files it touches. A claim through the `forge_claim_task` MCP tool or `forge run` first checks those files against the locks held in `.forge/state.json`. If any overlap, the claim is refused, and the refusal names the task and agent that hold them; otherwise the files are recorded as locked by that task. `forge start` and the dashboard record locks the same way when they launch a task, but do not check for overlap first. Finishing the task releases its locks.
 
-The test suite covers concurrent access, timeout behavior, multi-adapter locking, and edge cases.
+The lock governs claims, not edits: it does not stop a tool from writing a file. Locks have no timeout: if the process that took a lock dies, the lock stays in the state file. The state file is read and rewritten without a cross-process lock, so two claims made at the same moment can both succeed.
 
 ## How the Knowledge Flywheel Works
 
 The knowledge flywheel exists because I've watched decisions evaporate between sprints.
 
-Every decision, pattern, and learning from tool sessions is captured in `.forge/knowledge/`. Entries are auto-classified by category. Search across sessions and across tools. Knowledge captured during a Claude Code session is available to Codex CLI the next day.
+Decisions, patterns, learnings and research captured through `forge_capture_knowledge` are stored in `.forge/knowledge/`, one directory per category, and classified automatically. Any tool connected to the MCP server can search them with `forge_get_knowledge`, in a later session as well as the current one.
 
-After a week, the system knows your conventions better than you remember them. New sessions start with context instead of from scratch.
+## Forge UI
 
-## Upgrade Path
-
-The TUI dashboard shows everything. Forge UI shows it better.
-
-Visual dashboards. Governance HUD. Real-time agent collaboration network. And the Infinity Terminal: sessions that survive browser close, network drops, and server restarts. If you've lost a 3-hour agent session to a disconnected SSH pipe, you know why this matters.
+[forge-ui](https://github.com/nxtg-ai/forge-ui) is a separate React dashboard for Forge, released on its own; its README states its stage. To run it from source:
 
 ```bash
 git clone https://github.com/nxtg-ai/forge-ui && cd forge-ui && npm install && npm run dev
@@ -183,7 +179,7 @@ git clone https://github.com/nxtg-ai/forge-ui && cd forge-ui && npm install && n
 - [Forge Product Page](https://forge.nxtg.ai)
 - [Forge Plugin](https://github.com/nxtg-ai/forge-plugin) (L1: Vibe Coder)
 - [Forge UI](https://github.com/nxtg-ai/forge-ui) (L3: Ship Lord)
-- [Documentation](https://forge.nxtg.ai/forge/docs)
+- [Documentation](https://forge.nxtg.ai/docs)
 - MCP Registry: `mcp-name: io.github.nxtg-ai/forge-orchestrator`
 
 ## License
