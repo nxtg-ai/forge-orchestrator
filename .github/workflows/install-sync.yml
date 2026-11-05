@@ -2,7 +2,11 @@ name: Install script sync
 
 # install.sh in this repo is the single source of truth. https://forge.nxtg.ai/install.sh
 # must serve the same bytes; this fails (and opens an issue) when the two drift.
+# On a pull request that touches install.sh, the two installer jobs run against the release that
+# the PR's TAG pins. The compare job is skipped there, since the site serves main, not the PR.
 on:
+  pull_request:
+    paths: [install.sh, .github/workflows/install-sync.yml]
   schedule:
     - cron: '30 8 * * *'  # 08:30 UTC daily
   push:
@@ -17,6 +21,7 @@ permissions:
 jobs:
   compare:
     name: forge.nxtg.ai serves repo install.sh
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,7 +41,7 @@ jobs:
 
       - name: Create issue on drift
         uses: jayqi/failed-build-issue-action@v1
-        if: failure()
+        if: failure() && github.event_name != 'pull_request'
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -62,7 +67,7 @@ jobs:
 
       - name: Create issue on failure
         uses: jayqi/failed-build-issue-action@v1
-        if: failure()
+        if: failure() && github.event_name != 'pull_request'
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -89,6 +94,6 @@ jobs:
 
       - name: Create issue on failure
         uses: jayqi/failed-build-issue-action@v1
-        if: failure()
+        if: failure() && github.event_name != 'pull_request'
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}

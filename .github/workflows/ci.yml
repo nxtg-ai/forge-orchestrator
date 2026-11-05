@@ -97,7 +97,7 @@ jobs:
           crlf=$(git ls-files -z '*.sh' | xargs -0 grep -l $'\r' || true)
           if [ -n "$crlf" ]; then echo "::error::CR line endings in: $crlf"; exit 1; fi
           sh -n install.sh
-      # Forge FREEZE (DIRECTIVE-NXTG-20261015-08): install.sh installs v1.7.1, never releases/latest.
+      # Forge FREEZE (DIRECTIVE-NXTG-20261015-08): install.sh installs the release its TAG pins, never releases/latest.
       - name: install.sh installs the pinned release
         run: sh tests/install/pin.sh
       # The stale bot never marks an outside author's issue or PR stale.
