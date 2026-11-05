@@ -12,6 +12,14 @@ categories = ["command-line-utilities", "development-tools"]
 # Never package local release tooling (e.g. the mcp-publisher binary) into the crate.
 exclude = ["/mcp-publisher"]
 
+[package.metadata.docs.rs]
+# The library's public API is forge_orchestrator::core; one target is enough to document it.
+targets = ["x86_64-unknown-linux-gnu"]
+
+[lib]
+name = "forge_orchestrator"
+path = "src/lib.rs"
+
 [[bin]]
 name = "forge"
 path = "src/main.rs"

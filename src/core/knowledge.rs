@@ -1,22 +1,34 @@
-use crate::brain::KnowledgeCategory;
+/// The category a knowledge entry is filed under (decisions, learnings, research, patterns).
+pub use crate::brain::KnowledgeCategory;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// One entry in the knowledge base, stored as a file under `.forge/knowledge/<category>/`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KnowledgeEntry {
+    /// `K-<timestamp>-<8 hex>`, unique per entry.
     pub id: String,
+    /// The category directory name (`decisions`, `learnings`, `research` or `patterns`).
     pub category: String,
+    /// Short title.
     pub title: String,
+    /// The entry body.
     pub content: String,
+    /// Where it came from, if recorded.
     pub source: Option<String>,
+    /// The task it was captured during, if any.
     pub task_id: Option<String>,
+    /// The agent that captured it, if any.
     pub agent: Option<String>,
+    /// Free-form tags.
     pub tags: Vec<String>,
+    /// When it was captured (UTC).
     pub created_at: DateTime<Utc>,
 }
 
 impl KnowledgeEntry {
+    /// A new entry with a fresh id and the current time.
     pub fn new(
         title: impl Into<String>,
         content: impl Into<String>,
@@ -41,21 +53,25 @@ impl KnowledgeEntry {
         }
     }
 
+    /// Sets the source.
     pub fn with_source(mut self, source: impl Into<String>) -> Self {
         self.source = Some(source.into());
         self
     }
 
+    /// Sets the task id.
     pub fn with_task(mut self, task_id: impl Into<String>) -> Self {
         self.task_id = Some(task_id.into());
         self
     }
 
+    /// Sets the agent.
     pub fn with_agent(mut self, agent: impl Into<String>) -> Self {
         self.agent = Some(agent.into());
         self
     }
 
+    /// Sets the tags.
     pub fn with_tags(mut self, tags: Vec<String>) -> Self {
         self.tags = tags;
         self
@@ -68,6 +84,7 @@ pub struct KnowledgeManager {
 }
 
 impl KnowledgeManager {
+    /// A manager for the given `.forge/` directory.
     pub fn new(forge_dir: impl Into<PathBuf>) -> Self {
         Self {
             forge_dir: forge_dir.into(),
