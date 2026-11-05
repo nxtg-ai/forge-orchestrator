@@ -125,6 +125,9 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --no-deps --lib --locked
+      # examples/: mcp_stdio creates a task through forge mcp, task_board reads it via the library.
+      - name: Examples run
+        run: bash tests/examples/run.sh target/debug/forge
       - name: README CLI matches forge --help
         run: python3 .github/scripts/readme-cli.py --forge target/debug/forge
       - name: Cargo.toml metadata
