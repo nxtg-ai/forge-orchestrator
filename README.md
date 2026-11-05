@@ -164,6 +164,27 @@ Options:
 ```
 <!-- forge-help:end -->
 
+## Use as a library
+
+From the next release (not yet published; v1.7.1 is binary-only), the crate also builds a library, `forge_orchestrator`, for tools that read or write a project's `.forge/` directory without running `forge`. Its documented surface is `forge_orchestrator::core`: project state and file locks, tasks, the event log, the knowledge base and the plan. The rest of the crate is the binary's internals, hidden from the docs. Like the binary, the library is alpha, and its API may change.
+
+```toml
+[dependencies]
+forge-orchestrator = "1.8"   # the first version with the library
+```
+
+```rust
+use forge_orchestrator::core::task::{Task, TaskManager};
+
+let tasks = TaskManager::new(".forge");
+tasks.create_task(&Task::new("T-001", "Parse the config", "Read forge.toml into Config"))?;
+for task in tasks.list_tasks()? {
+    println!("{} {:?} {}", task.id, task.status, task.title);
+}
+```
+
+API docs will be on https://docs.rs/forge-orchestrator once that release is published. Until then: `cargo doc --open` in a checkout.
+
 ## Architecture
 
 The orchestrator holds Forge's shared state: tasks, file locks, knowledge and the event log. The plugin (L1: Vibe Coder) adds Claude Code commands, skills and hooks, and its guard hooks run inside Claude Code. The UI (L3: Ship Lord) is a separate React dashboard.

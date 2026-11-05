@@ -1,19 +1,5 @@
-#![allow(dead_code)] // Phase 1: many trait methods designed for future phases
-
-mod adapters;
-mod brain;
-mod cli;
-mod core;
-mod detect;
-mod fleet;
-mod mcp;
-// `pod` speaks tmux + flock(2) directly (Unix-only). Windows gets no pod surface — the `forge pod`
-// dispatch is stubbed there (see main.rs). Gating the whole module keeps the Windows target building
-// (v1.5.2 shipped it); the Unix codepaths are byte-identical, so the §1.5 rollback contract is
-// unchanged (DIRECTIVE-NXTG-20260719-20 follow-up: pod is Unix-only by nature).
-#[cfg(unix)]
-mod pod;
-pub(crate) mod tui;
+// The binary is a thin shell over the library (src/lib.rs), which holds every module.
+use forge_orchestrator::{cli, fleet};
 
 use clap::Parser;
 use cli::{Cli, Commands};
@@ -161,14 +147,14 @@ async fn main() -> anyhow::Result<()> {
                     ),
                     PodVerb::Adopt { repair, abort } => {
                         if repair {
-                            crate::pod::adopt::repair()
+                            forge_orchestrator::pod::adopt::repair()
                         } else if abort {
-                            crate::pod::adopt::abort()
+                            forge_orchestrator::pod::adopt::abort()
                         } else {
-                            crate::pod::adopt::adopt()
+                            forge_orchestrator::pod::adopt::adopt()
                         }
                     }
-                    PodVerb::Unadopt => crate::pod::adopt::unadopt(),
+                    PodVerb::Unadopt => forge_orchestrator::pod::adopt::unadopt(),
                     PodVerb::PaneRecover { session } => cli::pod::pane_recover(&session),
                     PodVerb::AfterDetach { session } => cli::pod::after_detach(&session),
                 };
@@ -217,7 +203,7 @@ async fn main() -> anyhow::Result<()> {
             let pty_from_config = {
                 let forge_dir = project_root.join(".forge");
                 if forge_dir.exists() {
-                    let state_mgr = crate::core::state::StateManager::new(&forge_dir);
+                    let state_mgr = forge_orchestrator::core::state::StateManager::new(&forge_dir);
                     state_mgr
                         .load()
                         .map(|s| s.dashboard_mode == "pty")
@@ -230,7 +216,7 @@ async fn main() -> anyhow::Result<()> {
             if !accept_subscription_risk && !is_pty {
                 let forge_dir = project_root.join(".forge");
                 if forge_dir.exists() {
-                    let state_mgr = crate::core::state::StateManager::new(&forge_dir);
+                    let state_mgr = forge_orchestrator::core::state::StateManager::new(&forge_dir);
                     if let Ok(state) = state_mgr.load() {
                         let has_claude_sub = state
                             .agent_auth

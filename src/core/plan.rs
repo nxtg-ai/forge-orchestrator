@@ -6,6 +6,7 @@ pub struct PlanManager {
 }
 
 impl PlanManager {
+    /// A manager for the given `.forge/` directory.
     pub fn new(forge_dir: impl Into<PathBuf>) -> Self {
         Self {
             forge_dir: forge_dir.into(),

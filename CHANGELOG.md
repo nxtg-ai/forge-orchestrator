@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Generated from the conventional-commit subjects merged since the last release tag (`.github/scripts/changelog.py`); CI fails if this block drifts from them.
 
 <!-- changelog:generated unreleased -->
+### Added
+- forge_orchestrator library crate with a documented .forge/ state API (#85)
+
 ### Fixed
 - **ci:** the stale bot never marks an outside author's issue or PR stale (#83)
 - **ci:** drift check names itself to crates.io; an empty registry read fails the step (#75)

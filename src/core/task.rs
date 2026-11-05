@@ -734,6 +734,7 @@ impl TaskManager {
         Ok(generated)
     }
 
+    /// The first pending task whose dependencies are all completed (UAT-phase tasks excluded).
     pub fn get_next_available(&self) -> anyhow::Result<Option<Task>> {
         let completed = self.get_completed_task_ids()?;
         Ok(self.list_tasks()?.into_iter().find(|t| {

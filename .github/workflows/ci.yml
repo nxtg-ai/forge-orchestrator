@@ -120,6 +120,11 @@ jobs:
       - name: Stage check red controls
         run: bash tests/stage/red-controls.sh
       # Docs from code (EMMA-SOUL Dx3 73d06ff8 item 6): README CLI text, CHANGELOG, Cargo.toml metadata.
+      # The library's public API (forge_orchestrator::core) must document cleanly; docs.rs builds the same.
+      - name: Library docs build without warnings
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --no-deps --lib --locked
       - name: README CLI matches forge --help
         run: python3 .github/scripts/readme-cli.py --forge target/debug/forge
       - name: Cargo.toml metadata
