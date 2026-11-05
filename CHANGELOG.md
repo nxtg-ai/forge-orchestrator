@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The stale bot no longer marks an outside author's issue or PR stale: they are labelled `community`,
+  which it exempts (`.github/scripts/community-label.py`, tested by `tests/stale/community.sh`).
+
 ### Security
 - Cargo.lock: rustls-webpki 0.103.15 -> 0.103.16 (RUSTSEC-2026-0382) and webpki-roots 1.0.6 -> 1.0.11
   (RUSTSEC-2026-0381). `cargo audit` passes again (#81).
