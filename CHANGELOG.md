@@ -9,19 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- The stale bot no longer marks an outside author's issue or PR stale: they are labelled `community`,
-  which it exempts (`.github/scripts/community-label.py`, tested by `tests/stale/community.sh`).
+Generated from the conventional-commit subjects merged since the last release tag (`.github/scripts/changelog.py`); CI fails if this block drifts from them.
 
-### Security
-- Cargo.lock: rustls-webpki 0.103.15 -> 0.103.16 (RUSTSEC-2026-0382) and webpki-roots 1.0.6 -> 1.0.11
-  (RUSTSEC-2026-0381). `cargo audit` passes again (#81).
+<!-- changelog:generated unreleased -->
+### Fixed
+- **ci:** the stale bot never marks an outside author's issue or PR stale (#83)
+- **ci:** drift check names itself to crates.io; an empty registry read fails the step (#75)
+- **deps:** rustls-webpki 0.103.16 and webpki-roots 1.0.11 (RUSTSEC-2026-0381, -0382) (#82)
+- **install:** install v1.7.1 by default, not releases/latest (FREEZE, DIRECTIVE-NXTG-20261015-08) (#72)
 
 ### Documentation
-- README and HUMAN-GUIDE describe v1.7.1 as it ships: file locking (claims, not edits; no timeout;
-  `forge start` and the dashboard do not check overlap), `forge verify` and `forge ship`, the
-  knowledge base, where guard hooks live, and the `forge init` output. Removed claims the code does
-  not back.
+- README and HUMAN-GUIDE true to v1.7.1 (DIRECTIVE-NXTG-20261105-01) (#76)
+<!-- changelog:end -->
 
 ## [1.7.1] - 2026-10-15
 

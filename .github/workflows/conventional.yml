@@ -1,0 +1,38 @@
+name: PR title and CHANGELOG
+
+# Squash merges make the PR title the commit on main, and CHANGELOG.md's generated block is built
+# from those subjects (.github/scripts/changelog.py). This runs on title edits too, since the title
+# is part of the expected CHANGELOG.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  conventional:
+    name: Conventional title and generated CHANGELOG
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: PR title is a conventional commit subject
+        if: github.event_name == 'pull_request'
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: python3 .github/scripts/pr-title.py "$TITLE"
+      - name: CHANGELOG generated block matches the commits since the last tag
+        env:
+          REV: ${{ github.event.pull_request.base.sha || 'HEAD' }}
+          SUBJECT: ${{ github.event.pull_request.number && format('{0} (#{1})', github.event.pull_request.title, github.event.pull_request.number) || '' }}
+        run: |
+          if [ -n "$SUBJECT" ]; then
+            python3 .github/scripts/changelog.py --check --rev "$REV" --with "$SUBJECT"
+          else
+            python3 .github/scripts/changelog.py --check --rev "$REV"
+          fi
