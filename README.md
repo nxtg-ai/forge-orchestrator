@@ -185,6 +185,17 @@ for task in tasks.list_tasks()? {
 
 API docs will be on https://docs.rs/forge-orchestrator once that release is published. Until then: `cargo doc --open` in a checkout.
 
+Runnable examples, run in CI against the built binary:
+
+- [`examples/task_board.rs`](examples/task_board.rs): print a project's task board from `.forge/`.
+- [`examples/capture_knowledge.rs`](examples/capture_knowledge.rs): capture a decision and list that category.
+- [`examples/mcp_stdio.rs`](examples/mcp_stdio.rs): talk to `forge mcp` as an MCP client: initialize, list the 12 tools, create a task.
+
+```bash
+cargo build && cargo run --example mcp_stdio -- target/debug/forge /tmp/demo
+cargo run --example task_board -- /tmp/demo
+```
+
 ## Architecture
 
 The orchestrator holds Forge's shared state: tasks, file locks, knowledge and the event log. The plugin (L1: Vibe Coder) adds Claude Code commands, skills and hooks, and its guard hooks run inside Claude Code. The UI (L3: Ship Lord) is a separate React dashboard.

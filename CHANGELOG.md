@@ -13,6 +13,7 @@ Generated from the conventional-commit subjects merged since the last release ta
 
 <!-- changelog:generated unreleased -->
 ### Added
+- runnable examples: task board, knowledge capture, MCP stdio client (#88)
 - forge_orchestrator library crate with a documented .forge/ state API (#85)
 
 ### Fixed
