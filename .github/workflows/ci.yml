@@ -98,6 +98,9 @@ jobs:
       # Forge FREEZE (DIRECTIVE-NXTG-20261015-08): install.sh installs v1.7.1, never releases/latest.
       - name: install.sh installs the pinned release
         run: sh tests/install/pin.sh
+      # The stale bot never marks an outside author's issue or PR stale.
+      - name: Stale bot exempts outside authors
+        run: bash tests/stale/community.sh
       # Red control: the installer before the pin (de67cdb) followed releases/latest and must fail.
       - name: Pin check red control
         run: |

@@ -1,0 +1,8 @@
+{"number": 101, "author_association": "NONE", "user_type": "User", "labels": []}
+{"number": 102, "author_association": "CONTRIBUTOR", "user_type": "User", "labels": ["bug"]}
+{"number": 103, "author_association": "FIRST_TIME_CONTRIBUTOR", "user_type": "User", "labels": []}
+{"number": 104, "author_association": "OWNER", "user_type": "User", "labels": []}
+{"number": 105, "author_association": "MEMBER", "user_type": "User", "labels": []}
+{"number": 106, "author_association": "COLLABORATOR", "user_type": "User", "labels": []}
+{"number": 107, "author_association": "NONE", "user_type": "Bot", "labels": ["release-drift"]}
+{"number": 108, "author_association": "NONE", "user_type": "User", "labels": ["community"]}
