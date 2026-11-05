@@ -7,10 +7,10 @@ set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 FORGE=${1:?usage: red-controls.sh <path/to/forge>}
 S=.github/scripts
-# On a PR, CI passes the base sha and the squash subject the merge will create, so the changelog
-# cases see main's commits plus this PR, not the PR branch's own commit messages.
+# On a PR, CI passes the base sha, so the changelog cases see main's commits, not the PR branch's
+# own commit messages. The PR's own CHANGELOG line is conventional.yml's job: it re-runs on title
+# edits, which CI does not.
 CL=(--rev "${CHANGELOG_REV:-HEAD}")
-[ -n "${CHANGELOG_WITH:-}" ] && CL+=(--with "$CHANGELOG_WITH")
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 fail=0
 # red <name> <expected text> <command...>: the command must exit 1 and print the expected text.
@@ -47,6 +47,22 @@ sed 's/^codex mcp add forge -- forge mcp$/codex mcp add forge -- forge mcp --nop
 red "a forge call after --" "\`forge mcp --nope\` is not listed" python3 $S/readme-cli.py --forge "$FORGE" --readme "$T/r5.md"
 printf '\n```\nforge frobnicate\n```\n' | cat README.md - > "$T/r6.md"
 red "a forge call in a bare fence" "\`forge frobnicate\` is not a forge command" python3 $S/readme-cli.py --forge "$FORGE" --readme "$T/r6.md"
+# #87 item 4: forge calls the check missed before.
+i=7
+for call in 'sudo forge frobnicate' 'FORGE_HOME=/tmp forge frobnicate' 'echo "$(forge frobnicate)"' \
+            './target/release/forge frobnicate' 'forge \' ; do
+  if [ "$call" = 'forge \' ]; then body=$(printf '\n```bash\nforge \\\n  frobnicate\n```\n')
+  else body=$(printf '\n```bash\n%s\n```\n' "$call"); fi
+  printf '%s\n' "$body" | cat README.md - > "$T/r$i.md"
+  name=$call; [ "$call" = 'forge \' ] && name='a \ line continuation'
+  red "a forge call: $name" "\`forge frobnicate\` is not a forge command" python3 $S/readme-cli.py --forge "$FORGE" --readme "$T/r$i.md"
+  i=$((i + 1))
+done
+printf '\n~~~bash\nforge frobnicate\n~~~\n' | cat README.md - > "$T/r$i.md"
+red "a forge call in a ~~~ fence" "\`forge frobnicate\` is not a forge command" python3 $S/readme-cli.py --forge "$FORGE" --readme "$T/r$i.md"
+# #87 item 2: prose in a bare fence names the fix.
+printf '\n```\nforge is a tool\n```\n' | cat README.md - > "$T/r_prose.md"
+red "prose in a bare fence says to label it text" "label it \`\`\`text" python3 $S/readme-cli.py --forge "$FORGE" --readme "$T/r_prose.md"
 
 # (b) CHANGELOG == conventional commits since the last tag
 if [ "${CHANGELOG_BASELINE:-run}" = skip ]; then
@@ -79,6 +95,18 @@ G="$T/repo"; mkdir -p "$G" && (
   python3 "$OLDPWD/$S/changelog.py" --write >/dev/null
 ) && if grep -qF -- '- **BREAKING** drop the old flag' "$G/CHANGELOG.md"; then echo "  ok   a BREAKING CHANGE footer marks the entry"
 else echo "  FAIL a BREAKING CHANGE footer marks the entry"; fail=1; fi
+# #87 item 3: BREAKING CHANGE counts only in the trailing footer block, not in body prose.
+P="$T/prose"; mkdir -p "$P" && (
+  cd "$P" && git init -q && git config user.email t@example.invalid && git config user.name t
+  printf '[package]\nname = "x"\nversion = "0.1.0"\n' > Cargo.toml
+  printf '# Changelog\n\n<!-- changelog:generated unreleased -->\n<!-- changelog:end -->\n' > CHANGELOG.md
+  git add -A && git commit -qm "chore: start" && git tag v0.1.0
+  git commit -q --allow-empty -m "fix: explain the old flag" \
+    -m "BREAKING CHANGE: was considered here and rejected." -m "Signed-off-by: t <t@example.invalid>"
+  python3 "$OLDPWD/$S/changelog.py" --write >/dev/null
+) && if grep -qF -- '- explain the old flag' "$P/CHANGELOG.md" && ! grep -qF 'BREAKING' "$P/CHANGELOG.md"; then
+  echo "  ok   BREAKING CHANGE in body prose is not a footer"
+else echo "  FAIL BREAKING CHANGE in body prose is not a footer"; fail=1; fi
 green "PR title: conventional" python3 $S/pr-title.py "fix(install): say already installed on a re-run"
 red "PR title: not conventional" "not a conventional commit subject" python3 $S/pr-title.py "Update install script"
 red "PR title: unknown type" "not a conventional commit subject" python3 $S/pr-title.py "feature: new thing"

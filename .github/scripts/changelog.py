@@ -47,9 +47,16 @@ def last_tag(rev):
 BREAKING_FOOTER = re.compile(r"^BREAKING[ -]CHANGE: ", re.M)
 
 
+def footer_block(body):
+    """The trailing paragraph of a commit body: where git trailers and footers live."""
+    paras = [p for p in re.split(r"\n\s*\n", body.strip()) if p.strip()]
+    return paras[-1] if paras else ""
+
+
 def render(commits):
     """Markdown for (subject, body) pairs, newest first. Raises on a non-conventional subject.
-    A commit is breaking when its type has `!` or its body has a `BREAKING CHANGE:` footer."""
+    A commit is breaking when its type has `!` or its trailing footer block has a
+    `BREAKING CHANGE:` line; the same words earlier in the body are prose, not a footer."""
     groups = {t: [] for t, _ in GROUPS}
     for s, body in commits:
         m = TYPE.match(s)
@@ -58,7 +65,7 @@ def render(commits):
         if m.group("type") in SKIPPED:
             continue
         scope = f"**{m.group('scope')}:** " if m.group("scope") else ""
-        breaking = "**BREAKING** " if m.group("bang") or BREAKING_FOOTER.search(body) else ""
+        breaking = "**BREAKING** " if m.group("bang") or BREAKING_FOOTER.search(footer_block(body)) else ""
         groups[m.group("type")].append(f"- {breaking}{scope}{m.group('desc')}")
     parts = [f"### {title}\n" + "\n".join(groups[t]) for t, title in GROUPS if groups[t]]
     return "\n\n".join(parts)
