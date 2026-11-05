@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Generated from the conventional-commit subjects merged since the last release tag (`.github/scripts/changelog.py`); CI fails if this block drifts from them.
 
 <!-- changelog:generated unreleased -->
+### Fixed
+- **install:** install v1.8.0 by default (#90)
 <!-- changelog:end -->
 
 ## [1.8.0] - 2026-11-05
