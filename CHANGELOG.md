@@ -17,6 +17,7 @@ Generated from the conventional-commit subjects merged since the last release ta
 - **install:** install v1.8.0 by default (#90)
 
 ### Documentation
+- release step 3 publishes through release.yml, not a manual cargo publish (#98)
 - README and HUMAN-GUIDE name v1.8.0, with the docs.rs link and badge (#95)
 <!-- changelog:end -->
 
