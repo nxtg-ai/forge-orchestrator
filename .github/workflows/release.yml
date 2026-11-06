@@ -199,6 +199,36 @@ jobs:
     with:
       tag: ${{ github.ref_name }}
 
+  # crates.io through trusted publishing (OIDC): crates.io trusts this workflow in this repo and
+  # issues a token that lives for this one job. No crates.io token is stored in GitHub or on a
+  # machine. It runs once per release tag, after the release job has uploaded every asset.
+  # Pre-release tags are skipped, as for the MCP Registry.
+  crates-io:
+    name: crates.io
+    needs: release
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      # Pinned to full commit SHAs: this job holds publish authority (id-token: write).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (v4.4.0)
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-10-16
+        with:
+          toolchain: stable
+      - name: The tag matches the Cargo.toml version
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME but Cargo.toml says $version"; exit 1
+          fi
+      - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+        id: auth
+      - run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
   ci:
     name: CI
     runs-on: ubuntu-latest
