@@ -184,7 +184,7 @@ When you bump the version in `Cargo.toml`:
 0. **Cargo.lock**: run `cargo build` and commit the refreshed `Cargo.lock` in the same commit as the bump. CI builds with `--locked` on every OS, so a stale lock fails CI (v1.6.1 shipped with a 1.6.0 lock and stayed red on main).
 1. **Tag**: `git tag vX.Y.Z && git push origin vX.Y.Z` (tag the merged squash SHA on `main`)
 2. **GH Release**: do NOT run `gh release create`. Pushing the tag runs `release.yml`, which builds every target, creates the release with all assets, then calls `mcp-publish.yml` to publish to the MCP Registry. A manual `gh release create` published v1.6.1 before its assets existed (the asset race).
-3. **Publish**: `cargo publish --locked` from a clean worktree of the tag (`git worktree add /tmp/forge-vX.Y.Z vX.Y.Z`), never from a working tree with untracked files
+3. **Publish**: do NOT run `cargo publish`. Since #94, the tag push also runs `release.yml`'s `crates-io` job, which publishes over crates.io trusted publishing (OIDC, no stored token) after the release job. A manual publish first would make that job fail with "already exists". Read back with `curl -A <ua> https://crates.io/api/v1/crates/forge-orchestrator` (max_version)
 4. **CHANGELOG**: roll `[Unreleased]` → `[vX.Y.Z] — YYYY-MM-DD` in CHANGELOG.md
 5. **Docs**: update any pinned version references in README.md / docs
 
