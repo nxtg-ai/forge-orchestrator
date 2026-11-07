@@ -168,18 +168,30 @@ elif ! command -v claude >/dev/null 2>&1; then
   claude_manual
 else
   echo "Adding forge's MCP tools to Claude Code:"
+  # Gather current state so we can report "already" when nothing changes.
+  has_companion=""
+  has_main=""
+
   if claude_step "marketplace $MKT added ($MKT_SOURCE; no change if already there)" plugin marketplace add "$MKT_SOURCE" &&
     claude_step "marketplace $MKT refreshed" plugin marketplace update "$MKT" &&
     { installed=$(claude plugin list --json </dev/null 2>/dev/null) ||
       { echo "  - FAILED: listing installed Claude Code plugins"; false; }; } &&
     {
+      { printf '%s' "$installed" | grep -q "\"id\": *\"$COMPANION\"" && has_companion=1; } || true
+      { printf '%s' "$installed" | grep -q "\"id\": *\"$MAIN_PLUGIN\"" && has_main=1; } || true
       # An older nxtg-forge still registers its own orchestrator-mcp; update it so the companion's
       # copy is the only one.
-      if printf '%s' "$installed" | grep -q "\"id\": *\"$MAIN_PLUGIN\""; then
+      if [ -n "$has_main" ]; then
         claude_step "plugin $MAIN_PLUGIN updated" plugin update "$MAIN_PLUGIN"
       fi
     } &&
-    claude_step "plugin $COMPANION installed" plugin install "$COMPANION"; then
+    {
+      if [ -n "$has_companion" ]; then
+        echo "  - plugin $COMPANION already installed"
+      else
+        claude_step "plugin $COMPANION installed" plugin install "$COMPANION"
+      fi
+    }; then
     echo "Claude Code: forge's MCP tools load in new sessions (restart any open session)."
   else
     echo "Forge itself is installed. To finish adding its MCP tools to Claude Code, run:"

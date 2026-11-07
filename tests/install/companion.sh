@@ -31,6 +31,8 @@ case "$*" in
     [ "${STUB_FAIL:-}" = list ] && exit 1
     if [ "${STUB_STATE:-fresh}" = old313 ]; then
       printf '[\n  {\n    "id": "nxtg-forge@nxtg-forge",\n    "version": "3.13.1"\n  }\n]\n'
+    elif [ "${STUB_STATE:-fresh}" = full ]; then
+      printf '[\n  {\n    "id": "nxtg-forge@nxtg-forge",\n    "version": "3.14.0"\n  },\n  {\n    "id": "nxtg-forge-orchestrator@nxtg-forge",\n    "version": "1.8.0"\n  }\n]\n'
     else echo "[]"; fi
     exit 0 ;;
   "plugin update "*) [ "${STUB_FAIL:-}" = pupdate ] && exit 1; exit 0 ;;
@@ -82,6 +84,7 @@ changes_listed() {  # one line per change: each successful step has its own line
 
 FULL_FRESH=$(printf '%s\n%s\n%s\n%s' "$ADD" "$UPD" "$LST" "$INS")
 FULL_OLD=$(printf '%s\n%s\n%s\n%s\n%s' "$ADD" "$UPD" "$LST" "$PUPD" "$INS")
+FULL_ALREADY=$(printf '%s\n%s\n%s\n%s' "$ADD" "$UPD" "$LST" "$PUPD")
 
 run "fresh machine" yes STUB_STATE=fresh
 expect_rc0; expect_calls "$FULL_FRESH"; changes_listed 3; no_claude_config
@@ -102,6 +105,13 @@ run "re-run on the same machine" yes STUB_STATE=old313
 out=$(env -i HOME="$home" PATH="$STUB:/usr/bin:/bin" FORGE_NO_MODIFY_PATH=1 STUB_STATE=old313 sh "$INSTALL_SH" 2>&1); rc=$?
 expect_rc0
 [ "$(calls | sort -u | wc -l)" = 5 ] && ok "second run repeats the same 5 commands, nothing new" || bad "calls: $(calls | sort -u | tr '\n' '|')"
+
+run "companion already installed" yes STUB_STATE=full
+expect_rc0; expect_calls "$FULL_ALREADY"; changes_listed 4
+printf '%s\n' "$out" | grep -q "already installed" && ok "says already installed" || bad "no already-installed message"
+# plugin install must NOT be called when the companion is already present
+calls | grep -q "plugin install" && bad "plugin install called when already present" || ok "skipped plugin install"
+printf '%s\n' "$out" | grep -q "MCP tools load in new sessions" && ok "reports success" || bad "no success line"
 
 for step in add update list pupdate install; do
   run "failure at $step" yes STUB_STATE=old313 STUB_FAIL=$step
