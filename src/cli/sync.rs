@@ -70,11 +70,33 @@ pub fn execute(project_root: &Path) -> anyhow::Result<()> {
         summary.blocked
     );
 
-    // Step 2: Re-detect tools (picks up newly installed CLIs)
+    // Step 2: Release orphaned locks (task Completed or Failed)
+    let state = state_mgr.load()?;
+    let terminal_ids: Vec<String> = tasks
+        .iter()
+        .filter(|t| t.status == TaskStatus::Completed || t.status == TaskStatus::Failed)
+        .map(|t| t.id.clone())
+        .collect();
+    let stale: Vec<String> = state
+        .active_locks
+        .keys()
+        .filter(|id| terminal_ids.contains(id))
+        .cloned()
+        .collect();
+    if stale.is_empty() {
+        println!("  {} No stale locks.", "✓".green());
+    } else {
+        for id in &stale {
+            state_mgr.unlock_files(id)?;
+            println!("  {} Released orphaned lock for {}", "✓".green(), id);
+        }
+    }
+
+    // Step 3: Re-detect tools (picks up newly installed CLIs)
     let fresh_tools = crate::detect::detect_tools();
     state_mgr.update_tools(&fresh_tools)?;
 
-    // Step 3: Render adapter configs for each detected tool
+    // Step 4: Render adapter configs for each detected tool
     println!("  {} Rendering adapter configs...", "→".cyan());
     let updated_state = state_mgr.load()?;
 
@@ -102,7 +124,7 @@ pub fn execute(project_root: &Path) -> anyhow::Result<()> {
         }
     }
 
-    // Step 4: Log reconciliation event
+    // Step 5: Log reconciliation event
     event_logger.log(&ForgeEvent::new(
         EventType::StateReconciled,
         format!(
