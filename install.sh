@@ -187,7 +187,7 @@ else
     } &&
     {
       if [ -n "$has_companion" ]; then
-        echo "  - plugin $COMPANION already installed"
+        claude_step "plugin $COMPANION updated" plugin update "$COMPANION"
       else
         claude_step "plugin $COMPANION installed" plugin install "$COMPANION"
       fi

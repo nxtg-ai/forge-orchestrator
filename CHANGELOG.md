@@ -13,6 +13,7 @@ Generated from the conventional-commit subjects merged since the last release ta
 
 <!-- changelog:generated unreleased -->
 ### Fixed
+- update companion plugin on re-run instead of skipping it (#106)
 - **sync:** release orphaned locks for completed and failed tasks (#100)
 - **install:** report existing state when install.sh re-runs (#101)
 - **cargo:** keywords name antigravity, not gemini (#96)
