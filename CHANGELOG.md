@@ -13,10 +13,13 @@ Generated from the conventional-commit subjects merged since the last release ta
 
 <!-- changelog:generated unreleased -->
 ### Fixed
+- **sync:** release orphaned locks for completed and failed tasks (#100)
+- **install:** report existing state when install.sh re-runs (#101)
 - **cargo:** keywords name antigravity, not gemini (#96)
 - **install:** install v1.8.0 by default (#90)
 
 ### Documentation
+- **changelog:** list #100 and #101 under Unreleased (#104)
 - release step 3 publishes through release.yml, not a manual cargo publish (#98)
 - README and HUMAN-GUIDE name v1.8.0, with the docs.rs link and badge (#95)
 <!-- changelog:end -->
