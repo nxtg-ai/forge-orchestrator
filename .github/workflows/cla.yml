@@ -31,7 +31,9 @@ jobs:
         with:
           path-to-signatures: '.github/cla-signatures.json'
           path-to-document: 'https://github.com/${{ github.repository }}/blob/main/.github/CLA.md'
-          branch: main
+          # Signatures are committed to their own branch: the ASIF Portfolio Protection
+          # ruleset makes main PR-only, so a direct signature commit to main is rejected.
+          branch: 'cla-signatures'
           # The action matches signatures by numeric GitHub id, so every entry in
           # cla-signatures.json needs "id". Bots cannot sign, so allow them all.
           allowlist: '*[bot]'
