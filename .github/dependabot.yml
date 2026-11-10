@@ -1,5 +1,8 @@
 # Keeps the SHA pins in .github/workflows/ current: Dependabot opens a weekly PR that moves each
 # pinned action to its newest release and updates the version comment beside the SHA.
+# Minor and patch bumps arrive grouped in one PR. Major bumps are not proposed: a major version can
+# change a job's behaviour (release.yml's jobs hold publish authority), so a maintainer takes each
+# one as its own reviewed change.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -8,3 +11,9 @@ updates:
       interval: weekly
     commit-message:
       prefix: ci
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]
