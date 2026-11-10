@@ -294,6 +294,78 @@ fn test_sync_releases_lock_on_completed_task() {
 }
 
 #[test]
+fn test_sync_releases_lock_on_failed_task() {
+    let dir = TempDir::new().unwrap();
+
+    common::git()
+        .args(["init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    forge_cmd()
+        .args([
+            "--project",
+            dir.path().to_str().unwrap(),
+            "init",
+            "--name",
+            "LockReleaseFailed",
+        ])
+        .assert()
+        .success();
+
+    std::fs::write(
+        dir.path().join("SPEC.md"),
+        "# Spec\n\n## Gamma\nBuild gamma\n",
+    )
+    .unwrap();
+
+    forge_cmd()
+        .args([
+            "--project",
+            dir.path().to_str().unwrap(),
+            "plan",
+            "--generate",
+        ])
+        .assert()
+        .success();
+
+    // Mark T-001 as Failed in its JSON file
+    let task_path = dir.path().join(".forge/tasks/T-001.json");
+    let raw = std::fs::read_to_string(&task_path).unwrap();
+    let mut task: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    task["status"] = serde_json::json!("failed");
+    std::fs::write(&task_path, serde_json::to_string_pretty(&task).unwrap()).unwrap();
+
+    // Inject a stale lock for T-001 into state.json
+    let state_path = dir.path().join(".forge/state.json");
+    let raw = std::fs::read_to_string(&state_path).unwrap();
+    let mut state: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    state["active_locks"]["T-001"] = serde_json::json!({
+        "task_id": "T-001",
+        "agent": "claude",
+        "locked_at": "2026-01-01T00:00:00Z",
+        "files": ["src/main.rs"]
+    });
+    std::fs::write(&state_path, serde_json::to_string_pretty(&state).unwrap()).unwrap();
+
+    // Sync should release the orphaned lock
+    forge_cmd()
+        .args(["--project", dir.path().to_str().unwrap(), "sync"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Released orphaned lock for T-001"));
+
+    // Verify the lock is gone
+    let raw = std::fs::read_to_string(&state_path).unwrap();
+    let state: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    assert!(
+        state["active_locks"].as_object().unwrap().is_empty(),
+        "lock should be released after sync for failed task"
+    );
+}
+
+#[test]
 fn test_sync_keeps_lock_on_in_progress_task() {
     let dir = TempDir::new().unwrap();
 
@@ -360,7 +432,10 @@ fn test_sync_keeps_lock_on_in_progress_task() {
     let raw = std::fs::read_to_string(&state_path).unwrap();
     let state: serde_json::Value = serde_json::from_str(&raw).unwrap();
     assert!(
-        state["active_locks"].as_object().unwrap().contains_key("T-001"),
+        state["active_locks"]
+            .as_object()
+            .unwrap()
+            .contains_key("T-001"),
         "lock should be kept for in-progress task"
     );
 }
