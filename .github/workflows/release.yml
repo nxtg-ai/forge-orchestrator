@@ -46,11 +46,12 @@ jobs:
             archive: forge-windows-x86_64.zip
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-10-16
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
 
       - name: Install musl-tools (Linux musl target)
@@ -87,7 +88,7 @@ jobs:
           [IO.File]::WriteAllText("$PWD/${{ matrix.archive }}.sha256", "$hash  ${{ matrix.archive }}`n")
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.archive }}
           path: |
@@ -115,10 +116,10 @@ jobs:
           - archive: forge-windows-x86_64.zip
             os: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           sparse-checkout: .github/scripts
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ${{ matrix.archive }}
       # STAGE comes from the tagged commit (sparse checkout keeps root files), so the binary must
@@ -135,11 +136,18 @@ jobs:
     # passed CI.
     needs: [build, smoke, ci]
     runs-on: ubuntu-latest
+    # Job-level permissions replace the workflow default: contents: write creates the release;
+    # id-token: write and attestations: write let attest-build-provenance sign and store the
+    # provenance of each archive.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: artifacts
           merge-multiple: true
@@ -152,12 +160,23 @@ jobs:
           cp artifacts/forge-macos-aarch64.tar.gz artifacts/forge-mcp-server-macos-aarch64.tar.gz
           cp artifacts/forge-windows-x86_64.zip   artifacts/forge-mcp-server-windows-x86_64.zip
 
+      # Signed SLSA build provenance for every release archive (the forge-mcp-server-* copies
+      # included), stored in GitHub's attestation store. Verify a downloaded asset with
+      #   gh attestation verify <archive> --repo nxtg-ai/forge-orchestrator \
+      #     --signer-workflow nxtg-ai/forge-orchestrator/.github/workflows/release.yml
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            artifacts/*.tar.gz
+            artifacts/*.zip
+
       - name: Get version from tag
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           name: Forge v${{ steps.version.outputs.version }}
           draft: false
@@ -233,8 +252,10 @@ jobs:
     name: CI
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-10-16
+        with:
+          toolchain: stable
       - run: cargo test --locked
       - run: cargo clippy -- -D warnings
       - run: cargo fmt --check

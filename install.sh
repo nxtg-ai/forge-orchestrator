@@ -45,20 +45,29 @@ TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
 echo "Downloading $URL..."
-curl -sSL "$URL" -o "$TMPDIR/$ARCHIVE"
+curl -fsSL "$URL" -o "$TMPDIR/$ARCHIVE"
 
-# Verify checksum if available
+# Verify the checksum. The installer fails closed: if the .sha256 cannot be fetched, or no SHA-256
+# tool is present, it stops and installs nothing rather than install an archive it did not check.
 SHAURL="${URL}.sha256"
-if curl -sSL "$SHAURL" -o "$TMPDIR/$ARCHIVE.sha256" 2>/dev/null; then
-  echo "Verifying checksum..."
-  cd "$TMPDIR"
-  if command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 -c "$ARCHIVE.sha256"
-  elif command -v sha256sum >/dev/null 2>&1; then
-    sha256sum -c "$ARCHIVE.sha256"
-  fi
-  cd - >/dev/null
+if ! curl -fsSL "$SHAURL" -o "$TMPDIR/$ARCHIVE.sha256"; then
+  echo "Error: could not download the checksum file $SHAURL" >&2
+  echo "Forge was not installed: the installer does not install an archive it cannot verify." >&2
+  exit 1
 fi
+if command -v shasum >/dev/null 2>&1; then
+  SHA_CHECK="shasum -a 256 -c"
+elif command -v sha256sum >/dev/null 2>&1; then
+  SHA_CHECK="sha256sum -c"
+else
+  echo "Error: no SHA-256 tool found (shasum or sha256sum), so the download cannot be verified." >&2
+  echo "Forge was not installed. Install one of them (sha256sum is in coreutils) and run the installer again." >&2
+  exit 1
+fi
+echo "Verifying checksum..."
+cd "$TMPDIR"
+$SHA_CHECK "$ARCHIVE.sha256"
+cd - >/dev/null
 
 # Extract
 echo "Extracting..."
