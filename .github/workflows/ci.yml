@@ -22,13 +22,15 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-10-16
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo test --locked
 
       - name: Create issue on CI failure
-        uses: jayqi/failed-build-issue-action@v1
+        uses: jayqi/failed-build-issue-action@940568ce50eeef3f31a920614cefcc6102d2f930 # v1.3.0
         if: failure() && github.event.pull_request == null
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -42,16 +44,18 @@ jobs:
     name: Windows build check
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-10-16
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       # `cargo build --locked` compiles the binary (src/) only — NOT the integration tests, which
       # are Unix-only (tmux/bash/flock) and are never run on Windows — and fails on any Cargo.lock
       # drift. This is the compile-check that would have caught the ungated pod module before release.
       - run: cargo build --locked
 
       - name: Create issue on CI failure
-        uses: jayqi/failed-build-issue-action@v1
+        uses: jayqi/failed-build-issue-action@940568ce50eeef3f31a920614cefcc6102d2f930 # v1.3.0
         if: failure() && github.event.pull_request == null
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -63,9 +67,11 @@ jobs:
     name: Codex argv (codex-cli 0.162.1)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-10-16
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo build --locked
       - name: Adapter argv parses and forge MCP calls go through
         run: bash tests/codex/argv-check.sh
@@ -73,7 +79,7 @@ jobs:
         run: bash tests/codex/red-controls.sh
 
       - name: Create issue on CI failure
-        uses: jayqi/failed-build-issue-action@v1
+        uses: jayqi/failed-build-issue-action@940568ce50eeef3f31a920614cefcc6102d2f930 # v1.3.0
         if: failure() && github.event.pull_request == null
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -82,13 +88,14 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0  # the CHANGELOG check reads the commits since the last tag
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-10-16
         with:
+          toolchain: stable
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo clippy -- -D warnings
       - run: cargo fmt --check
       # install.sh is piped to `sh`: any CR breaks it. Reject CR in every tracked *.sh, then parse it.
@@ -113,6 +120,22 @@ jobs:
           fi
           cat red.txt
           grep -qF 'FAIL asks GitHub for releases/latest' red.txt
+      # install.sh fails closed (DIRECTIVE-NXTG-20261110-02): no .sha256 or no SHA-256 tool means
+      # nothing is installed.
+      - name: install.sh fails closed on the checksum
+        run: sh tests/install/checksum.sh
+      # Red control: the installer before this check (90e077d) skipped verification in both cases.
+      - name: Checksum check red control
+        run: |
+          # No shallow fetch here: it would cut the history the CHANGELOG red controls read.
+          # fetch-depth: 0 above already has 90e077d.
+          git show 90e077d2b429ff8841e2551390261f24aadeccb3:install.sh > "$RUNNER_TEMP/install-before-checksum.sh"
+          if sh tests/install/checksum.sh "$RUNNER_TEMP/install-before-checksum.sh" > red.txt 2>&1; then
+            cat red.txt; echo "::error::the checksum check passed the installer that skips verification"; exit 1
+          fi
+          cat red.txt
+          grep -A1 -F '== checksum file missing' red.txt | grep -qF 'FAIL exits 0'
+          grep -A1 -F '== no SHA-256 tool' red.txt | grep -qF 'FAIL exits 0'
       # The release stage lives in one root file, STAGE; every surface must agree with it.
       - name: Stage surfaces match STAGE
         run: cargo build --locked && bash .github/scripts/check-stage.sh target/debug/forge
@@ -151,7 +174,7 @@ jobs:
         run: bash tests/agy/red-controls.sh
 
       - name: Create issue on CI failure
-        uses: jayqi/failed-build-issue-action@v1
+        uses: jayqi/failed-build-issue-action@940568ce50eeef3f31a920614cefcc6102d2f930 # v1.3.0
         if: failure() && github.event.pull_request == null
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}

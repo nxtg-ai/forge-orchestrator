@@ -24,7 +24,7 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Compare sha256 of served and repo bytes
         run: |
           curl -fsSL https://forge.nxtg.ai/install.sh -o served.sh
@@ -40,7 +40,7 @@ jobs:
           sh -n served.sh
 
       - name: Create issue on drift
-        uses: jayqi/failed-build-issue-action@v1
+        uses: jayqi/failed-build-issue-action@940568ce50eeef3f31a920614cefcc6102d2f930 # v1.3.0
         if: failure() && github.event_name != 'pull_request'
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -51,7 +51,7 @@ jobs:
     name: install.sh works with api.github.com blocked
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install with a curl shim that refuses api.github.com
         run: |
           mkdir -p shim
@@ -66,7 +66,7 @@ jobs:
           grep -qF "forge $pinned " version.txt
 
       - name: Create issue on failure
-        uses: jayqi/failed-build-issue-action@v1
+        uses: jayqi/failed-build-issue-action@940568ce50eeef3f31a920614cefcc6102d2f930 # v1.3.0
         if: failure() && github.event_name != 'pull_request'
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -77,7 +77,7 @@ jobs:
     name: install.sh puts forge on PATH for new shells
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install into an empty HOME, then resolve forge from new shells
         run: |
           h=$(mktemp -d)
@@ -93,7 +93,7 @@ jobs:
           [ "$(grep -c 'added by forge installer' "$h/.bashrc")" = 1 ]
 
       - name: Create issue on failure
-        uses: jayqi/failed-build-issue-action@v1
+        uses: jayqi/failed-build-issue-action@940568ce50eeef3f31a920614cefcc6102d2f930 # v1.3.0
         if: failure() && github.event_name != 'pull_request'
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
