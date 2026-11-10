@@ -127,8 +127,9 @@ jobs:
       # Red control: the installer before this check (90e077d) skipped verification in both cases.
       - name: Checksum check red control
         run: |
-          git fetch -q --depth=1 origin 90e077d2b429ff8841e2551390261f24aadeccb3
-          git show FETCH_HEAD:install.sh > "$RUNNER_TEMP/install-before-checksum.sh"
+          # No shallow fetch here: it would cut the history the CHANGELOG red controls read.
+          # fetch-depth: 0 above already has 90e077d.
+          git show 90e077d2b429ff8841e2551390261f24aadeccb3:install.sh > "$RUNNER_TEMP/install-before-checksum.sh"
           if sh tests/install/checksum.sh "$RUNNER_TEMP/install-before-checksum.sh" > red.txt 2>&1; then
             cat red.txt; echo "::error::the checksum check passed the installer that skips verification"; exit 1
           fi
