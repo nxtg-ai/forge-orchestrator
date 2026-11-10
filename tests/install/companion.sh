@@ -13,6 +13,7 @@ ADD="plugin marketplace add nxtg-ai/forge-plugin"
 UPD="plugin marketplace update nxtg-forge"
 LST="plugin list --json"
 PUPD="plugin update nxtg-forge@nxtg-forge"
+CUPD="plugin update nxtg-forge-orchestrator@nxtg-forge"
 INS="plugin install nxtg-forge-orchestrator@nxtg-forge"
 # forge-plugin's session hint, byte for byte (plugins/nxtg-forge/hooks/scripts/pre-task.sh:91 at f1ed12c).
 HINT="claude plugin install nxtg-forge-orchestrator@nxtg-forge"
@@ -84,7 +85,7 @@ changes_listed() {  # one line per change: each successful step has its own line
 
 FULL_FRESH=$(printf '%s\n%s\n%s\n%s' "$ADD" "$UPD" "$LST" "$INS")
 FULL_OLD=$(printf '%s\n%s\n%s\n%s\n%s' "$ADD" "$UPD" "$LST" "$PUPD" "$INS")
-FULL_ALREADY=$(printf '%s\n%s\n%s\n%s' "$ADD" "$UPD" "$LST" "$PUPD")
+FULL_ALREADY=$(printf '%s\n%s\n%s\n%s\n%s' "$ADD" "$UPD" "$LST" "$PUPD" "$CUPD")
 
 run "fresh machine" yes STUB_STATE=fresh
 expect_rc0; expect_calls "$FULL_FRESH"; changes_listed 3; no_claude_config
@@ -108,9 +109,9 @@ expect_rc0
 
 run "companion already installed" yes STUB_STATE=full
 expect_rc0; expect_calls "$FULL_ALREADY"; changes_listed 4
-printf '%s\n' "$out" | grep -q "already installed" && ok "says already installed" || bad "no already-installed message"
-# plugin install must NOT be called when the companion is already present
+# plugin install must NOT be called when the companion is already present — update it instead
 calls | grep -q "plugin install" && bad "plugin install called when already present" || ok "skipped plugin install"
+calls | grep -q "$CUPD" && ok "companion updated" || bad "companion not updated"
 printf '%s\n' "$out" | grep -q "MCP tools load in new sessions" && ok "reports success" || bad "no success line"
 
 for step in add update list pupdate install; do
