@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Red controls for .github/scripts/check-agy-naming.sh (DIRECTIVE-NXTG-20261015-05 item 3).
+# Red controls for .github/scripts/check-agy-naming.sh.
 # Each case copies the scanned surfaces into a scratch dir, changes one thing, and requires the
 # check to give the wanted result. The unmodified copy must stay green.
 # Usage: bash tests/agy/red-controls.sh

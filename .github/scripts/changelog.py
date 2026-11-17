@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CHANGELOG entries come from conventional commits (EMMA-SOUL Dx3 73d06ff8 item 6).
+"""CHANGELOG entries come from conventional commits.
 
 Squash merges make each PR title one commit subject on main, so the commits since the last
 release tag are the change list. This script renders them, grouped by type, into the generated

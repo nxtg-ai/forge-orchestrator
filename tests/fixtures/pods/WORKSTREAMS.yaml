@@ -1,69 +1,29 @@
-# WORKSTREAMS — replaces the legacy `WORKSTREAMS` tmux session 1:1.
-# Session NAME = "WORKSTREAMS" (matches existing heartbeat target keys).
-# Spawn:  cosmux start WORKSTREAMS
-#
-# Heartbeat targets (~/ASIF/scripts/cos-heartbeat-nxtg.sh:95-114) — preserved exactly:
-#   Tier-1.1 = CE   | Tier-1.2 = nxtg.ai
-#   Tier-2.1 = PP   | Tier-2.2 = dx3
-#   Tier-3.1 = synapps | Tier-3.2 = VJJ
-#   Tier-4.1 = FP   | Tier-4.2 = fpw4-builder
-#   dx3.1 = dx3 (separate window for active dx3 work)
-#   dx3-api.1 = dx3 (server pane)
-name: WORKSTREAMS
+# Synthetic multi-project regression fixture. No production topology or private paths.
+name: SAMPLE_WORKSTREAMS
 template: claude-team-pane
 
-before_start:
-  - "git -C ~/projects/nxtg-content-engine pull --rebase || true"
-  - "git -C ~/projects/nxtg.ai pull --rebase || true"
-  - "git -C ~/projects/Podcast-Pipeline pull --rebase || true"
-  - "git -C ~/projects/dx3 pull --rebase || true"
-  - "git -C ~/projects/synapps pull --rebase || true"
-  - "git -C ~/projects/voice-jib-jab pull --rebase || true"
-  - "git -C ~/projects/Faultline-Pro pull --rebase || true"
-  - "git -C ~/projects/fpw4-builder pull --rebase || true"
-
+before_start: []
 after_start: []
-
 on_pane_dead:
-  - "echo \"$(date -Iseconds) WORKSTREAMS pane died\" >> /tmp/cosmux-pane-dead.log"
+  - "echo pane-recovered >> /tmp/forge-fixture.log"
 
 windows:
-  - name: Tier-1
+  - name: services
     layout: tiled
     panes:
-      - cwd: "~/projects/nxtg-content-engine"
-      - cwd: "~/projects/nxtg.ai"
-
-  - name: Tier-2
+      - cwd: "~/projects/sample-api"
+      - cwd: "~/projects/sample-web"
+  - name: workers
     layout: tiled
     panes:
-      - cwd: "~/projects/Podcast-Pipeline"
-      - cwd: "~/projects/dx3"
-
-  - name: Tier-3
+      - cwd: "~/projects/sample-worker-a"
+      - cwd: "~/projects/sample-worker-b"
+  - name: tools
     layout: tiled
     panes:
-      - cwd: "~/projects/synapps"
-      - cwd: "~/projects/voice-jib-jab"
-
-  - name: Tier-4
+      - cwd: "~/projects/sample-tool-a"
+      - cwd: "~/projects/sample-tool-b"
+  - name: review
     layout: tiled
     panes:
-      - cwd: "~/projects/Faultline-Pro"
-      - cwd: "~/projects/fpw4-builder"
-
-  - name: Faultline-Web
-    layout: tiled
-    panes:
-      - cwd: "~/projects/faultline-web"
-
-  - name: dx3
-    layout: tiled
-    panes:
-      - cwd: "~/projects/dx3"
-
-  - name: dx3-api
-    layout: tiled
-    panes:
-      - cwd: "~/projects/dx3"
-        command: ""   # bash, server starts on demand
+      - cwd: "~/projects/sample-review"

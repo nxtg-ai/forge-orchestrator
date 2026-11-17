@@ -18,7 +18,7 @@
 #         before anything is deleted. An absent/truncated backup, or an unparseable journal, fails
 #         closed — never delete-then-claim-success while a live pane-died hook is still forge-owned.
 #   Same flock(2) PRIMITIVE the binary uses (via flock(1) or perl), acquired BEFORE reading or
-#   removing anything (round-9 C5); portable across Linux + macOS (DIRECTIVE-NXTG-20260719-20).
+#   removing anything (round-9 C5); portable across Linux + macOS.
 set -euo pipefail
 
 STATE_HOME="${FORGE_POD_JOURNAL_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/forge}"

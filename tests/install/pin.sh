@@ -1,5 +1,5 @@
 #!/bin/sh
-# install.sh installs the pinned release by default, never releases/latest (DIRECTIVE-NXTG-20261015-08).
+# install.sh installs the pinned release by default, never releases/latest.
 # Offline: a stub curl records every URL. Asked for releases/latest it answers with a newer tag
 # (v9.9.9), so an installer that still follows "latest" downloads v9.9.9 and fails here. The stub
 # refuses every download, so nothing is installed and the installer stops at the download step.

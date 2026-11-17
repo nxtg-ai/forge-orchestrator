@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cargo.toml [package] metadata that crates.io and docs.rs show (EMMA-SOUL Dx3 73d06ff8 item 6).
+"""Cargo.toml [package] metadata that crates.io and docs.rs show.
 
 Required: description, license, repository, homepage, readme, keywords, categories.
 crates.io limits: at most 5 keywords, each 1-20 characters, ASCII letters, digits, `_`, `-` or `+`,

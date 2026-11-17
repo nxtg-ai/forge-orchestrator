@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# The third CLI is Antigravity CLI (agy), not the retired Gemini CLI (EMMA-SOUL ruling Dx3 9c94b774,
-# DIRECTIVE-NXTG-20261015-05 item 3). Fails if a current doc or the CLI help says "Gemini CLI" or
+# The third CLI is Antigravity CLI (agy), not the retired Gemini CLI. Fails if a current doc or the CLI help says "Gemini CLI" or
 # tells a user to install or log in to the retired client.
 # History is allowed, and only where marked as history:
 #   - CHANGELOG.md is not scanned (history is not rewritten);

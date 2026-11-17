@@ -7,7 +7,6 @@ Universal orchestration engine for AI-powered development. Single Rust binary (`
 ```bash
 # Build
 cargo build --release          # Optimized binary (4 MB, LTO + strip)
-cp target/release/forge ~/.local/bin/forge-orca
 
 # Test
 cargo test                     # Full suite; the summary lines print the current count
@@ -22,8 +21,7 @@ cargo run -- status            # Task board + event log
 cargo run -- uat               # Interactive UAT TUI
 ```
 
-**IMPORTANT:** Stop all `forge-orca` processes before `cp` — "Text file busy" error otherwise.
-**GPG:** Use `--no-gpg-sign` for commits in this repo.
+**IMPORTANT:** Stop any running `forge` before replacing its binary — "Text file busy" error otherwise.
 
 ## Architecture
 
@@ -165,56 +163,8 @@ forge-orchestrator          ──headless──►   runs CLI or TUI dashboard 
 - **Version:** see `version` in `Cargo.toml` (the single source of truth)
 - **Repo:** github.com/nxtg-ai/forge-orchestrator
 
-## ASIF Governance
+## Releasing
 
-This project is part of NXTG-Forge (P-03) in the ASIF portfolio (Developer Tools vertical).
-
-On every session (check BOTH your own NEXUS and the program NEXUS):
-1. Read `.asif/NEXUS.md` (your own) — check for `## CoS Directives` section
-1a. ALSO read `../.asif/NEXUS.md` (program-level) — check for directives targeting this repo
-2. Execute any PENDING directives before other work (unless Asif overrides)
-3. Write your response inline under each directive
-4. Update initiative statuses in NEXUS if your work changes them
-5. If you have questions for the CoS, add them under `## Team Questions` in NEXUS
-
-
-## Release Protocol Enforcement (ASIF Standard, ADR-036)
-
-When you bump the version in `Cargo.toml`:
-0. **Cargo.lock**: run `cargo build` and commit the refreshed `Cargo.lock` in the same commit as the bump. CI builds with `--locked` on every OS, so a stale lock fails CI (v1.6.1 shipped with a 1.6.0 lock and stayed red on main).
-1. **Tag**: `git tag vX.Y.Z && git push origin vX.Y.Z` (tag the merged squash SHA on `main`)
-2. **GH Release**: do NOT run `gh release create`. Pushing the tag runs `release.yml`, which builds every target, creates the release with all assets, then calls `mcp-publish.yml` to publish to the MCP Registry. A manual `gh release create` published v1.6.1 before its assets existed (the asset race).
-3. **Publish**: do NOT run `cargo publish`. Since #94, the tag push also runs `release.yml`'s `crates-io` job, which publishes over crates.io trusted publishing (OIDC, no stored token) after the release job. A manual publish first would make that job fail with "already exists". Read back with `curl -A <ua> https://crates.io/api/v1/crates/forge-orchestrator` (max_version)
-4. **CHANGELOG**: roll `[Unreleased]` → `[vX.Y.Z] — YYYY-MM-DD` in CHANGELOG.md
-5. **Docs**: update any pinned version references in README.md / docs
-
-Pre-push hook (Layer 1, `.git/hooks/pre-push`) chains CI Gate then runs the release-protocol gate — blocks pushes with a version bump but no git tag or dated CHANGELOG section. The daily `release-protocol-check.yml` workflow (Layer 2) opens a `release-drift` issue and auto-closes on resolve. Wolf's nightly sense pass surfaces drift portfolio-wide via `===SECTION:RELEASE_DRIFT===`.
-
-**Bypass (EMERGENCY ONLY)**: `git push --no-verify` — and document the bypass in NEXUS or HANDOFF.
-## Dx3 Brain Integration
-On every session start, recall relevant context from Dx3 before starting work:
-- Use recall() to check for prior decisions, lessons, and patterns related to your current task
-- After shipping work, use remember() to store what you learned
-- The brain at dx3-cognitive MCP has context from ALL projects — use it
-
-This is how the portfolio compounds intelligence. Your work benefits from every other team's learning.
-
-## Voice Identity
-
-**Voice**: `am_onyx`
-**Registry**: ~/ASIF/standards/voice-registry.md
-**Use**: every cycle-complete, every P0/P1 completion, every directive response.
-
-Speak via: `~/ASIF/scripts/cos-speak-remote --voice am_onyx "text"`
-
-<!-- ASIF:TEAM-ALIGNMENT-WIRING:START -->
-## ASIF Alignment Wiring
-
-@~/ASIF/standards/claude-team-alignment-wiring.md
-
-- Team alignment id: `forge-orchestrator` (label "Forge Orchestrator"; split from the retired `forge` id, DIRECTIVE-NXTG-20261013-22).
-- Cross-team room: `/alignment`, written through `~/ASIF/scripts/alignment-say --as forge-orchestrator`.
-- Commit and PR trailers: `python3 ~/ASIF/scripts/lane-identity.py --trailer forge-orchestrator`.
-- If an `[ALIGNMENT ...]` message appears, respond through `alignment-say`; do not answer only in this private TUI.
-- Deterministic state first: typed Dx3/asifctl, `.asif/NEXUS.md`, git/tests/runtime probes. Prose is backup and local steering only.
-<!-- ASIF:TEAM-ALIGNMENT-WIRING:END -->
+- Version lives in `Cargo.toml` only. Bump it and commit the refreshed `Cargo.lock` in the same commit: CI builds with `--locked`.
+- `CHANGELOG.md` is generated from conventional commit subjects: run `.github/scripts/changelog.py --write` (with `--rev <base> --with "<PR title> (#N)"` on a PR).
+- Pushing a `vX.Y.Z` tag runs `release.yml`: it builds every target, smoke-runs each binary, creates the GitHub release with all assets and signed build provenance, then publishes to the MCP Registry and to crates.io (trusted publishing). Do not run `gh release create` or `cargo publish` by hand.

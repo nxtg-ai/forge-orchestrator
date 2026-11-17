@@ -1,6 +1,6 @@
 //! End-to-end `forge doctor` fixtures — one seeded defect class per test.
 //!
-//! DIRECTIVE-NXTG-20260718-07 DoD: `forge doctor --strict` must exit non-zero on each seeded
+//! `forge doctor --strict` must exit non-zero on each seeded
 //! defect and zero on a clean repo. These drive the real binary, so they check the wiring
 //! (exit code, JSON schema, flag handling) that the pure unit tests in `core::doctor` cannot.
 

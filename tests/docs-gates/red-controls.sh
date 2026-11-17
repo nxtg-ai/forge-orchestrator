@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Red controls for the docs-from-code gates (EMMA-SOUL Dx3 73d06ff8 item 6). Each case breaks one
+# Red controls for the docs-from-code gates. Each case breaks one
 # thing in a temp copy and requires the gate to exit 1 with the expected error. A control that
 # passes, or fails for another reason, is red here.
 # Usage: bash tests/docs-gates/red-controls.sh <path/to/forge>

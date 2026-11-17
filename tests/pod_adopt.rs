@@ -1,4 +1,4 @@
-//! §1.5 adoption acceptance matrix — DIRECTIVE-NXTG-20260718-09.
+//! §1.5 adoption acceptance matrix.
 //!
 //! These drive the REAL binary against a REAL tmux server, but never the operator's: every
 //! invocation redirects all four destructive seams to a temp/private location —
@@ -341,7 +341,7 @@ fn standalone_script_restores_hooks_removes_shim_and_clears_the_journal() {
 
 #[test]
 fn standalone_script_rolls_back_via_the_perl_lock_path_the_macos_mechanism() {
-    // DIRECTIVE-NXTG-20260719-20: macOS ships no flock(1); the script must lock via perl flock(2)
+    // macOS ships no flock(1); the script must lock via perl flock(2)
     // instead. FORGE_POD_LOCK_MECH=perl forces that path so it is exercised on THIS Linux host —
     // proving the re-exec-and-inherit-locked-fd mechanism completes an identical rollback (same lock
     // file, blocking acquire, RMW under lock) rather than relying solely on macOS CI to catch a break.

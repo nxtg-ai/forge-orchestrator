@@ -1,7 +1,7 @@
 name: Install script companion plugin
 
-# install.sh adds the Claude Code companion plugin through the claude CLI and nothing else
-# (DIRECTIVE-NXTG-20261014-12 Part O). tests/install/companion.sh runs the real installer with a
+# install.sh adds the Claude Code companion plugin through the claude CLI and nothing else.
+# tests/install/companion.sh runs the real installer with a
 # stub claude in an empty HOME: claude present, re-run, install failure, no claude, opt-out.
 on:
   pull_request:

@@ -2,15 +2,13 @@
 //!
 //! Vendored from cosmux v0.4.2 `preflight.rs`.
 //!
-//! Origin: 2026-04-19 NXTG-AI P0 incident (FW team dropped 9h silent after cutover
-//! because the WORKSTREAMS pod YAML didn't include a window heartbeat was targeting).
-//! See cosmux NEXUS N-18 / PI-05 for full context.
+//! Origin: a team pane went silent for hours after a pod cutover, because the pod YAML did not
+//! include a window the heartbeat was targeting.
 //!
 //! Design notes:
 //! - Parses bash associative array form `["SESSION:WIN.PANE"]="..."` from the
-//!   heartbeat script. This is the NXTG-AI format; CLX9 may differ.
-//! - **Empty-target-set is a hard FAIL, not a pass.** Emma's 2026-04-19 meta-lesson
-//!   from HANDOFF Note 109: governance scripts that declare OK on zero extracted
+//!   heartbeat script. Other heartbeat formats may differ.
+//! - **Empty-target-set is a hard FAIL, not a pass.** Scripts that declare OK on zero extracted
 //!   items are a silent-success antipattern. A preflight that finds no targets to
 //!   check can't meaningfully say "covered"; it can only say "I could not find any
 //!   targets in this heartbeat script."
@@ -281,22 +279,22 @@ mod tests {
     }
 
     #[test]
-    fn parses_nxtg_bash_assoc_form() {
+    fn parses_bash_assoc_form() {
         let s = Scratch::new(
             r#"
 declare -A TEAMS_FALLBACK=(
-  ["WORKSTREAMS:Tier-1.1"]="$HOME/projects/nxtg-content-engine"
-  ["WORKSTREAMS:Faultline-Web.1"]="$HOME/projects/faultline-web"
-  ["WORKSTREAMS:dx3.1"]="$HOME/projects/dx3"
+  ["SERVICES:api.1"]="$HOME/projects/sample-api"
+  ["SERVICES:web-app.1"]="$HOME/projects/sample-web"
+  ["SERVICES:worker.1"]="$HOME/projects/sample-worker"
 )
 "#,
         );
         let targets = parse_heartbeat_targets(s.path()).unwrap();
         assert_eq!(targets.len(), 3);
         assert!(
-            targets.iter().any(|t| t.session == "WORKSTREAMS"
-                && t.window == "Faultline-Web"
-                && t.pane == "1")
+            targets
+                .iter()
+                .any(|t| t.session == "SERVICES" && t.window == "web-app" && t.pane == "1")
         );
     }
 
@@ -358,10 +356,10 @@ echo ["NOT:assignment.1"]
     #[test]
     fn target_display_round_trips_the_key_form() {
         let t = Target {
-            session: "WORKSTREAMS".into(),
-            window: "Tier-1".into(),
+            session: "SERVICES".into(),
+            window: "api".into(),
             pane: "1".into(),
         };
-        assert_eq!(t.display(), "WORKSTREAMS:Tier-1.1");
+        assert_eq!(t.display(), "SERVICES:api.1");
     }
 }

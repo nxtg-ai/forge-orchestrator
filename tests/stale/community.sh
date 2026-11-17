@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The stale bot never marks an outside author's issue or PR stale (emma-soul al:66c6c92e0cfbf5a2).
+# The stale bot never marks an outside author's issue or PR stale.
 # 1. community-label.py picks exactly the outside, non-bot authors not yet labelled (fixture below).
 # 2. stale.yml runs that labelling before actions/stale and exempts `community` for issues and PRs.
 # Usage: bash tests/stale/community.sh

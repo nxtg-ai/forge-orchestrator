@@ -224,7 +224,7 @@ mod tests {
     /// requires: `ctx:` + the sibling `5h:`/`7d:` rate-limit gauges + a versioned model-token
     /// bracket (`[Fable 5:high]`), all co-occurring on one line.
     fn claude_line(used: u8) -> String {
-        format!("[WOLF] /ASIF [Fable 5:high] ctx:{used}% 5h:43%(~2h58m) 7d:94%(~4h8m)")
+        format!("[LEAD] /work [Fable 5:high] ctx:{used}% 5h:43%(~2h58m) 7d:94%(~4h8m)")
     }
 
     /// A full Codex statusline with `left`% remaining — model token, middle-dot separators, and both
@@ -235,9 +235,9 @@ mod tests {
 
     #[test]
     fn claude_statusline_reads_ctx_not_the_sibling_rate_limit_percentages() {
-        // The REAL Wolf statusline carries three percentages; only `ctx:` is truth. Must be 36 —
+        // A real Claude statusline carries three percentages; only `ctx:` is truth. Must be 36 —
         // never the 5h:43% or 7d:94% next to it — and only because the full signature is present.
-        let rows = hud_rows(&[("wolf".into(), claude_line(36))]);
+        let rows = hud_rows(&[("lead".into(), claude_line(36))]);
         assert_eq!(rows[0].used_pct, Some(36), "{rows:?}");
         assert_eq!(rows[0].tool.as_deref(), Some("claude"));
         assert_eq!(rows[0].level, Some(BudgetLevel::Prep));
@@ -306,7 +306,7 @@ mod tests {
 
     #[test]
     fn control_real_claude_statusline_reads() {
-        let rows = hud_rows(&[("wolf".into(), claude_line(43))]);
+        let rows = hud_rows(&[("lead".into(), claude_line(43))]);
         assert_eq!(rows[0].used_pct, Some(43));
         assert_eq!(rows[0].tool.as_deref(), Some("claude"));
     }
@@ -383,7 +383,7 @@ mod tests {
     #[test]
     fn json_render_carries_pane_tool_pct_and_level() {
         let rows = hud_rows(&[
-            ("wolf".into(), claude_line(82)),
+            ("lead".into(), claude_line(82)),
             ("idle".into(), "bash".into()),
         ]);
         let json = render_json(&rows);
@@ -397,17 +397,17 @@ mod tests {
     #[test]
     fn strip_summary_orders_by_severity_and_counts_ok() {
         let rows = hud_rows(&[
-            ("wolf".into(), claude_line(36)),    // PREP
-            ("kestrel".into(), claude_line(82)), // STOP
-            ("dx3".into(), claude_line(12)),     // OK
-            ("codex".into(), codex_line(5)),     // 95 used → EMERGENCY
-            ("idle".into(), "bash".into()),      // n/a — excluded
+            ("lead".into(), claude_line(36)),     // PREP
+            ("reviewer".into(), claude_line(82)), // STOP
+            ("memory".into(), claude_line(12)),   // OK
+            ("codex".into(), codex_line(5)),      // 95 used → EMERGENCY
+            ("idle".into(), "bash".into()),       // n/a — excluded
         ]);
         let s = strip_summary(&rows);
         assert!(s.starts_with("fleet (1 OK):"), "{s}");
         let emerg = s.find("codex 95% EMERGENCY").unwrap();
-        let stop = s.find("kestrel 82% STOP").unwrap();
-        let prep = s.find("wolf 36% PREP").unwrap();
+        let stop = s.find("reviewer 82% STOP").unwrap();
+        let prep = s.find("lead 36% PREP").unwrap();
         assert!(emerg < stop && stop < prep, "most-severe first: {s}");
         assert!(!s.contains("idle"), "n/a panes excluded: {s}");
     }

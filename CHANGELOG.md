@@ -21,6 +21,7 @@ Generated from the conventional-commit subjects merged since the last release ta
 - **install:** install v1.8.0 by default (#90)
 
 ### Documentation
+- remove internal fleet context from the public repo (#115)
 - **changelog:** list #100 and #101 under Unreleased (#104)
 - release step 3 publishes through release.yml, not a manual cargo publish (#98)
 - README and HUMAN-GUIDE name v1.8.0, with the docs.rs link and badge (#95)
@@ -62,7 +63,7 @@ Generated from the conventional-commit subjects merged since the last release ta
   `tests/agy/red-controls.sh`.
 
 ### Changed
-- Stage: alpha (STAGE `maturity: alpha`, EMMA-SOUL Dx3 cc950597). `forge --version` and the MCP
+- Stage: alpha (STAGE `maturity: alpha`). `forge --version` and the MCP
   health tool report `stage: alpha` (the v1.7.0 release binaries still print `(stage: public
   preview)`; 1.7.1 is the first release that prints `stage: alpha`); the README states the ruled alpha text. check-stage requires
   that text byte for byte on README line 9 and rejects any leftover pre-alpha wording; its red
@@ -71,7 +72,7 @@ Generated from the conventional-commit subjects merged since the last release ta
 - The repo no longer tracks internal governance files (`.asif/`, now in `.gitignore`), and no
   tracked file names a private machine address or a `/home/<user>` path. Tests that used a home
   path now build it with `expand_path("~/...")`, the same call the code uses; no behaviour change.
-- The third CLI is named Antigravity CLI (`agy`) wherever users see it (EMMA-SOUL Dx3 9c94b774):
+- The third CLI is named Antigravity CLI (`agy`) wherever users see it:
   README, `forge --help`, the crate description, HUMAN-GUIDE (the retired `gemini login` / npm
   install flow is gone), positioning, the TUI pane label, `forge init` / `forge start` messages,
   config-key help and the MCP `agent` descriptions. The agent id stays `gemini` in task files,
@@ -88,7 +89,7 @@ Generated from the conventional-commit subjects merged since the last release ta
 
 ### Fixed
 
-- **Codex dispatch works on codex-cli 0.162.1** (DIRECTIVE-NXTG-20261015-07). That release rejects
+- **Codex dispatch works on codex-cli 0.162.1**. That release rejects
   `--full-auto` ("unexpected argument"), which every Forge release up to 1.7.0 passed, so Forge's
   unattended Codex tasks (`permissions = yolo`, and every dashboard pane) failed to start. They now
   pass `--sandbox workspace-write`, so the model's shell commands may write only inside the
@@ -316,7 +317,7 @@ No new MCP tools (the tool count stays at 11). 378 tests green.
 ### Added
 
 - **`scripts/nexus-health-guard.sh`** — change-detection gate and kill-switch for `ScheduleWakeup`
-  NEXUS health-check loops, preventing unbounded self-rescheduling. Shipped in the same commit as the
+  health-check loops, preventing unbounded self-rescheduling. Shipped in the same commit as the
   Gate 5 fix above. (`76d790f`)
 - **`docs/rfc/0001-forge-artifact-schema-versioning.md`** — PROPOSAL (no code change) for a semver
   schema-version handshake on `.forge/state.json` and `.forge/events.jsonl`, with the consumer

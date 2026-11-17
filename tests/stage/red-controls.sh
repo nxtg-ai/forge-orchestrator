@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Red controls for .github/scripts/check-stage.sh (DIRECTIVE-NXTG-20261014-16 item 1, .64 step 2).
+# Red controls for .github/scripts/check-stage.sh.
 # Each case copies the stage surfaces into a scratch dir, breaks one thing, and requires check-stage
 # to go red. The unmodified copy must stay green, so a red result means the mutation was caught.
 # Usage: bash tests/stage/red-controls.sh
