@@ -1,7 +1,7 @@
 # forge-orchestrator v1.6.0 — release notes (DRAFT, staged for the batched train gate)
 
 **Status**: staged. Version bump (`Cargo.toml` 1.5.2 → 1.6.0), tag, and GitHub release are **held**
-until the batched Codex train gate PASSes (pod §1.5 final + DIRECTIVE-16 + W2-C together).
+until the batched Codex train gate PASSes (pod §1.5 final + MCP project binding + W2-C together).
 
 ## Headline
 
@@ -42,7 +42,7 @@ Aggregates quality, release-debt, and drift into one fail-closed verdict (`--str
 under `forge.doctor.report.v1`). Release-debt checks lockfile agreement and multi-surface version
 agreement across a repo, not a single manifest.
 
-### Per-invocation MCP project binding (DIRECTIVE-16)
+### Per-invocation MCP project binding
 `forge mcp` now honors `FORGE_PROJECT_ROOT` and refuses `forge_set_project` under an explicit
 binding, closing a cross-product contamination where one consumer's project leaked into another's.
 
@@ -52,7 +52,7 @@ v1.6.0 ships the complete matrix via `release.yml`:
 
 | Target | Note |
 |---|---|
-| `x86_64-unknown-linux-musl` | **Static** (glibc-independent) — the CLX9 (glibc < 2.39) install target. Verified locally: `file` → static-pie, `ldd` → not a dynamic executable. |
+| `x86_64-unknown-linux-musl` | **Static** (glibc-independent) — the install target for hosts with glibc < 2.39. Verified locally: `file` → static-pie, `ldd` → not a dynamic executable. |
 | `aarch64-unknown-linux-gnu` | — |
 | `x86_64-apple-darwin` | — |
 | `aarch64-apple-darwin` | — |
@@ -61,7 +61,7 @@ v1.6.0 ships the complete matrix via `release.yml`:
 **v1.5.2 artifact debt retired here.** v1.5.2 was released manually during a GitHub Actions
 org-wide **billing lock** (run `29665177260`: every job failed in 2–4s with "account is locked due
 to a billing issue"), so only the locally-built **musl** binary was attached — the other 4 platform
-artifacts were never produced. Rather than back-fill v1.5.2 (`PRM-NXTG-20260718-02`), v1.6.0's full
+artifacts were never produced. Rather than back-fill v1.5.2, v1.6.0's full
 5-target release **supersedes** that debt: users on every platform get a complete, newer release.
 
 ## Release checklist (execute on train-gate PASS)
@@ -72,7 +72,7 @@ artifacts were never produced. Rather than back-fill v1.5.2 (`PRM-NXTG-20260718-
 4. `git tag v1.6.0 && git push origin main v1.6.0`.
 5. `release.yml` builds + attaches all 5 targets (requires CI billing restored — confirm green).
 6. `gh release create v1.6.0 --notes-from-tag` (or from this file).
-7. Verify the musl binary installs on CLX9 (glibc < 2.39).
+7. Verify the musl binary installs on a host with glibc < 2.39.
 
 ## Gate posture
 

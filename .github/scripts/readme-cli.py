@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The README's CLI text comes from the binary (EMMA-SOUL Dx3 73d06ff8 item 6).
+"""The README's CLI text comes from the binary.
 
 Two checks, both against the forge binary given with --forge:
 1. The block between the forge-help markers is the verbatim `forge --help` output (trailing

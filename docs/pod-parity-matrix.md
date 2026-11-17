@@ -1,8 +1,8 @@
 # `forge pod` ↔ cosmux v0.4.2 Parity Matrix
 
-**Status**: current as of forge-orchestrator `main`, DIRECTIVE-NXTG-20260718-09 checkpoint 3
+**Status**: current as of forge-orchestrator `main`
 **Reference**: cosmux v0.4.2 (`~/projects/cosmux`, Apache-2.0)
-**Verified by**: `tests/pod_parity.rs` (14 live pod shapes) + `tests/doctor_integration.rs`
+**Verified by**: `tests/pod_parity.rs` (14 synthetic pod shapes) + `tests/doctor_integration.rs`
 
 `forge pod` vendors cosmux's core and operates on the **same store and the same pod locations, in
 place** — `~/.cosmux/state.json`, `~/.config/cosmux/templates/`, and the legacy search order. A
@@ -38,7 +38,7 @@ asserts the two produce identical output and exit codes.
 
 `preflight` distinguishes **"ran and found gaps" (2)** from **"could not run" (1)**. An **empty
 target set is a hard failure (2), never a pass** — a check that extracted nothing has not verified
-coverage. That rule exists because of the 2026-04-19 NXTG-AI incident where a team went 9 hours
+coverage. That rule exists because of an incident where a team pane went 9 hours
 silent after a pod YAML omitted a window the heartbeat targeted.
 
 ## Deliberate deviations
@@ -78,8 +78,8 @@ the two live surfaces here are destructive to touch from a test.
 
 ## How parity is verified
 
-`tests/pod_parity.rs` runs against **copies** of the 14 live fleet pods
-(`tests/fixtures/pods/`, copied read-only from `~/ASIF/infra/tmux/`):
+`tests/pod_parity.rs` runs against 14 synthetic pod shapes
+(`tests/fixtures/pods/`):
 
 - all 14 shapes validate;
 - `show` output is byte-identical across repeated runs (a non-deterministic plan could not be
@@ -110,7 +110,7 @@ constrained not to touch.
 
 Authority is the transition journal (`~/.local/state/forge/pod-adoption.json`, schema v1) — until it
 reads terminal `adopted`, every forge pod-store write is refused and cosmux is the sole writer. See
-`docs/POD-ADOPTION-RESUME.md` and `src/pod/journal.rs` / `src/pod/adopt.rs`.
+`src/pod/journal.rs` and `src/pod/adopt.rs`.
 
 **Verified by** `tests/pod_adopt.rs` (6 cases against a private tmux socket): full adopt rebinds
 cosmux hooks + installs shim + reaches terminal; the standalone script and `forge unadopt` both

@@ -3,9 +3,8 @@
 **Status**: PROPOSED (no implementation in `src/`)
 **Author**: forge-orchestrator team
 **Date**: 2026-07-18 | **Revised**: 2026-07-18 (rev 4)
-**Origin**: DIRECTIVE-NXTG-20260718-03 items 3 & 4 — deep-dive gaps G-04, G-05
-**Rev 2** (DIRECTIVE-NXTG-20260718-06, Codex Wave-1 review
-`ecosystem/forge/research/2026-07-18-codex-wave1-review.md`): withdrew §4's false collision
+**Origin**: deep-dive gaps G-04, G-05
+**Rev 2** (after an independent review): withdrew §4's false collision
 premise (verified against forge-plugin `v3.10.2`) and corrected the schema baseline from
 `2.0.0` to `1.1.0`, pinned by executable fixtures (§3.5).
 **Rev 3** (Codex re-gate round 2, `ecosystem/forge/research/2026-07-18-codex-regate-2.md` §3):
@@ -325,9 +324,8 @@ mixed-version orderings (§3.2.2):
 An earlier revision of this section asserted that both MCP servers register `forge_get_health` and
 recommended renaming the plugin's tool to `forge_get_health_score` with a one-minor alias window. **That
 premise was false and the recommendation is withdrawn.** It was inherited from the deep-dive G-04 line
-and NEXUS:2082, both of which predate the plugin rename — it was never verified against the plugin repo.
-Codex Wave-1 review caught it
-(`ecosystem/forge/research/2026-07-18-codex-wave1-review.md`).
+and a planning note, both of which predate the plugin rename — it was never verified against the plugin repo.
+An independent review caught it.
 
 ### 4.1 The actual cross-repo contract
 

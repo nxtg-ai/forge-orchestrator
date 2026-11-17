@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Release-stage consistency check (DIRECTIVE-NXTG-20261007-11; two axes since DIRECTIVE-NXTG-20261013-17).
+# Release-stage consistency check (two axes: distribution and maturity).
 # STAGE at the repo root is the ONE constant. It records the two registry fields
 # (governance/product-maturity-registry.yml, row forge), one per line, the same format as forge-plugin:
 #   distribution: internal|public
@@ -48,8 +48,8 @@ has  "$README" "**Stage: $L.**"                            "README stage line"
 none "$README" "\*\*Stage: ($OTHERS)\.\*\*"                "README has no other stage line"
 none "$README" "not yet offered or supported for outside use|internal use only" "README does not say a public product is not offered outward"
 
-# Ruled stage text, byte for byte (EMMA-SOUL Dx3 cc950597; FINAL A, ASIF PR 426). Line 9 is what
-# forge-pm and dx3-pm read: the derived label, then the ruled sentence. Below alpha, no text is
+# The stage sentence, byte for byte (FINAL_A). README line 9 carries the derived label, then
+# this sentence. Below alpha, no text is
 # ruled yet beyond the label.
 FINAL_A='The Forge plugin and orchestrator are in alpha. On 2026-10-15 (UTC) a separate NXTG.AI team (product-oracle) ran the pre-registered core-job test on a clean install of the plugin (v3.14.0) and the orchestrator (forge 1.7.0). The test passed; each repeated check passed 3 of 3 (run 7). The evidence is attached to the forge-plugin v3.14.0 release. No SLA; interfaces may change without notice.'
 line9=$(sed -n 9p "$README" | tr -d '\r')

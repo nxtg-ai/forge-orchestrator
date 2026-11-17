@@ -346,7 +346,7 @@ fn tool_text(output: &str) -> String {
         .to_string()
 }
 
-/// DIRECTIVE-NXTG-20261013-07 (alpha run 3 F-L): the outcome of a completed task is readable
+/// The outcome of a completed task is readable
 /// through `forge_get_tasks`, byte-equal, with the agent that completed it.
 #[test]
 fn test_mcp_get_tasks_returns_outcome_and_completing_agent() {
@@ -500,7 +500,7 @@ fn test_mcp_complete_task_explicit_agent() {
     assert_eq!(t2["result_summary"], "x");
 }
 
-/// DIRECTIVE-NXTG-20261013-09 item 1: a second completion that gives no summary keeps the stored
+/// A second completion that gives no summary keeps the stored
 /// outcome (summary, completing agent and its source, completion time) instead of nulling it.
 #[test]
 fn test_mcp_recompletion_without_summary_keeps_outcome() {
@@ -586,7 +586,7 @@ fn test_mcp_recompletion_without_summary_keeps_outcome() {
     assert_eq!(read_t1()["result_summary"], "Second outcome");
 }
 
-/// DIRECTIVE-NXTG-20261013-09 item 2a: a non-string `agent` is refused, not read as "no agent".
+/// A non-string `agent` is refused, not read as "no agent".
 #[test]
 fn test_mcp_complete_task_refuses_non_string_agent() {
     let dir = TempDir::new().unwrap();
@@ -672,7 +672,7 @@ fn tool_json(output: &str) -> serde_json::Value {
     serde_json::from_str(&tool_text(output)).unwrap()
 }
 
-/// DIRECTIVE-NXTG-20261014-10 (C7 as registered): a task is created, claimed and completed
+/// A task is created, claimed and completed
 /// through MCP alone, and shows in `forge_get_tasks` with its outcome.
 #[test]
 fn test_mcp_create_claim_complete_get_tasks() {

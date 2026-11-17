@@ -1,6 +1,6 @@
 # CLI Subscription Gating: Exhaustive Risk Analysis
 
-> **Successor note (2026-10-15):** the Gemini CLI named below is retired. Forge launches Antigravity CLI (`agy`) instead (ASIF canon `standards/google-antigravity-cli-runtime.md`; EMMA-SOUL ruling Dx3 9c94b774). This dated document is kept as written.
+> **Successor note (2026-10-15):** the Gemini CLI named below is retired. Forge launches Antigravity CLI (`agy`) instead. This dated document is kept as written.
 
 **Document:** RESEARCH-001
 **Date:** 2026-02-15

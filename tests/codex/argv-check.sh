@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# DIRECTIVE-NXTG-20261015-07: run the Codex adapter's real argv through the pinned codex-cli, offline.
+# Run the Codex adapter's real argv through the pinned codex-cli, offline.
 # codex-cli 0.162.1 rejected the old `--full-auto`; this check goes red if the adapter passes any flag
 # or `-c` override that codex rejects, or if the unattended argv no longer lets a forge MCP call through.
 # codex runs only inside a container with --network none and BROWSER=/bin/false, never on the host,

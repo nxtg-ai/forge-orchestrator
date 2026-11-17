@@ -1,14 +1,14 @@
-//! Dual-run parity against the 14 live fleet pod shapes — DIRECTIVE-NXTG-20260718-09 DoD.
+//! Dual-run parity across a representative set of 14 synthetic pod shapes.
 //!
-//! The fixtures in `tests/fixtures/pods/` are **copies** of `~/ASIF/infra/tmux/*.yaml`, taken
-//! read-only. Nothing here reads the live directory, touches `~/.cosmux/state.json`, or contacts
-//! the running tmux server: every store-touching call is redirected by `FORGE_POD_STATE_DIR`, and
-//! the tmux layer is exercised only through the **pure** `spawn_plan`, which executes nothing.
+//! The fixtures in `tests/fixtures/pods/` are synthetic: they cover the shapes `forge pod` must
+//! parse (single and multi-window, sandboxed, multi-agent) without naming any real deployment.
+//! Nothing here touches `~/.cosmux/state.json` or contacts a running tmux server: every
+//! store-touching call is redirected by `FORGE_POD_STATE_DIR`, and the tmux layer is exercised only
+//! through the **pure** `spawn_plan`, which executes nothing.
 //!
 //! Parity is asserted on the side-effect-free surface — parse, validate, resolved config, and the
 //! computed tmux argument sequence. That is where byte-for-byte comparison is meaningful and safe;
-//! asserting it by observing a real tmux server would require the live sessions this directive
-//! forbids touching.
+//! asserting it by observing a real tmux server would require live sessions.
 
 use std::path::{Path, PathBuf};
 
@@ -55,13 +55,13 @@ fn scratch(tag: &str) -> PathBuf {
 }
 
 #[test]
-fn all_fourteen_live_pod_shapes_validate() {
-    // The DoD's core claim: forge parses every shape the fleet actually runs.
+fn all_fourteen_pod_shapes_validate() {
+    // The core claim: forge parses every shape in the fixture set.
     let paths = fixtures();
     assert_eq!(
         paths.len(),
         14,
-        "expected the 14 copied fleet pods, found {}",
+        "expected the 14 pod fixtures, found {}",
         paths.len()
     );
 
@@ -101,7 +101,7 @@ fn every_shape_produces_a_deterministic_spawn_plan() {
 #[test]
 fn resolved_config_preserves_every_declared_window_and_pane() {
     // Parity that matters operationally: vendoring must not drop a window or pane, because a
-    // missing window is exactly the 2026-04-19 incident preflight exists to catch.
+    // missing window is exactly what preflight exists to catch.
     let dir = scratch("counts");
     for path in fixtures() {
         let raw = std::fs::read_to_string(&path).unwrap();
@@ -150,7 +150,7 @@ fn side_effect_free_verbs_never_write_the_store() {
     std::fs::write(&store, r#"{"pods":{}}"#).unwrap();
     let before = std::fs::read(&store).unwrap();
 
-    let sample = fixture_dir().join("Dx3_Program.yaml");
+    let sample = fixture_dir().join("sample-memory-workspace.yaml");
     let arg = sample.display().to_string();
     for args in [
         vec!["validate", arg.as_str()],
@@ -171,7 +171,7 @@ fn side_effect_free_verbs_never_write_the_store() {
 
 #[test]
 fn hud_is_an_alias_of_state_not_a_separate_verb() {
-    // FPL ruling: keep the alias so nxtg users see no behaviour change.
+    // The alias stays so existing users see no behaviour change.
     let dir = scratch("hud");
     let (state_code, state_out, _) = run_pod(&["state"], &dir);
     let (hud_code, hud_out, _) = run_pod(&["hud"], &dir);

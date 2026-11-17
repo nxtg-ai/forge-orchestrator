@@ -157,8 +157,8 @@ fn home_dir() -> Option<PathBuf> {
 
 /// Legacy pod search order, preserved verbatim from cosmux `config.rs:114`.
 ///
-/// `~/ASIF/infra/tmux/` comes first: that is where the 14 live fleet pods are, and the
-/// single-store protocol requires forge to find them exactly where cosmux does.
+/// `~/ASIF/infra/tmux/` comes first, as in cosmux: the single-store protocol requires forge to
+/// find pods exactly where cosmux does.
 pub fn config_search_paths(name: &str) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     if let Some(home) = home_dir() {

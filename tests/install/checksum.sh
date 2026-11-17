@@ -1,5 +1,5 @@
 #!/bin/sh
-# install.sh fails closed on the checksum (DIRECTIVE-NXTG-20261110-02 item 4).
+# install.sh fails closed on the checksum.
 # Offline: a stub curl serves a local fixture archive in place of the release asset, and plays the
 # .sha256 as STUB_SHA ok (matches), bad (wrong digest) or missing (HTTP error, exit 22).
 # Each case runs the installer in an empty HOME and checks its exit code, its message and whether

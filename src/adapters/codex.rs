@@ -27,7 +27,7 @@ fn toml_basic_str(s: &str) -> String {
 }
 
 impl CodexAdapter {
-    /// The `codex exec` flags for an unattended Forge task (DIRECTIVE-NXTG-20261015-07).
+    /// The `codex exec` flags for an unattended Forge task.
     ///
     /// codex-cli 0.162.1 rejects `--full-auto` ("unexpected argument"), which every earlier Forge
     /// release passed. Its replacement here is two parts:
@@ -41,8 +41,8 @@ impl CodexAdapter {
     ///   own setting. Codex deep-merges `-c` into the config, so a `[mcp_servers.forge]` block the
     ///   user already has keeps any key not set here (for example `env` or `enabled_tools`).
     ///
-    /// Not used: `--dangerously-bypass-approvals-and-sandbox` (no sandbox at all; ruled out by
-    /// EMMA-SOUL Dx3 30e57667) and `--approve-for-me` (it sends approvals to an automatic model
+    /// Not used: `--dangerously-bypass-approvals-and-sandbox` (no sandbox at all, so it is
+    /// ruled out) and `--approve-for-me` (it sends approvals to an automatic model
     /// review, and in the $0 mock check it did not let the MCP call through).
     /// `tests/codex/argv-check.sh` runs these exact flags through codex-cli 0.162.1.
     pub(crate) fn unattended_args(forge_exe: &Path, project_root: &Path) -> Vec<String> {
@@ -245,7 +245,7 @@ impl ToolAdapter for CodexAdapter {
 
     /// PTY mode: use `codex exec` with the prompt as a CLI argument.
     ///
-    /// Root cause (Emma/CLX9): Codex's resolve_prompt() exits immediately
+    /// Root cause: Codex's resolve_prompt() exits immediately
     /// with code 1 ("No prompt provided") when stdin.is_terminal() == true
     /// and no prompt arg is given. In a PTY, stdin IS a terminal, so bare
     /// `codex` (interactive TUI) crashes before initial_input can be typed.

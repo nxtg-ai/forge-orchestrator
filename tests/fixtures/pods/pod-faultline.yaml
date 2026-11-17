@@ -1,26 +1,16 @@
-# Faultline pod — AI Trust & Safety vertical (3 surfaces, one engine).
-# Faultline-Pro (engine) + faultline-web (consumer) + Faultline (frozen Kaggle demo).
-#
-# Spawn: cosmux start pod-faultline
-name: pod-faultline
+# Synthetic three-surface regression fixture. No production project names or paths.
+name: pod-sample-platform
 root: "~/projects"
 
-before_start:
-  - "git -C ~/projects/Faultline-Pro pull --rebase || true"
-  - "git -C ~/projects/faultline-web pull --rebase || true"
-
+before_start: []
 after_start: []
-
 on_pane_dead:
-  - "echo \"$(date -Iseconds) pod-faultline pane died\" >> /tmp/cosmux-pane-dead.log"
+  - "echo pane-recovered >> /tmp/forge-fixture.log"
 
 windows:
-  - name: faultline
+  - name: platform
     layout: tiled
     panes:
-      - cwd: "~/projects/Faultline-Pro"
-        command: "ccyolo"
-      - cwd: "~/projects/faultline-web"
-        command: "ccyolo"
-      - cwd: "~/projects/Faultline"
-        command: "ccyolo"
+      - cwd: "~/projects/sample-engine"
+      - cwd: "~/projects/sample-web"
+      - cwd: "~/projects/sample-demo"

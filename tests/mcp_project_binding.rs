@@ -1,4 +1,4 @@
-//! Per-invocation project-binding isolation — DIRECTIVE-NXTG-20260718-16.
+//! Per-invocation project-binding isolation.
 //!
 //! The finding: while a forge-ui server ran, `forge mcp --project <fixture>` returned forge-ui's
 //! health instead of the fixture's, because the server-global `current_project` was overridable by

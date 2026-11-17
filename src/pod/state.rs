@@ -316,12 +316,12 @@ mod tests {
 
     const LIVE_SHAPE: &str = r#"{
   "pods": {
-    "Dx3_Program": {
+    "sample-memory-workspace": {
       "status": "running",
       "started_at": "2026-04-19T21:59:48Z",
-      "source_path": "~/ASIF/infra/tmux/Dx3_Program.yaml",
+      "source_path": "~/.config/cosmux/pods/sample-memory-workspace.yaml",
       "windows": [
-        { "name": "claude", "panes": [ { "index": 0, "cwd": "~/projects/dx3", "command": "ccyolo" } ] }
+        { "name": "claude", "panes": [ { "index": 0, "cwd": "~/projects/sample-memory", "command": "ccyolo" } ] }
       ]
     }
   }
@@ -329,10 +329,13 @@ mod tests {
 
     #[test]
     fn parses_the_live_store_shape() {
-        // Byte-shape taken from the real ~/.cosmux/state.json (read-only) so the vendored structs
-        // are proven against what cosmux actually writes, not against an idealized fixture.
+        // The byte shape cosmux writes to ~/.cosmux/state.json (names replaced), so the vendored
+        // structs are proven against what cosmux actually writes, not against an idealized fixture.
         let state = parse(LIVE_SHAPE).expect("live shape must parse");
-        let pod = state.pods.get("Dx3_Program").expect("pod present");
+        let pod = state
+            .pods
+            .get("sample-memory-workspace")
+            .expect("pod present");
         assert_eq!(pod.status, "running");
         assert_eq!(pod.windows[0].panes[0].command, "ccyolo");
         assert!(

@@ -1,31 +1,18 @@
-# Forge — replaces the legacy `Forge` tmux session 1:1.
-# Session NAME = "Forge" (matches existing heartbeat target keys: Forge:claude.1-4).
-# Spawn:  cosmux start Forge
-#
-# Panes (match heartbeat config in ~/ASIF/scripts/cos-heartbeat-nxtg.sh:108-111):
-#   1: NXTG-Forge (FPL bash pane — heartbeat directs FPL here)
-#   2: forge-plugin
-#   3: forge-orchestrator
-#   4: forge-ui
-name: Forge
-root: "~/projects/NXTG-Forge"
+# Synthetic four-pane regression fixture. No production topology or private paths.
+name: sample-four-pane
+root: "~/projects/sample-suite"
 template: claude-team-pane
 
-before_start:
-  - "git -C ~/projects/NXTG-Forge/forge-ui pull --rebase || true"
-  - "git -C ~/projects/NXTG-Forge/forge-plugin pull --rebase || true"
-  - "git -C ~/projects/NXTG-Forge/forge-orchestrator pull --rebase || true"
-
+before_start: []
 after_start: []
-
 on_pane_dead:
-  - "echo \"$(date -Iseconds) Forge pane died\" >> /tmp/cosmux-pane-dead.log"
+  - "echo pane-recovered >> /tmp/forge-fixture.log"
 
 windows:
-  - name: claude
+  - name: agents
     layout: tiled
     panes:
-      - cwd: "~/projects/NXTG-Forge"
-      - cwd: "~/projects/NXTG-Forge/forge-plugin"
-      - cwd: "~/projects/NXTG-Forge/forge-orchestrator"
-      - cwd: "~/projects/NXTG-Forge/forge-ui"
+      - cwd: "~/projects/sample-suite/app-a"
+      - cwd: "~/projects/sample-suite/app-b"
+      - cwd: "~/projects/sample-suite/app-c"
+      - cwd: "~/projects/sample-suite"

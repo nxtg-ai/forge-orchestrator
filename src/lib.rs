@@ -68,7 +68,7 @@ pub mod mcp;
 // `pod` speaks tmux + flock(2) directly (Unix-only). Windows gets no pod surface — the `forge pod`
 // dispatch is stubbed there (see main.rs). Gating the whole module keeps the Windows target building
 // (v1.5.2 shipped it); the Unix codepaths are byte-identical, so the §1.5 rollback contract is
-// unchanged (DIRECTIVE-NXTG-20260719-20 follow-up: pod is Unix-only by nature).
+// unchanged (pod is Unix-only by nature).
 #[cfg(unix)]
 #[doc(hidden)]
 #[allow(rustdoc::broken_intra_doc_links, rustdoc::private_intra_doc_links)]

@@ -263,4 +263,4 @@ Deliverables:
 
 ---
 
-*This spec was synthesized from a multi-AI brainstorming session involving Claude Opus 4.6, ChatGPT 5.2, Gemini 3 Pro, and Asif (Founder). See: v3/.asif/notes.md for the full conversation.*
+*This spec was synthesized from a multi-AI brainstorming session involving Claude Opus 4.6, ChatGPT 5.2, Gemini 3 Pro, and Asif (Founder).*

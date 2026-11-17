@@ -2823,7 +2823,7 @@ fn truncate_str(s: &str, max: usize) -> String {
 mod tests {
     use super::*;
 
-    /// DIRECTIVE-NXTG-20261014-07: native Windows has no `SHELL`; the pane must open the user's
+    /// Native Windows has no `SHELL`; the pane must open the user's
     /// shell (`%COMSPEC%`, else `cmd.exe`), not /bin/bash. Unix is unchanged.
     #[test]
     fn test_default_shell_per_platform() {

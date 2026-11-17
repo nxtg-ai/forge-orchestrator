@@ -1427,7 +1427,7 @@ mod tests {
             "Non-UI tasks should NOT have Playwright checks"
         );
     }
-    /// DIRECTIVE-NXTG-20261014-10 (Codex finding 1): a second writer that picked the same id gets
+    /// A second writer that picked the same id gets
     /// an error; the first task is untouched. Updates still overwrite.
     #[test]
     fn test_create_task_refuses_existing_id_and_keeps_original() {
