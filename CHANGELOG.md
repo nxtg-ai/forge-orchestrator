@@ -349,7 +349,7 @@ No new MCP tools (the tool count stays at 11). 378 tests green.
 
 ### Observability & Logging (P1 — Launch Readiness)
 
-Addresses CLX9 dogfood findings: skeletal logging, missing task outputs, empty knowledge directories, stale state.json during dashboard runs. Implements all 4 Tier 1 items from the observability brief.
+Addresses dogfood findings: skeletal logging, missing task outputs, empty knowledge directories, stale state.json during dashboard runs. Implements all 4 Tier 1 items from the observability brief.
 
 ### Added
 

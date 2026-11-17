@@ -61,7 +61,7 @@ v1.6.0 ships the complete matrix via `release.yml`:
 **v1.5.2 artifact debt retired here.** v1.5.2 was released manually during a GitHub Actions
 org-wide **billing lock** (run `29665177260`: every job failed in 2–4s with "account is locked due
 to a billing issue"), so only the locally-built **musl** binary was attached — the other 4 platform
-artifacts were never produced. Rather than back-fill v1.5.2 (`PRM-NXTG-20260718-02`), v1.6.0's full
+artifacts were never produced. Rather than back-fill v1.5.2, v1.6.0's full
 5-target release **supersedes** that debt: users on every platform get a complete, newer release.
 
 ## Release checklist (execute on train-gate PASS)
