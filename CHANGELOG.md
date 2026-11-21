@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Generated from the conventional-commit subjects merged since the last release tag (`.github/scripts/changelog.py`); CI fails if this block drifts from them.
 
 <!-- changelog:generated unreleased -->
+<!-- changelog:end -->
+
+## [1.8.1] - 2026-11-21
+
+<!-- changelog:generated v1.8.1 -->
 ### Fixed
 - **deps:** bump quinn-udp 0.5.14 to 0.5.16 (RUSTSEC-2026-0538) (#116)
 - **security:** pin workflow actions to SHAs, attest release archives, fail closed on a missing checksum (#107)
@@ -618,7 +623,8 @@ Forge 1.0 is the first release where you can type `forge init && forge plan --ge
 - Animated SVG banner for README
 - 51 tests (30 unit + 9 CLI + 12 MCP integration)
 
-[Unreleased]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.8.1...HEAD
+[1.8.1]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.7.1...v1.8.0
 [1.7.1]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.7.0...v1.7.1
 [1.3.0]: https://github.com/nxtg-ai/forge-orchestrator/compare/v1.2.0...v1.3.0
