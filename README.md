@@ -239,12 +239,24 @@ The knowledge flywheel exists because I've watched decisions evaporate between s
 
 Decisions, patterns, learnings and research captured through `forge_capture_knowledge` are stored in `.forge/knowledge/`, one directory per category, and classified automatically. Any tool connected to the MCP server can search them with `forge_get_knowledge`, in a later session as well as the current one.
 
-## Forge UI
+## Forge UI (Browser Dashboard & Infinity Terminal)
 
-[forge-ui](https://github.com/nxtg-ai/forge-ui) is a separate React dashboard for Forge, released on its own; its README states its stage. To run it from source:
+[NXTG-Forge UI](https://github.com/nxtg-ai/forge-ui) (L3: Ship Lord) is a separate local-first React 19 dashboard for Forge, released on its own (source-available under FSL-1.1-ALv2, converting to Apache-2.0 on 2028-03-18; its README states its stage). When `forge` is on your `PATH`, the Governance HUD reads live project health scores directly from this orchestrator alongside the **Infinity Terminal** (a shared browser PTY that survives closed tabs and network drops for 5 minutes with ~100 KB scrollback replay).
+
+<p align="center">
+  <a href="https://github.com/nxtg-ai/forge-ui">
+    <img src="https://raw.githubusercontent.com/nxtg-ai/forge-ui/main/docs/images/terminal.png" alt="NXTG-Forge UI Infinity Terminal and Governance HUD" width="100%">
+  </a>
+</p>
+
+To run the pinned release from source (requires Node.js `>=22.12` plus `python3`, `make`, and `g++` for `node-pty`):
 
 ```bash
-git clone https://github.com/nxtg-ai/forge-ui && cd forge-ui && npm install && npm run dev
+git clone --branch v3.5.7 https://github.com/nxtg-ai/forge-ui
+cd forge-ui && npm install && npm run dev
+
+# In a second terminal, generate a single-use 60-second browser sign-in link:
+npm run auth:login-link
 ```
 
 ## Links
