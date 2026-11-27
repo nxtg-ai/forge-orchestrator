@@ -13,6 +13,7 @@ Generated from the conventional-commit subjects merged since the last release ta
 
 <!-- changelog:generated unreleased -->
 ### Fixed
+- **deps:** bump url, anyhow, rustix, tokio (RUSTSEC-2026-0592) (#122)
 - **install:** install v1.8.1 by default (#118)
 <!-- changelog:end -->
 
