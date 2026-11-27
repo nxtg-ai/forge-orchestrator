@@ -2,12 +2,6 @@
 
 We welcome contributions! Before submitting a pull request, please review the following.
 
-## Contributor License Agreement (CLA)
-
-All contributors must sign our [Contributor License Agreement](.github/CLA.md) before their pull request can be merged. The CLA bot will automatically comment on your PR with instructions. Simply reply with the required comment to sign.
-
-The CLA grants Apache ICLA-equivalent terms, ensuring contributions can be distributed under the project's license.
-
 ## Development Setup
 
 ```bash
@@ -24,10 +18,9 @@ cargo clippy -- -D warnings
 
 ## Pull Request Requirements
 
-1. **CLA signed** - the CLA bot must show a green check
-2. **Tests pass** - `cargo test` must pass with all tests green
-3. **Lint clean** - `cargo fmt --check` and `cargo clippy -- -D warnings` must pass
-4. **Conventional commits** - use `feat:`, `fix:`, `docs:`, `chore:` prefixes
+1. **Tests pass** - `cargo test` must pass with all tests green
+2. **Lint clean** - `cargo fmt --check` and `cargo clippy -- -D warnings` must pass
+3. **Conventional commits** - use `feat:`, `fix:`, `docs:`, `chore:` prefixes
 
 ## Code Style
 
