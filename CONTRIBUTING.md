@@ -38,4 +38,4 @@ cargo clippy -- -D warnings
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the project's [MIT License](LICENSE.md).
+By contributing, you agree that your contributions will be licensed under the project's [Apache License, Version 2.0](LICENSE.md).

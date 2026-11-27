@@ -257,7 +257,7 @@ Deliverables:
 
 ## 10. Revenue Path
 
-1. **Now:** open source under the MIT License (build community)
+1. **Now:** open source under the Apache License, Version 2.0 (build community)
 2. **12 months:** Commercial features (cloud sync, team orchestration, advanced governance)
 3. **18 months:** Linux Foundation donation (standardize .forge/ format, become AAIF project)
 
