@@ -4,7 +4,7 @@
 
 # forge-orchestrator
 
-[![stage: alpha](https://img.shields.io/badge/stage-alpha-blue)](STAGE) [![MCP Registry](https://img.shields.io/badge/MCP_Registry-active-00b4ab)](https://registry.modelcontextprotocol.io) [![License: FSL-1.1-ALv2](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue.svg)](LICENSE.md) [![Version](https://img.shields.io/badge/version-v1.8.1-blue)](https://github.com/nxtg-ai/forge-orchestrator/releases/tag/v1.8.1) [![docs.rs](https://img.shields.io/docsrs/forge-orchestrator/1.8.0)](https://docs.rs/forge-orchestrator/1.8.0/forge_orchestrator/) [![CI](https://github.com/nxtg-ai/forge-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/nxtg-ai/forge-orchestrator/actions) [![GitHub stars](https://img.shields.io/github/stars/nxtg-ai/forge-orchestrator)](https://github.com/nxtg-ai/forge-orchestrator) [![crates.io](https://img.shields.io/crates/v/forge-orchestrator)](https://crates.io/crates/forge-orchestrator)
+[![stage: alpha](https://img.shields.io/badge/stage-alpha-blue)](STAGE) [![MCP Registry](https://img.shields.io/badge/MCP_Registry-active-00b4ab)](https://registry.modelcontextprotocol.io) [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE.md) [![Version](https://img.shields.io/badge/version-v1.8.1-blue)](https://github.com/nxtg-ai/forge-orchestrator/releases/tag/v1.8.1) [![docs.rs](https://img.shields.io/docsrs/forge-orchestrator/1.8.0)](https://docs.rs/forge-orchestrator/1.8.0/forge_orchestrator/) [![CI](https://github.com/nxtg-ai/forge-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/nxtg-ai/forge-orchestrator/actions) [![GitHub stars](https://img.shields.io/github/stars/nxtg-ai/forge-orchestrator)](https://github.com/nxtg-ai/forge-orchestrator) [![crates.io](https://img.shields.io/crates/v/forge-orchestrator)](https://crates.io/crates/forge-orchestrator)
 
 **Stage: Alpha.** The Forge plugin and orchestrator are in alpha. On 2026-10-15 (UTC) a separate NXTG.AI team (product-oracle) ran the pre-registered core-job test on a clean install of the plugin (v3.14.0) and the orchestrator (forge 1.7.0). The test passed; each repeated check passed 3 of 3 (run 7). The evidence is attached to the forge-plugin v3.14.0 release. No SLA; interfaces may change without notice.
 
@@ -257,4 +257,4 @@ git clone https://github.com/nxtg-ai/forge-ui && cd forge-ui && npm install && n
 
 ## License
 
-Source available under the [Functional Source License 1.1 (FSL-1.1-ALv2)](./LICENSE.md). Converts to Apache License 2.0 on 2028-03-18. See [LICENSE.md](./LICENSE.md) for full terms.
+Open source under the [Apache License, Version 2.0](./LICENSE.md). See [LICENSE.md](./LICENSE.md) and [NOTICE](./NOTICE) for full terms.

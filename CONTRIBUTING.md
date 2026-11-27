@@ -38,4 +38,4 @@ cargo clippy -- -D warnings
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the project's [FSL-1.1-ALv2 license](LICENSE.md), which converts to Apache License 2.0 after two years.
+By contributing, you agree that your contributions will be licensed under the project's [Apache License, Version 2.0](LICENSE.md).
