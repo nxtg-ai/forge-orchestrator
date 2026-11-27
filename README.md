@@ -241,7 +241,7 @@ Decisions, patterns, learnings and research captured through `forge_capture_know
 
 ## Forge UI (Browser Dashboard & Infinity Terminal)
 
-[NXTG-Forge UI](https://github.com/nxtg-ai/forge-ui) (L3: Ship Lord) is a separate local-first React 19 dashboard for Forge, released on its own (source-available under FSL-1.1-ALv2, converting to Apache-2.0 on 2028-03-18; its README states its stage). When `forge` is on your `PATH`, the Governance HUD reads live project health scores directly from this orchestrator alongside the **Infinity Terminal** (a shared browser PTY that survives closed tabs and network drops for 5 minutes with ~100 KB scrollback replay).
+[NXTG-Forge UI](https://github.com/nxtg-ai/forge-ui) (L3: Ship Lord) is a separate local-first React 19 dashboard for Forge, released on its own (open source under the MIT License; its README states its stage). When `forge` is on your `PATH`, the Governance HUD reads live project health scores directly from this orchestrator alongside the **Infinity Terminal** (a shared browser PTY that survives closed tabs and network drops for 5 minutes with ~100 KB scrollback replay).
 
 <p align="center">
   <a href="https://github.com/nxtg-ai/forge-ui">
