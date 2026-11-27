@@ -17,7 +17,7 @@ Generated from the conventional-commit subjects merged since the last release ta
 - **install:** install v1.8.1 by default (#118)
 
 ### Documentation
-- **readme:** surface NXTG-Forge UI preview and pinned v3.5.7 quickstart (#120)
+- **readme:** surface NXTG-Forge UI preview and pinned v3.5.8 quickstart (#120)
 <!-- changelog:end -->
 
 ## [1.8.1] - 2026-11-21

@@ -241,7 +241,7 @@ Decisions, patterns, learnings and research captured through `forge_capture_know
 
 ## Forge UI (Browser Dashboard & Infinity Terminal)
 
-[NXTG-Forge UI](https://github.com/nxtg-ai/forge-ui) (L3: Ship Lord) is a separate local-first React 19 dashboard for Forge, released on its own (open source under the MIT License; its README states its stage). When `forge` is on your `PATH`, the Governance HUD reads live project health scores directly from this orchestrator alongside the **Infinity Terminal** (a shared browser PTY that survives closed tabs and network drops for 5 minutes with ~100 KB scrollback replay).
+[NXTG-Forge UI](https://github.com/nxtg-ai/forge-ui) (L3: Ship Lord) is a separate local-first React 19 dashboard for Forge, released on its own (open source under the Apache License, Version 2.0; its README states its stage). When `forge` is on your `PATH`, the Governance HUD reads live project health scores directly from this orchestrator alongside the **Infinity Terminal** (a shared browser PTY that survives closed tabs and network drops for 5 minutes with ~100 KB scrollback replay).
 
 <p align="center">
   <a href="https://github.com/nxtg-ai/forge-ui">
@@ -252,7 +252,7 @@ Decisions, patterns, learnings and research captured through `forge_capture_know
 To run the pinned release from source (requires Node.js `>=22.12` plus `python3`, `make`, and `g++` for `node-pty`):
 
 ```bash
-git clone --branch v3.5.7 https://github.com/nxtg-ai/forge-ui
+git clone --branch v3.5.8 https://github.com/nxtg-ai/forge-ui
 cd forge-ui && npm install && npm run dev
 
 # In a second terminal, generate a single-use 60-second browser sign-in link:
