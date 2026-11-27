@@ -48,7 +48,7 @@ Local-first, no cloud account, no daemon. Runs headless in CI or as a live TUI d
   `forge_get_state`, `forge_get_plan`, `forge_capture_knowledge`, `forge_get_knowledge`,
   `forge_check_drift`, `forge_get_health`, `forge_set_project`, `forge_get_events`,
   `forge_create_task`
-- **License**: FSL-1.1-ALv2 — converts to Apache-2.0 on 2028-03-18
+- **License**: MIT License (open source)
 - **Version**: 1.5.0
 - **Repo**: https://github.com/nxtg-ai/forge-orchestrator
 
