@@ -30,7 +30,7 @@ jobs:
       - run: cargo test --locked
 
       - name: Create issue on CI failure
-        uses: jayqi/failed-build-issue-action@940568ce50eeef3f31a920614cefcc6102d2f930 # v1.3.0
+        uses: jayqi/failed-build-issue-action@20c082d7b8ad9e32464211b83fe07b1175164335 # v1.4.0
         if: failure() && github.event.pull_request == null
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -55,7 +55,7 @@ jobs:
       - run: cargo build --locked
 
       - name: Create issue on CI failure
-        uses: jayqi/failed-build-issue-action@940568ce50eeef3f31a920614cefcc6102d2f930 # v1.3.0
+        uses: jayqi/failed-build-issue-action@20c082d7b8ad9e32464211b83fe07b1175164335 # v1.4.0
         if: failure() && github.event.pull_request == null
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -79,7 +79,7 @@ jobs:
         run: bash tests/codex/red-controls.sh
 
       - name: Create issue on CI failure
-        uses: jayqi/failed-build-issue-action@940568ce50eeef3f31a920614cefcc6102d2f930 # v1.3.0
+        uses: jayqi/failed-build-issue-action@20c082d7b8ad9e32464211b83fe07b1175164335 # v1.4.0
         if: failure() && github.event.pull_request == null
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -174,7 +174,7 @@ jobs:
         run: bash tests/agy/red-controls.sh
 
       - name: Create issue on CI failure
-        uses: jayqi/failed-build-issue-action@940568ce50eeef3f31a920614cefcc6102d2f930 # v1.3.0
+        uses: jayqi/failed-build-issue-action@20c082d7b8ad9e32464211b83fe07b1175164335 # v1.4.0
         if: failure() && github.event.pull_request == null
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
